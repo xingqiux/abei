@@ -299,6 +299,69 @@ final class BillTaskControllerTest extends TestCase
         $updated->assertJsonPath('data.attributes.user_modified_at', $row->user_modified_at->toAtomString());
     }
 
+    public function testUpdateRowForBillInboxReturnsCompleteDraftJsonAndValidatesFields(): void
+    {
+        $row = $this->createStatementRow();
+
+        $this->actingAs($this->user, 'api');
+
+        $updated = $this->patchJson(route('api.v1.bill-statement-rows.update', ['billStatementRow' => $row->id]), [
+            'firefly_type'         => 'deposit',
+            'firefly_date'         => '2026-06-15 18:00:00',
+            'firefly_amount'       => '25.75',
+            'firefly_description'  => '话费充值',
+            'source_name'          => '招商银行',
+            'destination_name'     => '中国联通',
+            'category_name'        => '通讯',
+            'notes'                => '人工复核备注',
+        ]);
+
+        $updated->assertStatus(200);
+        // the response must carry the full statement-row resource so the row-editor
+        // can refresh every displayed field (both the read-only original values and
+        // the just-saved Firefly draft) without a second round-trip.
+        $updated->assertJsonStructure([
+            'data' => [
+                'id',
+                'attributes' => [
+                    'status', 'duplicate_state', 'occurred_at', 'counterparty', 'platform_category',
+                    'description', 'direction', 'amount', 'payment_method', 'transaction_status',
+                    'firefly_type', 'firefly_date', 'firefly_amount', 'firefly_description',
+                    'source_name', 'destination_name', 'category_name', 'notes',
+                ],
+            ],
+        ]);
+        $updated->assertJsonPath('data.id', (string) $row->id);
+        $updated->assertJsonPath('data.attributes.status', 'pending');
+        $updated->assertJsonPath('data.attributes.duplicate_state', 'unique');
+        $updated->assertJsonPath('data.attributes.firefly_type', 'deposit');
+        $updated->assertJsonPath('data.attributes.firefly_amount', '25.75');
+        $updated->assertJsonPath('data.attributes.firefly_description', '话费充值');
+        $updated->assertJsonPath('data.attributes.source_name', '招商银行');
+        $updated->assertJsonPath('data.attributes.destination_name', '中国联通');
+        $updated->assertJsonPath('data.attributes.category_name', '通讯');
+        $updated->assertJsonPath('data.attributes.notes', '人工复核备注');
+        // untouched original fields must still be present in the same payload.
+        $updated->assertJsonPath('data.attributes.counterparty', '中国联通');
+        $updated->assertJsonPath('data.attributes.platform_category', '充值缴费');
+        $updated->assertJsonPath('data.attributes.direction', '支出');
+        $updated->assertJsonPath('data.attributes.amount', '14.95');
+        $updated->assertJsonPath('data.attributes.payment_method', '招商银行储蓄卡(8705)');
+        $updated->assertJsonPath('data.attributes.transaction_status', '交易成功');
+
+        $invalid = $this->patchJson(route('api.v1.bill-statement-rows.update', ['billStatementRow' => $row->id]), [
+            'firefly_type'   => 'not-a-real-type',
+            'firefly_amount' => 'not-a-number',
+        ]);
+        $invalid->assertStatus(422);
+        $invalid->assertJsonValidationErrors(['firefly_type', 'firefly_amount']);
+
+        // a rejected update must not silently apply partial changes.
+        $row->refresh();
+        $this->assertSame('deposit', $row->firefly_type);
+        $this->assertSame('25.75', (string) $row->firefly_amount);
+    }
+
     public function testRowsSummaryReturnsCompactRedactedPreview(): void
     {
         $first = $this->createStatementRow([
