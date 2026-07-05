@@ -321,7 +321,7 @@ class IndexController extends Controller
 
         session()->flash('success', '流水已保存。');
 
-        return redirect(route('bill-inbox.show', [$billStatementRow->bill_task_id]));
+        return redirect(route('bill-inbox.show', $this->showRedirectParams($request, (int) $billStatementRow->bill_task_id)));
     }
 
     public function postSplitRow(Request $request, BillStatementRow $billStatementRow): RedirectResponse
@@ -340,7 +340,7 @@ class IndexController extends Controller
             session()->flash('error', $e->getMessage());
         }
 
-        return redirect(route('bill-inbox.show', [$billStatementRow->bill_task_id]));
+        return redirect(route('bill-inbox.show', $this->showRedirectParams($request, (int) $billStatementRow->bill_task_id)));
     }
 
     public function postImportRows(Request $request, BillTask $billTask): RedirectResponse
@@ -350,7 +350,28 @@ class IndexController extends Controller
 
         session()->flash('success', sprintf('已存入 %d 条流水，跳过 %d 条，失败 %d 条。', $result['summary']['imported'], $result['summary']['skipped'], $result['summary']['failed']));
 
-        return redirect(route('bill-inbox.show', [$billTask->id]));
+        return redirect(route('bill-inbox.show', $this->showRedirectParams($request, $billTask->id)));
+    }
+
+    /**
+     * Build the query parameters for a redirect back to the show page, preserving the
+     * caller-supplied row filters (status/time/date/from/to) so that a form submission
+     * from a filtered view does not bounce the user back to the unfiltered "all" view.
+     *
+     * @return array<string, int|string>
+     */
+    private function showRedirectParams(Request $request, int $taskId): array
+    {
+        $params = ['billTask' => $taskId];
+
+        foreach (['row_status', 'row_time', 'row_date', 'row_from', 'row_to'] as $key) {
+            $value = (string) $request->input($key, '');
+            if ('' !== $value) {
+                $params[$key] = $value;
+            }
+        }
+
+        return $params;
     }
 
     public function download(BillArtifact $billArtifact): StreamedResponse

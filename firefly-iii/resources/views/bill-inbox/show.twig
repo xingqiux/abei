@@ -86,24 +86,6 @@
             <div class="box">
                 <div class="box-header with-border">
                     <h3 class="box-title">流水明细</h3>
-                    {% if statementRows.count() > 0 %}
-                        <div class="box-tools pull-right">
-                            <form method="POST" action="{{ route('bill-inbox.import', [task.id]) }}" style="display: inline-block;">
-                                <input type="hidden" name="_token" value="{{ csrf_token() }}">
-                                {% for row in statementRows %}
-                                    {% if row.status == 'pending' and row.firefly_type %}
-                                        <input type="hidden" name="row_ids[]" value="{{ row.id }}">
-                                    {% endif %}
-                                {% endfor %}
-                                <button type="submit" class="btn btn-box-tool">
-                                    <span class="fa fa-upload fa-fw"></span> 全部存入
-                                </button>
-                            </form>
-                            <button type="submit" form="bill-row-batch-import" class="btn btn-box-tool">
-                                <span class="fa fa-check-square-o fa-fw"></span> 批量存入
-                            </button>
-                        </div>
-                    {% endif %}
                 </div>
                 <div class="box-body">
                     <form method="GET" action="{{ route('bill-inbox.show', [task.id]) }}" class="form-inline">
@@ -152,12 +134,29 @@
                     {% else %}
                         <form id="bill-row-batch-import" method="POST" action="{{ route('bill-inbox.import', [task.id]) }}">
                             <input type="hidden" name="_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="row_status" value="{{ rowFilters.status }}">
+                            <input type="hidden" name="row_time" value="{{ rowFilters.time }}">
+                            <input type="hidden" name="row_date" value="{{ rowFilters.date }}">
+                            <input type="hidden" name="row_from" value="{{ rowFilters.from }}">
+                            <input type="hidden" name="row_to" value="{{ rowFilters.to }}">
                         </form>
+                        <div style="padding: 10px 15px; border-bottom: 1px solid #f4f4f4;">
+                            <div class="row">
+                                <div class="col-sm-8">
+                                    <p class="text-muted" style="margin: 0;">勾选下方待存入的流水，再点击右侧按钮批量存入 Firefly III。</p>
+                                </div>
+                                <div class="col-sm-4 text-right">
+                                    <button id="bill-row-batch-import-submit" type="submit" form="bill-row-batch-import" class="btn btn-success btn-sm" disabled>
+                                        <span class="fa fa-upload fa-fw"></span> 存入选中 (<span id="bill-row-batch-import-count">0</span>)
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                         <div class="table-responsive">
                             <table class="table table-hover table-striped">
                                 <thead>
                                 <tr>
-                                    <th style="width: 36px;"></th>
+                                    <th style="width: 36px;"><input id="bill-row-select-all" type="checkbox" title="全选/取消全选本页可存入流水"></th>
                                     <th>时间</th>
                                     <th>原始流水</th>
                                     <th>Firefly 草稿</th>
@@ -170,7 +169,7 @@
                                     <tr>
                                         <td>
                                             {% if row.status == 'pending' and row.firefly_type %}
-                                                <input form="bill-row-batch-import" type="checkbox" name="row_ids[]" value="{{ row.id }}">
+                                                <input form="bill-row-batch-import" class="bill-row-checkbox" type="checkbox" name="row_ids[]" value="{{ row.id }}">
                                             {% endif %}
                                         </td>
                                         <td>{% if row.occurred_at %}{{ row.occurred_at.format('Y-m-d H:i') }}{% else %}-{% endif %}</td>
@@ -201,6 +200,11 @@
                                                 <form method="POST" action="{{ route('bill-inbox.import', [task.id]) }}" style="display: inline-block;">
                                                     <input type="hidden" name="_token" value="{{ csrf_token() }}">
                                                     <input type="hidden" name="row_ids[]" value="{{ row.id }}">
+                                                    <input type="hidden" name="row_status" value="{{ rowFilters.status }}">
+                                                    <input type="hidden" name="row_time" value="{{ rowFilters.time }}">
+                                                    <input type="hidden" name="row_date" value="{{ rowFilters.date }}">
+                                                    <input type="hidden" name="row_from" value="{{ rowFilters.from }}">
+                                                    <input type="hidden" name="row_to" value="{{ rowFilters.to }}">
                                                     <button class="btn btn-xs btn-success" type="submit">
                                                         <span class="fa fa-upload fa-fw"></span> 存入
                                                     </button>
@@ -213,6 +217,11 @@
                                             {% if row.status == 'needs_split' %}
                                                 <form method="POST" action="{{ route('bill-inbox.row.split', [row.id]) }}" class="form-horizontal" style="margin-bottom: 20px;">
                                                     <input type="hidden" name="_token" value="{{ csrf_token() }}">
+                                                    <input type="hidden" name="row_status" value="{{ rowFilters.status }}">
+                                                    <input type="hidden" name="row_time" value="{{ rowFilters.time }}">
+                                                    <input type="hidden" name="row_date" value="{{ rowFilters.date }}">
+                                                    <input type="hidden" name="row_from" value="{{ rowFilters.from }}">
+                                                    <input type="hidden" name="row_to" value="{{ rowFilters.to }}">
                                                     <div class="row">
                                                         {% set splitMethods = row.metadata.payment_split.methods|default([]) %}
                                                         {% for index, method in splitMethods %}
@@ -239,6 +248,11 @@
                                             {% endif %}
                                             <form method="POST" action="{{ route('bill-inbox.row.update', [row.id]) }}" class="form-horizontal">
                                                 <input type="hidden" name="_token" value="{{ csrf_token() }}">
+                                                <input type="hidden" name="row_status" value="{{ rowFilters.status }}">
+                                                <input type="hidden" name="row_time" value="{{ rowFilters.time }}">
+                                                <input type="hidden" name="row_date" value="{{ rowFilters.date }}">
+                                                <input type="hidden" name="row_from" value="{{ rowFilters.from }}">
+                                                <input type="hidden" name="row_to" value="{{ rowFilters.to }}">
                                                 <div class="row">
                                                     <div class="col-sm-3"><label>交易时间</label><input class="form-control" name="occurred_at" value="{% if row.occurred_at %}{{ row.occurred_at.format('Y-m-d H:i:s') }}{% endif %}"></div>
                                                     <div class="col-sm-3"><label>分类</label><input class="form-control" name="platform_category" value="{{ row.platform_category }}"></div>
@@ -380,4 +394,67 @@
             </div>
         </div>
     </div>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        (function () {
+            var form       = document.getElementById('bill-row-batch-import');
+            var selectAll  = document.getElementById('bill-row-select-all');
+            var submitBtn  = document.getElementById('bill-row-batch-import-submit');
+            var countLabel = document.getElementById('bill-row-batch-import-count');
+            if (!form) {
+                return;
+            }
+
+            function rowCheckboxes() {
+                return Array.prototype.slice.call(document.querySelectorAll('.bill-row-checkbox'));
+            }
+
+            function updateCount() {
+                var checked = rowCheckboxes().filter(function (checkbox) {
+                    return checkbox.checked;
+                });
+                if (countLabel) {
+                    countLabel.textContent = String(checked.length);
+                }
+                if (submitBtn) {
+                    submitBtn.disabled = 0 === checked.length;
+                }
+
+                return checked.length;
+            }
+
+            rowCheckboxes().forEach(function (checkbox) {
+                checkbox.addEventListener('change', updateCount);
+            });
+
+            if (selectAll) {
+                selectAll.addEventListener('change', function () {
+                    rowCheckboxes().forEach(function (checkbox) {
+                        checkbox.checked = selectAll.checked;
+                    });
+                    updateCount();
+                });
+            }
+
+            form.addEventListener('submit', function (event) {
+                var checkedCount = updateCount();
+                if (0 === checkedCount) {
+                    event.preventDefault();
+                    window.alert('请先勾选需要存入的流水。');
+                    return;
+                }
+                if (!window.confirm('确认存入选中的 ' + checkedCount + ' 条流水？')) {
+                    event.preventDefault();
+                    return;
+                }
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                }
+            });
+
+            updateCount();
+        })();
+    </script>
 {% endblock %}

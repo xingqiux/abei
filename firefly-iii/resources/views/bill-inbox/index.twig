@@ -11,10 +11,10 @@
                 <div class="box-header with-border">
                     <h3 class="box-title">账单收件箱</h3>
                     <div class="box-tools pull-right">
-                        <form method="POST" action="{{ route('bill-inbox.sync') }}" style="display: inline-block;">
+                        <form id="bill-inbox-sync-form" method="POST" action="{{ route('bill-inbox.sync') }}" style="display: inline-block;">
                             <input type="hidden" name="_token" value="{{ csrf_token() }}">
-                            <button class="btn btn-box-tool" type="submit">
-                                <span class="fa fa-refresh fa-fw"></span> 同步邮箱
+                            <button id="bill-inbox-sync-submit" class="btn btn-box-tool" type="submit">
+                                <span class="fa fa-refresh fa-fw"></span> <span id="bill-inbox-sync-label">同步邮箱</span>
                             </button>
                         </form>
                         <a class="btn btn-box-tool" href="{{ route('bill-inbox.settings') }}">
@@ -126,4 +126,24 @@
             </div>
         </div>
     </div>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        (function () {
+            var form      = document.getElementById('bill-inbox-sync-form');
+            var submitBtn = document.getElementById('bill-inbox-sync-submit');
+            var label     = document.getElementById('bill-inbox-sync-label');
+            if (!form || !submitBtn) {
+                return;
+            }
+
+            form.addEventListener('submit', function () {
+                submitBtn.disabled = true;
+                if (label) {
+                    label.textContent = '同步中…';
+                }
+            });
+        })();
+    </script>
 {% endblock %}

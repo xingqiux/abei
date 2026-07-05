@@ -462,7 +462,7 @@ final class BillInboxControllerTest extends TestCase
         $response->assertSee('每日</option>', false);
         $response->assertSee('自定义</option>', false);
         $response->assertSee('name="row_date"', false);
-        $response->assertSee('批量存入');
+        $response->assertSee('存入选中');
         $response->assertSee('name="row_ids[]"', false);
 
         $filtered = $this->get(route('bill-inbox.show', [
@@ -504,6 +504,50 @@ final class BillInboxControllerTest extends TestCase
         $this->assertSame('中国联通线上营业厅', $row->editable_data['交易对方']);
         $this->assertSame('20', (string) $row->amount);
         $this->assertSame('手机充值', $row->firefly_description);
+    }
+
+    public function testRowActionsRedirectBackWithCurrentRowFiltersPreserved(): void
+    {
+        $row = $this->createStatementRow($this->task);
+
+        $expectedRedirect = route('bill-inbox.show', [
+            'billTask'   => $this->task->id,
+            'row_status' => 'pending',
+            'row_time'   => 'day',
+            'row_date'   => '2026-06-15',
+        ]);
+
+        $updatePost = $this->actingAs($this->user)->post(route('bill-inbox.row.update', [$row->id]), [
+            'counterparty' => '中国联通线上营业厅',
+            'row_status'   => 'pending',
+            'row_time'     => 'day',
+            'row_date'     => '2026-06-15',
+        ]);
+        $updatePost->assertRedirect($expectedRedirect);
+
+        $splitPost = $this->post(route('bill-inbox.row.split', [$row->id]), [
+            'splits' => [
+                ['payment_method' => '招商银行储蓄卡(8705)', 'amount' => '10.00'],
+                ['payment_method' => '微信零钱', 'amount' => '4.95'],
+            ],
+            'row_status' => 'pending',
+            'row_time'   => 'day',
+            'row_date'   => '2026-06-15',
+        ]);
+        $splitPost->assertRedirect($expectedRedirect);
+
+        $importPost = $this->post(route('bill-inbox.import', [$this->task->id]), [
+            'row_ids'    => [$row->id],
+            'row_status' => 'pending',
+            'row_time'   => 'day',
+            'row_date'   => '2026-06-15',
+        ]);
+        $importPost->assertRedirect($expectedRedirect);
+
+        $importPostWithoutFilters = $this->post(route('bill-inbox.import', [$this->task->id]), [
+            'row_ids' => [$row->id],
+        ]);
+        $importPostWithoutFilters->assertRedirect(route('bill-inbox.show', [$this->task->id]));
     }
 
     public function testSecretSubmitConsumesChallenge(): void
