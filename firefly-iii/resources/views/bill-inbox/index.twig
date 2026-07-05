@@ -129,7 +129,7 @@
 {% endblock %}
 
 {% block scripts %}
-    <script>
+    <script type="text/javascript" nonce="{{ JS_NONCE }}">
         (function () {
             var form      = document.getElementById('bill-inbox-sync-form');
             var submitBtn = document.getElementById('bill-inbox-sync-submit');

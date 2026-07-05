@@ -397,7 +397,7 @@
 {% endblock %}
 
 {% block scripts %}
-    <script>
+    <script type="text/javascript" nonce="{{ JS_NONCE }}">
         (function () {
             var form       = document.getElementById('bill-row-batch-import');
             var selectAll  = document.getElementById('bill-row-select-all');

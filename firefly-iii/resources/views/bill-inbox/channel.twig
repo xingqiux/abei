@@ -140,7 +140,7 @@
 {% endblock %}
 
 {% block scripts %}
-    <script>
+    <script type="text/javascript" nonce="{{ JS_NONCE }}">
         (function () {
             var form      = document.getElementById('bill-archive-many-form');
             var submitBtn = document.getElementById('bill-archive-many-submit');
