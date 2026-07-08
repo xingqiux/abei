@@ -632,6 +632,122 @@ describe('resource commands', () => {
     });
   });
 
+  test('transactions summary pages through Firefly and aggregates the results', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: '1',
+              attributes: {
+                transactions: [
+                  {
+                    type: 'withdrawal',
+                    date: '2026-06-01T09:00:00+08:00',
+                    amount: '18.00',
+                    category_name: 'Food',
+                    destination_name: 'Coffee Shop',
+                    source_name: 'WeChat Wallet',
+                  },
+                ],
+              },
+            },
+            {
+              id: '2',
+              attributes: {
+                transactions: [
+                  {
+                    type: 'withdrawal',
+                    date: '2026-06-01T10:00:00+08:00',
+                    amount: '2000.00',
+                    category_name: '账户转账',
+                    destination_name: '招商银行',
+                    source_name: 'WeChat Wallet',
+                  },
+                ],
+              },
+            },
+          ],
+          meta: { pagination: { total_pages: 1, current_page: 1 } },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+
+    const result = await runCli([
+      'transactions',
+      'summary',
+      '--start',
+      '2026-06-01',
+      '--end',
+      '2026-06-01',
+      '--format',
+      'json',
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/v1/transactions?start=2026-06-01&end=2026-06-01&limit=500&page=1',
+      expect.objectContaining({ method: 'GET' }),
+    );
+
+    const parsed = JSON.parse(result.logs.join('\n'));
+    expect(parsed.range).toEqual({ start: '2026-06-01', end: '2026-06-01' });
+    expect(parsed.totals).toEqual({
+      count: 2,
+      byType: { withdrawal: { count: 2, total: '2018.00' } },
+    });
+    // 账户转账 is excluded from daily consumption by default.
+    expect(parsed.dailyConsumption).toEqual({ count: 1, total: '18.00' });
+    expect(parsed.topMerchants).toEqual([{ merchant: 'Coffee Shop', count: 1, total: '18.00' }]);
+    expect(parsed.paymentAccounts).toEqual([
+      { account: 'WeChat Wallet', count: 1, total: '18.00' },
+    ]);
+  });
+
+  test('transactions summary --exclude-category adds to the default exclude list', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: '1',
+              attributes: {
+                transactions: [
+                  {
+                    type: 'withdrawal',
+                    date: '2026-06-01T00:00:00+08:00',
+                    amount: '100.00',
+                    category_name: 'Rent',
+                  },
+                  {
+                    type: 'withdrawal',
+                    date: '2026-06-01T00:00:00+08:00',
+                    amount: '18.00',
+                    category_name: 'Food',
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+
+    const result = await runCli([
+      'transactions',
+      'summary',
+      '--exclude-category',
+      'Rent',
+      '--format',
+      'json',
+    ]);
+
+    const parsed = JSON.parse(result.logs.join('\n'));
+    expect(parsed.excludedCategories).toContain('Rent');
+    expect(parsed.dailyConsumption).toEqual({ count: 1, total: '18.00' });
+  });
+
   test('accounts create builds an asset account payload from shortcut flags', async () => {
     const fetchMock = mockJsonFetch();
 

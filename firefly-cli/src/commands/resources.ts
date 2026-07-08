@@ -7,6 +7,11 @@ import { renderOutput } from '../core/output.js';
 import { parseBodyOptions } from '../core/request-body.js';
 import { ResourceService } from '../services/resource-service.js';
 import { importTransactions } from '../services/transaction-import.js';
+import {
+  DEFAULT_EXCLUDE_CATEGORIES,
+  fetchTransactionsForSummary,
+  summarizeTransactions,
+} from '../services/transaction-summary.js';
 
 interface ListCommandOptions {
   page?: string;
@@ -50,6 +55,12 @@ interface TransactionImportOptions {
   dryRun?: boolean;
   confirm?: boolean;
   timezone?: string;
+}
+
+interface TransactionSummaryCommandOptions {
+  start?: string;
+  end?: string;
+  excludeCategory?: string[];
 }
 
 interface ResourceDefinition {
@@ -233,6 +244,34 @@ function registerTransactions(program: Command): void {
         mode: options.confirm ? 'confirm' : 'dry-run',
         timezone: options.timezone,
       });
+      console.log(renderOutput(result, { format: context.format }));
+    });
+
+  resource
+    .command('summary')
+    .description(
+      'Read-only spending summary: totals by transaction type, daily-consumption spend ' +
+        '(withdrawals minus transfers/excluded categories), top categories and merchants, ' +
+        'payment-account distribution, and a per-day breakdown.',
+    )
+    .option('--start <date>', 'Start date (YYYY-MM-DD), inclusive.')
+    .option('--end <date>', 'End date (YYYY-MM-DD), inclusive.')
+    .option(
+      '--exclude-category <name>',
+      `Category name to exclude from daily-consumption totals, in addition to the defaults ` +
+        `(${DEFAULT_EXCLUDE_CATEGORIES.join(', ')}). Repeatable.`,
+      collectOption,
+      [],
+    )
+    .action(async function (options: TransactionSummaryCommandOptions) {
+      const context = await createCommandContext(this);
+      const range = { start: options.start, end: options.end };
+      const transactions = await fetchTransactionsForSummary(context.client, range);
+      const result = summarizeTransactions(
+        transactions,
+        { excludeCategories: options.excludeCategory },
+        range,
+      );
       console.log(renderOutput(result, { format: context.format }));
     });
 }
