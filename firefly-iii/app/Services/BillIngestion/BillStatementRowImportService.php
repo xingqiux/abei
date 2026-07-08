@@ -19,6 +19,7 @@ class BillStatementRowImportService
     public function __construct(
         private readonly TransactionGroupRepositoryInterface $transactionRepository,
         private readonly BillStatementRowSummaryService $rowSummaryService,
+        private readonly BalanceChainVerifier $balanceChainVerifier = new BalanceChainVerifier(),
     ) {}
 
     /**
@@ -26,7 +27,7 @@ class BillStatementRowImportService
      *
      * @param array{include_payload?:bool} $options
      *
-     * @return array{summary:array{total:int,imported:int,skipped:int,failed:int},rows:array<int,array<string,mixed>>}
+     * @return array{summary:array{total:int,imported:int,skipped:int,failed:int},rows:array<int,array<string,mixed>>,balance_chain:array<string,array<string,mixed>>}
      */
     public function importTaskRows(User $user, int $taskId, array $rowIds = [], bool $confirm = false, array $options = []): array
     {
@@ -44,6 +45,12 @@ class BillStatementRowImportService
         $reports = [];
         $summary = ['total' => $rows->count(), 'imported' => 0, 'skipped' => 0, 'failed' => 0];
 
+        // Verify the balance chain BEFORE importing, over the rows that would
+        // actually be created, so the current Firefly balance still excludes
+        // them and net_effect is not double counted. Advisory only.
+        $importableRows = $rows->filter(static fn (BillStatementRow $row): bool => 'pending' === $row->status)->values();
+        $balanceChain   = $this->balanceChainVerifier->verifyBalance($user, $importableRows);
+
         foreach ($rows as $row) {
             $report = $this->importRow($user, $row, $confirm, (bool) ($options['include_payload'] ?? false));
             ++$summary[$report['status']];
@@ -51,8 +58,9 @@ class BillStatementRowImportService
         }
 
         return [
-            'summary' => $summary,
-            'rows'    => $reports,
+            'summary'       => $summary,
+            'rows'          => $reports,
+            'balance_chain' => $balanceChain,
         ];
     }
 

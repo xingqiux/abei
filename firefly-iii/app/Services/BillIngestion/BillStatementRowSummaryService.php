@@ -14,6 +14,7 @@ class BillStatementRowSummaryService
 {
     public function __construct(
         private readonly CrossSourceDuplicateMatcher $crossSourceMatcher = new CrossSourceDuplicateMatcher(),
+        private readonly BalanceChainVerifier $balanceChainVerifier = new BalanceChainVerifier(),
     ) {}
 
     /**
@@ -108,6 +109,7 @@ class BillStatementRowSummaryService
             'transfer_candidates'   => $this->uniqueByRowId($transferCandidates),
             'refund_pairs'          => $this->refundPairs($pendingRows),
             'needs_user_note'       => $this->uniqueByRowId($needsUserNote),
+            'balance_chain'         => $this->balanceChainVerifier->verifyBalance($user, $pendingRows),
         ];
     }
 

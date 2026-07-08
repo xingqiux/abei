@@ -159,9 +159,10 @@ export function registerBillInboxCommands(program: Command): void {
       const service = new BillTaskService(context.client);
       const review = await service.review(taskId);
       console.log(renderOutput(review, { format: context.format }));
-      const advisory = renderCrossSourceAdvisory(review);
-      if (advisory !== undefined) {
-        console.error(advisory);
+      for (const advisory of [renderCrossSourceAdvisory(review), renderBalanceChainAdvisory(review)]) {
+        if (advisory !== undefined) {
+          console.error(advisory);
+        }
       }
     });
 
@@ -510,6 +511,45 @@ function renderCrossSourceAdvisory(review: unknown): string | undefined {
 
   return [
     `⚠ ${candidates.length} 行疑似与已有 Firefly 交易重复（跨来源），导入前请核对：`,
+    ...lines,
+  ].join('\n');
+}
+
+interface BalanceChainEntry {
+  account_name?: string;
+  closes?: boolean;
+  expected_after?: string;
+  statement_balance?: string;
+  difference?: string | null;
+}
+
+/**
+ * Warns (on stderr) about asset accounts whose statement balance does not
+ * reconcile with the expected Firefly balance after importing the selected
+ * rows. The full per-account data is already carried in `balance_chain`.
+ */
+function renderBalanceChainAdvisory(review: unknown): string | undefined {
+  if (typeof review !== 'object' || review === null) {
+    return undefined;
+  }
+  const chain = (review as { balance_chain?: unknown }).balance_chain;
+  if (typeof chain !== 'object' || chain === null) {
+    return undefined;
+  }
+  const broken = Object.values(chain as Record<string, BalanceChainEntry>).filter(
+    (entry) => entry && entry.closes === false,
+  );
+  if (broken.length === 0) {
+    return undefined;
+  }
+
+  const lines = broken.map((entry) => {
+    const name = entry.account_name ?? '?';
+    return `  - ${name}：预期 ${entry.expected_after ?? '?'}，账单 ${entry.statement_balance ?? '?'}，差 ${entry.difference ?? '?'}`;
+  });
+
+  return [
+    `⚠ ${broken.length} 个资产账户的余额链未闭合，导入前请核对：`,
     ...lines,
   ].join('\n');
 }

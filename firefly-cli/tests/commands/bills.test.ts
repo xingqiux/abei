@@ -372,6 +372,38 @@ describe('bill inbox commands', () => {
     expect(errors.join('\n')).not.toContain('疑似与已有 Firefly 交易重复');
   });
 
+  test('warns on stderr when a balance chain does not close', async () => {
+    mockJsonFetch({
+      summary: { total: 1, pending: 1 },
+      new_candidates: [],
+      cross_source_candidates: [],
+      balance_chain: {
+        招商银行: {
+          account_name: '招商银行',
+          closes: false,
+          expected_after: '979.00',
+          statement_balance: '900.00',
+          difference: '79.00',
+        },
+        工商银行: {
+          account_name: '工商银行',
+          closes: true,
+          expected_after: '500.00',
+          statement_balance: '500.00',
+          difference: null,
+        },
+      },
+    });
+
+    const { errors } = await runCli(['bill-inbox', 'review', '13', '--format', 'json']);
+
+    const advisory = errors.join('\n');
+    expect(advisory).toContain('余额链未闭合');
+    expect(advisory).toContain('招商银行：预期 979.00，账单 900.00，差 79.00');
+    // the closing account must not be warned about.
+    expect(advisory).not.toContain('工商银行');
+  });
+
   test('archives one or many bill tasks through the Firefly API', async () => {
     const fetchMock = mockJsonFetch({
       data: { id: '1', type: 'bill-tasks', attributes: { status: 'cleaned' } },
