@@ -159,6 +159,10 @@ export function registerBillInboxCommands(program: Command): void {
       const service = new BillTaskService(context.client);
       const review = await service.review(taskId);
       console.log(renderOutput(review, { format: context.format }));
+      const advisory = renderCrossSourceAdvisory(review);
+      if (advisory !== undefined) {
+        console.error(advisory);
+      }
     });
 
   const row = bills.command('row').description('Inspect or edit a parsed statement row.');
@@ -465,4 +469,47 @@ function parseSettingsUpdate(options: BillInboxSettingsSetOptions): Record<strin
 
 function blankToUndefined(value?: string): string | undefined {
   return value && value.trim() !== '' ? value : undefined;
+}
+
+interface CrossSourceMatch {
+  transaction_group_id?: string;
+  confidence?: string;
+  suggestion?: string;
+}
+
+interface CrossSourceCandidate {
+  row_id?: string;
+  row_number?: number;
+  cross_source_matches?: CrossSourceMatch[];
+}
+
+/**
+ * Builds a concise, human-facing advisory when the review payload flags rows
+ * that likely duplicate existing Firefly transactions from another source.
+ * Printed to stderr so `--format json` stdout stays machine-parseable — the
+ * structured data is already carried in `cross_source_candidates` /
+ * per-row `cross_source_matches`.
+ */
+function renderCrossSourceAdvisory(review: unknown): string | undefined {
+  if (typeof review !== 'object' || review === null) {
+    return undefined;
+  }
+  const candidates = (review as { cross_source_candidates?: unknown }).cross_source_candidates;
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    return undefined;
+  }
+
+  const lines = (candidates as CrossSourceCandidate[]).map((candidate) => {
+    const rowLabel = candidate.row_number ?? candidate.row_id ?? '?';
+    const top = candidate.cross_source_matches?.[0];
+    const txId = top?.transaction_group_id ?? '?';
+    const confidence = top?.confidence ?? 'unknown';
+    const suggestion = top?.suggestion ?? 'review';
+    return `  - row ${rowLabel} → 交易 #${txId} (${confidence}, 建议 ${suggestion})`;
+  });
+
+  return [
+    `⚠ ${candidates.length} 行疑似与已有 Firefly 交易重复（跨来源），导入前请核对：`,
+    ...lines,
+  ].join('\n');
 }

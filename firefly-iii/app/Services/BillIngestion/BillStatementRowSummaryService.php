@@ -12,6 +12,10 @@ use Illuminate\Support\Collection;
 
 class BillStatementRowSummaryService
 {
+    public function __construct(
+        private readonly CrossSourceDuplicateMatcher $crossSourceMatcher = new CrossSourceDuplicateMatcher(),
+    ) {}
+
     /**
      * @param array{status?:string,from?:string,to?:string,limit?:int} $filters
      *
@@ -43,6 +47,7 @@ class BillStatementRowSummaryService
         $rows               = $this->taskRowsQuery($user, $taskId, [])->orderBy('row_number')->get();
         $existingReferences = $this->existingReferences($user, $rows);
         $pendingRows        = $rows->filter(fn (BillStatementRow $row): bool => 'pending' === $row->status)->values();
+        $crossSourceMatches = $this->crossSourceMatcher->matchRows($user, $pendingRows);
         $existingCandidates = [];
         $transferCandidates = [];
         $skipCandidates     = [];
@@ -51,9 +56,18 @@ class BillStatementRowSummaryService
         $duplicateCandidates = [];
         $conflictCandidates  = [];
         $preservedUserEdits  = [];
+        $crossSourceCandidates = [];
 
         foreach ($pendingRows as $row) {
             $preview = $this->rowPreview($row);
+            $rowMatches = $crossSourceMatches[$row->id] ?? [];
+            $preview['cross_source_matches'] = $rowMatches;
+            if ([] !== $rowMatches) {
+                $crossSourceCandidates[] = $preview + ['reason' => '疑似与已有 Firefly 交易重复（跨来源）'];
+                if ('high' === ($rowMatches[0]['confidence'] ?? '')) {
+                    $skipCandidates[] = $preview + ['reason' => '高度疑似跨来源重复交易'];
+                }
+            }
             if ('conflict' === $row->duplicate_state) {
                 $conflictCandidates[] = $preview + ['reason' => '疑似重复但核心字段冲突'];
                 $skipCandidates[]     = $preview + ['reason' => '重复识别冲突，需要人工确认'];
@@ -86,6 +100,7 @@ class BillStatementRowSummaryService
             'summary'               => $this->reviewSummary($rows, $newCandidates, $skipCandidates, $transferCandidates, $needsUserNote, $duplicateCandidates, $conflictCandidates, $preservedUserEdits),
             'new_candidates'        => $this->uniqueByRowId($newCandidates),
             'existing_candidates'   => $this->uniqueByRowId($existingCandidates),
+            'cross_source_candidates' => $this->uniqueByRowId($crossSourceCandidates),
             'duplicate_candidates'  => $this->uniqueByRowId($duplicateCandidates),
             'conflict_candidates'   => $this->uniqueByRowId($conflictCandidates),
             'preserved_user_edits'  => $this->uniqueByRowId($preservedUserEdits),

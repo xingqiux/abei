@@ -326,6 +326,52 @@ describe('bill inbox commands', () => {
     );
   });
 
+  test('warns on stderr when review flags cross-source duplicate candidates', async () => {
+    mockJsonFetch({
+      summary: { total: 1, pending: 1 },
+      new_candidates: [],
+      existing_candidates: [],
+      cross_source_candidates: [
+        {
+          row_id: '42',
+          row_number: 3,
+          cross_source_matches: [
+            { transaction_group_id: '128', confidence: 'high', suggestion: 'skip' },
+          ],
+        },
+      ],
+      duplicate_candidates: [],
+      conflict_candidates: [],
+      preserved_user_edits: [],
+      transfer_candidates: [],
+      refund_pairs: [],
+      needs_user_note: [],
+    });
+
+    const { logs, errors } = await runCli(['bill-inbox', 'review', '13', '--format', 'json']);
+
+    // stdout stays pure JSON for agents/scripts...
+    expect(logs.join('\n')).toContain('cross_source_candidates');
+    // ...while the human advisory goes to stderr.
+    const advisory = errors.join('\n');
+    expect(advisory).toContain('疑似与已有 Firefly 交易重复');
+    expect(advisory).toContain('row 3 → 交易 #128');
+    expect(advisory).toContain('high');
+    expect(advisory).toContain('skip');
+  });
+
+  test('does not emit a cross-source advisory when there are no candidates', async () => {
+    mockJsonFetch({
+      summary: { total: 1, pending: 1 },
+      new_candidates: [],
+      cross_source_candidates: [],
+    });
+
+    const { errors } = await runCli(['bill-inbox', 'review', '13', '--format', 'json']);
+
+    expect(errors.join('\n')).not.toContain('疑似与已有 Firefly 交易重复');
+  });
+
   test('archives one or many bill tasks through the Firefly API', async () => {
     const fetchMock = mockJsonFetch({
       data: { id: '1', type: 'bill-tasks', attributes: { status: 'cleaned' } },
