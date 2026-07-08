@@ -1,4 +1,4 @@
-import { FireflyHttpError, FireflyNetworkError } from './errors.js';
+import { FireflyHttpError, FireflyNetworkError, FireflyTimeoutError } from './errors.js';
 
 export type QueryValue = string | number | boolean | Array<string | number | boolean> | undefined;
 
@@ -90,7 +90,11 @@ export class FireflyHttpClient {
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeout);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, this.timeout);
 
     try {
       const response = await this.fetchImpl(url, {
@@ -102,6 +106,9 @@ export class FireflyHttpClient {
 
       return { response, url };
     } catch (error) {
+      if (timedOut) {
+        throw new FireflyTimeoutError(url, this.timeout, error);
+      }
       throw new FireflyNetworkError(
         `Could not reach Firefly III at ${url}. Check the configured base URL and whether the server is running.`,
         error,

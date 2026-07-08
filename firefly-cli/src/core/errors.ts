@@ -48,6 +48,28 @@ export class FireflyNetworkError extends Error {
   }
 }
 
+/**
+ * Thrown when a request is aborted because it exceeded the configured
+ * timeout, as opposed to a genuine connection failure (DNS, ECONNREFUSED,
+ * etc). Distinguishing the two matters: a timeout usually means the server
+ * is reachable but a request (or a backend sync task it triggered) is stuck,
+ * while a connection failure means the server could not be reached at all.
+ */
+export class FireflyTimeoutError extends FireflyNetworkError {
+  readonly url: string;
+  readonly timeoutMs: number;
+
+  constructor(url: string, timeoutMs: number, cause?: unknown) {
+    super(
+      `Request to ${url} timed out after ${timeoutMs}ms. The server is reachable at the base URL but the request (or a backend sync task) did not finish in time. Try increasing --timeout, or check the bill-inbox / server logs.`,
+      cause,
+    );
+    this.name = 'FireflyTimeoutError';
+    this.url = url;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 function formatHttpError(input: FireflyHttpErrorInput): string {
   const message = extractMessage(input.body);
   if (input.status === 401) {

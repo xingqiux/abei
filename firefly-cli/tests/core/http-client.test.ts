@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 
-import { FireflyHttpError, FireflyNetworkError } from '../../src/core/errors.js';
+import { FireflyHttpError, FireflyNetworkError, FireflyTimeoutError } from '../../src/core/errors.js';
 import { FireflyHttpClient } from '../../src/core/http-client.js';
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
@@ -108,6 +108,44 @@ describe('FireflyHttpClient', () => {
     await expect(client.request('GET', '/api/v1/about')).rejects.toBeInstanceOf(
       FireflyNetworkError,
     );
+  });
+
+  test('genuine connection failures are not classified as a timeout', async () => {
+    const client = new FireflyHttpClient({
+      baseUrl: 'http://localhost:8000',
+      fetchImpl: async () => {
+        throw new TypeError('fetch failed');
+      },
+    });
+
+    const error: unknown = await client.request('GET', '/api/v1/about').catch((caught) => caught);
+    expect(error).toBeInstanceOf(FireflyNetworkError);
+    expect(error).not.toBeInstanceOf(FireflyTimeoutError);
+    expect((error as Error).message).toContain('Could not reach Firefly III');
+  });
+
+  test('throws FireflyTimeoutError when the request timeout aborts the fetch', async () => {
+    const fetchMock = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('This operation was aborted', 'AbortError'));
+          });
+        }),
+    );
+    const client = new FireflyHttpClient({
+      baseUrl: 'http://localhost:8000',
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      timeout: 10,
+    });
+
+    const error: unknown = await client
+      .request('GET', '/api/v1/bill-inbox/sync')
+      .catch((caught) => caught);
+    expect(error).toBeInstanceOf(FireflyTimeoutError);
+    expect((error as FireflyTimeoutError).timeoutMs).toBe(10);
+    expect((error as FireflyTimeoutError).message).toContain('timed out after 10ms');
+    expect((error as FireflyTimeoutError).message).toContain('--timeout');
   });
 
   test('classifies forbidden admin failures', async () => {
