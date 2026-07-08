@@ -88,9 +88,37 @@ function formatHttpError(input: FireflyHttpErrorInput): string {
     return `Validation failed: ${message}`;
   }
   if (input.status >= 500) {
-    return `Firefly III server error (${input.status}) for ${input.method} ${input.url}: ${message}`;
+    const base = `Firefly III server error (${input.status}) for ${input.method} ${input.url}: ${message}`;
+    if (isStorageCacheFailure(input)) {
+      return `${base}\nServer storage/cache directory is missing or not writable (storage/framework/cache). This is a server-side problem, not your import. Fix directory permissions/creation on the Firefly host, then retry.`;
+    }
+    return base;
   }
   return `Firefly III request failed (${input.status}) for ${input.method} ${input.url}: ${message}`;
+}
+
+/**
+ * Detects Laravel's "file_put_contents(...storage/framework/cache/...): No
+ * such file or directory" failure. Laravel's file cache store does not
+ * recreate the nested storage/framework/cache/data directory once it is
+ * wiped, so every API call (not just imports) starts failing with a 500
+ * until the directory is recreated on the server. Surfacing this clearly
+ * keeps operators from chasing a phantom "import" bug.
+ */
+function isStorageCacheFailure(input: FireflyHttpErrorInput): boolean {
+  const text = `${input.rawBody} ${bodyAsText(input.body)}`;
+  return text.includes('file_put_contents') && text.includes('storage/framework/cache');
+}
+
+function bodyAsText(body: unknown): string {
+  if (typeof body === 'string') {
+    return body;
+  }
+  try {
+    return JSON.stringify(body ?? '');
+  } catch {
+    return '';
+  }
 }
 
 function extractMessage(body: unknown): string {

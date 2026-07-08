@@ -1,0 +1,164 @@
+# Firefly AI Accounting Docker 部署
+
+这是给 JD `xkqq` 服务器准备的最小部署方案：一个 Firefly 应用镜像、一个 PostgreSQL、一个每天跑一次的 Firefly cron 容器。
+
+## 1. 本地构建镜像
+
+```bash
+cd /Users/youla/proj/firefly-ai-accounting/firefly-iii
+docker buildx build --platform linux/amd64 \
+  -t docker.xkqq.top/firefly/firefly-ai-accounting:latest \
+  --push .
+```
+
+JD 是 `x86_64`，本机 Mac/OrbStack 是 `arm64`，所以这里必须 build `linux/amd64`。JD 磁盘只剩不多，建议在本机或 CI 构建，JD 只 pull。
+
+## 2. 服务器目录
+
+```bash
+ssh xkqq
+mkdir -p /home/ziyu/services/firefly-ai-accounting
+cd /home/ziyu/services/firefly-ai-accounting
+```
+
+复制这些文件到服务器：
+
+```text
+deploy/firefly/docker-compose.yml -> /home/ziyu/services/firefly-ai-accounting/docker-compose.yml
+deploy/firefly/.env.example       -> /home/ziyu/services/firefly-ai-accounting/.env
+```
+
+然后编辑服务器上的 `.env`：
+
+```text
+APP_URL=https://firefly.xkqq.top
+APP_KEY=复制本地 firefly-iii/.env 里的 APP_KEY
+DB_PASSWORD=一个新长密码
+POSTGRES_PASSWORD=和 DB_PASSWORD 一样
+```
+
+不要把真实 `.env` 提交进 Git。
+
+## 3. 复制持久化文件
+
+从本地复制：
+
+```text
+firefly-iii/storage/app
+firefly-iii/storage/oauth-private.key
+firefly-iii/storage/oauth-public.key
+firefly-iii/storage/database/database.sqlite
+```
+
+到服务器：
+
+```text
+/home/ziyu/services/firefly-ai-accounting/storage/app
+/home/ziyu/services/firefly-ai-accounting/storage/oauth-private.key
+/home/ziyu/services/firefly-ai-accounting/storage/oauth-public.key
+/home/ziyu/services/firefly-ai-accounting/import/database.sqlite
+```
+
+## 4. 迁移 SQLite 到 PostgreSQL
+
+先只启动数据库：
+
+```bash
+cd /home/ziyu/services/firefly-ai-accounting
+docker compose up -d db
+```
+
+用 pgloader 做一次性迁移：
+
+```bash
+set -a
+. ./.env
+set +a
+
+docker run --rm \
+  --network firefly-ai-accounting_default \
+  -v "$PWD/import:/import:ro" \
+  dimitri/pgloader:latest \
+  pgloader sqlite:////import/database.sqlite "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}"
+```
+
+迁完再启动应用并修复 PostgreSQL 自增序列：
+
+```bash
+docker compose up -d app
+docker compose exec app php artisan firefly-iii:upgrade-database
+docker compose exec app php artisan upgrade:600-pgsql-sequences
+docker compose up -d
+```
+
+迁移后核对数量，至少这几项要和本地 SQLite 一致：
+
+```bash
+docker compose exec db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
+select 'users', count(*) from users
+union all select 'accounts', count(*) from accounts
+union all select 'transaction_groups', count(*) from transaction_groups
+union all select 'bill_tasks', count(*) from bill_tasks
+union all select 'bill_artifacts', count(*) from bill_artifacts
+union all select 'bill_statement_imports', count(*) from bill_statement_imports
+union all select 'bill_statement_rows', count(*) from bill_statement_rows
+union all select 'bill_mail_messages', count(*) from bill_mail_messages;
+"
+```
+
+当前本地参考值：
+
+```text
+users: 1
+accounts: 125
+transaction_groups: 194
+bill_tasks: 20
+bill_artifacts: 24
+bill_statement_imports: 8
+bill_statement_rows: 439
+bill_mail_messages: 32
+```
+
+## 5. 接域名
+
+在 JD 的 OpenResty/1Panel 里把 `firefly.xkqq.top` 反代到：
+
+```text
+http://127.0.0.1:18001
+```
+
+Cloudflare 添加 `firefly.xkqq.top` DNS 记录，指向 JD 服务器。
+
+服务健康检查地址：
+
+```text
+http://127.0.0.1:18001/health
+```
+
+## 6. 更新
+
+```bash
+cd /Users/youla/proj/firefly-ai-accounting/firefly-iii
+docker buildx build --platform linux/amd64 \
+  -t docker.xkqq.top/firefly/firefly-ai-accounting:latest \
+  --push .
+
+ssh xkqq
+cd /home/ziyu/services/firefly-ai-accounting
+docker compose pull
+docker compose up -d
+docker compose exec app php artisan migrate --force
+docker compose exec app php artisan firefly-iii:upgrade-database
+docker compose exec app php artisan upgrade:600-pgsql-sequences
+```
+
+## 7. 回滚
+
+本地 SQLite 和本地 `storage/app` 先不要删。上线失败时，停掉服务器容器，继续用本机 `make up`。
+
+服务器端回滚镜像就是把 `.env` 里的 `FIREFLY_IMAGE` 改回旧 tag，然后：
+
+```bash
+docker compose pull
+docker compose up -d
+```

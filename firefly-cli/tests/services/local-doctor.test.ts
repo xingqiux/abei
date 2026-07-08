@@ -68,4 +68,58 @@ describe('local doctor service', () => {
       expected: '8,10,12',
     });
   });
+
+  test('fails storage-cache check when storage/framework/cache/data is missing', async () => {
+    const rootPath = join(tempDir, 'firefly-iii');
+    const databasePath = join(rootPath, 'storage', 'database', 'database.sqlite');
+    await mkdir(join(rootPath, 'public', 'build'), { recursive: true });
+    await mkdir(join(rootPath, 'public', 'v1', 'js'), { recursive: true });
+    await mkdir(join(rootPath, 'storage', 'database'), { recursive: true });
+    await writeFile(join(rootPath, 'artisan'), '');
+    await writeFile(join(rootPath, 'public', 'build', 'manifest.json'), '{}');
+    await writeFile(join(rootPath, 'public', 'v1', 'js', 'app.js'), '');
+    await writeFile(databasePath, '');
+
+    const report = await runLocalDoctor({
+      root: rootPath,
+      url: 'http://127.0.0.1:8001',
+      fetchImpl: async () => new Response('', { status: 302 }),
+      sqliteQuery: async () => [],
+    });
+
+    const check = report.checks.find((item) => item.name === 'storage-cache');
+    expect(check).toMatchObject({
+      status: 'fail',
+      path: join(rootPath, 'storage', 'framework', 'cache', 'data'),
+    });
+    expect(check?.message).toContain('storage/framework/cache/data is missing');
+    expect(report.ok).toBe(false);
+  });
+
+  test('passes storage-cache check when storage/framework/cache/data exists and is writable', async () => {
+    const rootPath = join(tempDir, 'firefly-iii');
+    const databasePath = join(rootPath, 'storage', 'database', 'database.sqlite');
+    await mkdir(join(rootPath, 'public', 'build'), { recursive: true });
+    await mkdir(join(rootPath, 'public', 'v1', 'js'), { recursive: true });
+    await mkdir(join(rootPath, 'storage', 'database'), { recursive: true });
+    await mkdir(join(rootPath, 'storage', 'framework', 'cache', 'data'), { recursive: true });
+    await writeFile(join(rootPath, 'artisan'), '');
+    await writeFile(join(rootPath, 'public', 'build', 'manifest.json'), '{}');
+    await writeFile(join(rootPath, 'public', 'v1', 'js', 'app.js'), '');
+    await writeFile(databasePath, '');
+
+    const report = await runLocalDoctor({
+      root: rootPath,
+      url: 'http://127.0.0.1:8001',
+      fetchImpl: async () => new Response('', { status: 302 }),
+      sqliteQuery: async () => [],
+    });
+
+    expect(report.checks).toContainEqual({
+      name: 'storage-cache',
+      status: 'ok',
+      message: 'storage/framework/cache/data exists and is writable.',
+      path: join(rootPath, 'storage', 'framework', 'cache', 'data'),
+    });
+  });
 });

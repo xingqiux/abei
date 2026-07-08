@@ -78,7 +78,7 @@ export async function importTransactions(
   options: TransactionImportOptions,
 ): Promise<TransactionImportReport> {
   const transactions = applyTimezone(await readTransactions(options.input), options.timezone);
-  const existing = await fetchExistingTransactions(client, transactions);
+  const existing = await fetchExistingTransactions(client, transactions, options.mode);
   const rows = transactions.map((transaction, index) =>
     classifyTransaction(index + 1, transaction, existing),
   );
@@ -203,6 +203,7 @@ function normalizeImportRow(row: unknown, index: number): FireflyTransactionImpo
 async function fetchExistingTransactions(
   client: FireflyHttpClient,
   transactions: FireflyTransactionImportRow[],
+  mode: 'dry-run' | 'confirm',
 ): Promise<ExistingTransaction[]> {
   const dates = transactions
     .map((transaction) => transaction.date)
@@ -213,13 +214,25 @@ async function fetchExistingTransactions(
     return [];
   }
 
-  const response = await client.request('GET', '/api/v1/transactions', {
-    query: {
-      start: dates[0],
-      end: dates.at(-1),
-      limit: 500,
-    },
-  });
+  let response: unknown;
+  try {
+    response = await client.request('GET', '/api/v1/transactions', {
+      query: {
+        start: dates[0],
+        end: dates.at(-1),
+        limit: 500,
+      },
+    });
+  } catch (error) {
+    // This lookup always runs before any create request, so a failure here
+    // means the import never got a chance to submit anything. Make that
+    // explicit instead of leaving the operator to guess at partial state
+    // from a bare error message.
+    if (mode === 'confirm' && error instanceof Error) {
+      error.message = `${error.message}\nNo transactions were created: the import failed before any row could be submitted.`;
+    }
+    throw error;
+  }
 
   return extractExistingTransactions(response);
 }

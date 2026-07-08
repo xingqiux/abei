@@ -163,4 +163,42 @@ describe('FireflyHttpClient', () => {
 
     expect(error.message).toContain('Permission denied');
   });
+
+  test('adds a remediation hint for Laravel storage/framework/cache 500s', async () => {
+    const rawBody = JSON.stringify({
+      message:
+        'file_put_contents(/var/www/html/storage/framework/cache/data/8f/3a/8f3a1234): Failed to open stream: No such file or directory',
+      exception: 'ErrorException',
+    });
+    const error = new FireflyHttpError({
+      status: 500,
+      method: 'POST',
+      url: 'http://localhost/api/v1/transactions',
+      body: JSON.parse(rawBody),
+      rawBody,
+    });
+
+    expect(error.message).toContain('Firefly III server error (500)');
+    expect(error.message).toContain('file_put_contents');
+    expect(error.message).toContain(
+      'Server storage/cache directory is missing or not writable (storage/framework/cache)',
+    );
+    expect(error.message).toContain('server-side problem, not your import');
+    // Raw detail stays available for callers that want to inspect it further.
+    expect(error.rawBody).toBe(rawBody);
+    expect(error.body).toMatchObject({ exception: 'ErrorException' });
+  });
+
+  test('does not add the storage/cache hint for unrelated 500 errors', async () => {
+    const error = new FireflyHttpError({
+      status: 500,
+      method: 'GET',
+      url: 'http://localhost/api/v1/accounts',
+      body: { message: 'Something else broke.' },
+      rawBody: '{"message":"Something else broke."}',
+    });
+
+    expect(error.message).toContain('Firefly III server error (500)');
+    expect(error.message).not.toContain('storage/cache directory');
+  });
 });

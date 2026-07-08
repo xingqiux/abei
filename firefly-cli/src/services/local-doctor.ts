@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { access, readFile } from 'node:fs/promises';
+import { access, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -45,6 +45,7 @@ export async function runLocalDoctor(options: LocalDoctorOptions): Promise<Local
     checkTimezone(env),
     await checkV2Assets(root),
     await checkV1Assets(root),
+    await checkStorageCache(root),
     await checkFrontpageAccounts(databasePath, options.sqliteQuery ?? querySqlite),
     await checkHttp(appUrl, options.fetchImpl ?? fetch),
   ];
@@ -180,6 +181,51 @@ async function checkV1Assets(root: string): Promise<LocalDoctorCheck> {
     message:
       'Missing public/v1/js/app.js. Run npm run production --workspace resources/assets/v1 from firefly-iii and hard refresh the browser.',
     path,
+  };
+}
+
+/**
+ * Laravel's file cache store (config/cache.php) writes to
+ * storage/framework/cache/data and does not recreate that nested directory
+ * on its own once it is wiped (a fresh checkout, a cleared volume, or an
+ * operator running `rm -rf storage/framework/cache/*` all reproduce this).
+ * When it is missing or not writable, EVERY Firefly API call fails with a
+ * 500 (file_put_contents(...): Failed to open stream: No such file or
+ * directory), which is easy to misread as an import-specific bug. Catch it
+ * here before it gets that far.
+ */
+async function checkStorageCache(root: string): Promise<LocalDoctorCheck> {
+  const dataDir = join(root, 'storage', 'framework', 'cache', 'data');
+  if (!(await exists(dataDir))) {
+    return {
+      name: 'storage-cache',
+      status: 'fail',
+      message:
+        'storage/framework/cache/data is missing. Laravel does not recreate this directory itself, so every API call will fail with HTTP 500 (file_put_contents ... No such file or directory) until it exists and is writable. Create it (and storage/framework/sessions, storage/framework/views, storage/logs, bootstrap/cache) and chown it to the web server user.',
+      path: dataDir,
+    };
+  }
+
+  const probePath = join(dataDir, `.ffc-doctor-write-check-${process.pid}`);
+  try {
+    await writeFile(probePath, '');
+    await rm(probePath, { force: true });
+  } catch (error) {
+    return {
+      name: 'storage-cache',
+      status: 'fail',
+      message: `storage/framework/cache/data exists but is not writable: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      path: dataDir,
+    };
+  }
+
+  return {
+    name: 'storage-cache',
+    status: 'ok',
+    message: 'storage/framework/cache/data exists and is writable.',
+    path: dataDir,
   };
 }
 

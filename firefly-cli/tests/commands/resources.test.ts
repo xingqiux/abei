@@ -516,6 +516,40 @@ describe('resource commands', () => {
     expect(parsed.responses).toEqual([{ data: { id: '300' } }, null]);
   });
 
+  test('transactions import confirm makes clear nothing was created when the duplicate lookup itself fails', async () => {
+    const inputPath = join(tempDir, 'transactions.json');
+    await writeFile(
+      inputPath,
+      JSON.stringify([
+        {
+          type: 'withdrawal',
+          date: '2026-06-08',
+          source_id: '8',
+          destination_name: 'Coffee Shop',
+          amount: '12.34',
+          description: 'Coffee',
+        },
+      ]),
+    );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            message:
+              'file_put_contents(/var/www/html/storage/framework/cache/data/ab/cd/abcd1234): Failed to open stream: No such file or directory',
+          }),
+          { status: 500, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+
+    await expect(
+      runCli(['transactions', 'import', '--input', inputPath, '--confirm', '--format', 'json']),
+    ).rejects.toThrow(/No transactions were created: the import failed before any row/);
+    await expect(
+      runCli(['transactions', 'import', '--input', inputPath, '--confirm', '--format', 'json']),
+    ).rejects.toThrow(/storage\/cache directory is missing or not writable/);
+  });
+
   test('transactions import converts source timezone before preview and confirm', async () => {
     const inputPath = join(tempDir, 'transactions.json');
     await writeFile(
