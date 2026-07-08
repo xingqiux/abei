@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace FireflyIII\Models;
 
+use FireflyIII\Casts\BillStatementLocalDateTimeCast;
 use FireflyIII\Support\Models\ReturnsIntegerIdTrait;
 use FireflyIII\Support\Models\ReturnsIntegerUserIdTrait;
 use FireflyIII\User;
@@ -106,9 +107,9 @@ class BillStatementRow extends Model
         return [
             'created_at'                 => 'datetime',
             'updated_at'                 => 'datetime',
-            'occurred_at'                => 'datetime',
-            'firefly_date'               => 'datetime',
-            'user_modified_at'           => 'datetime',
+            'occurred_at'                => BillStatementLocalDateTimeCast::class,
+            'firefly_date'               => BillStatementLocalDateTimeCast::class,
+            'user_modified_at'           => BillStatementLocalDateTimeCast::class,
             'raw_data'                   => 'json',
             'editable_data'              => 'json',
             'tags'                       => 'json',
