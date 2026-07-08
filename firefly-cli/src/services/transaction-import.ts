@@ -18,19 +18,33 @@ export interface TransactionImportReport {
     duplicate: number;
     ambiguous: number;
     submitted?: number;
+    created?: number;
+    failed?: number;
   };
   rows: TransactionImportRowReport[];
+  /** Present when exactly one row was submitted to Firefly. */
   response?: unknown;
+  /**
+   * Present when more than one row was submitted to Firefly. One entry per
+   * submitted row, in the same order as `createRows`/the submitted rows.
+   * A row that failed to create has `null` in its slot here; see that row's
+   * `error` field in `rows` for the failure reason.
+   */
+  responses?: Array<unknown | null>;
 }
 
 export interface TransactionImportRowReport {
   row: number;
-  status: 'create' | 'duplicate' | 'ambiguous' | 'created';
+  status: 'create' | 'duplicate' | 'ambiguous' | 'created' | 'failed';
   transaction: FireflyTransactionImportRow;
   originalDate?: string;
   fireflyDate?: string;
   reasons?: string[];
   duplicateIds?: string[];
+  /** Raw Firefly response for this row's own POST, when it was created. */
+  response?: unknown;
+  /** Failure message for this row's own POST, when it could not be created. */
+  error?: string;
 }
 
 export interface FireflyTransactionImportRow {
@@ -79,21 +93,68 @@ export async function importTransactions(
     return {
       mode: options.mode,
       timezone: options.timezone,
-      summary: { ...summary, submitted: 0 },
+      summary: { ...summary, submitted: 0, created: 0, failed: 0 },
       rows,
     };
   }
 
-  const response = await client.request('POST', '/api/v1/transactions', {
-    json: { transactions: createRows.map((row) => buildFireflyTransaction(row.transaction)) },
-  });
+  return submitCreateRows(client, options, rows, createRows, summary);
+}
+
+/**
+ * Submits each independent create row as its own Firefly transaction group,
+ * i.e. one POST /api/v1/transactions per row with a single-element
+ * `transactions` array. Firefly treats every transaction inside a single
+ * POST as a split of ONE group, which requires a `group_title` once there is
+ * more than one -- these rows are independent transactions, not splits, so
+ * each gets its own group and its own request.
+ *
+ * Rows are submitted sequentially so that a failure on one row never stops
+ * the others from being attempted, and so the report can say exactly which
+ * rows were created and which were not.
+ */
+async function submitCreateRows(
+  client: FireflyHttpClient,
+  options: TransactionImportOptions,
+  rows: TransactionImportRowReport[],
+  createRows: TransactionImportRowReport[],
+  summary: TransactionImportReport['summary'],
+): Promise<TransactionImportReport> {
+  const updatedRows = [...rows];
+  const responses: Array<unknown | null> = [];
+  let created = 0;
+  let failed = 0;
+
+  for (const createRow of createRows) {
+    const index = createRow.row - 1;
+    try {
+      const response = await client.request('POST', '/api/v1/transactions', {
+        json: { transactions: [buildFireflyTransaction(createRow.transaction)] },
+      });
+      updatedRows[index] = { ...createRow, status: 'created', response };
+      responses.push(response);
+      created += 1;
+    } catch (error) {
+      updatedRows[index] = {
+        ...createRow,
+        status: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      };
+      responses.push(null);
+      failed += 1;
+    }
+  }
 
   return {
     mode: options.mode,
     timezone: options.timezone,
-    summary: { ...summary, submitted: createRows.length },
-    rows: rows.map((row) => (row.status === 'create' ? { ...row, status: 'created' } : row)),
-    response,
+    summary: { ...summary, submitted: createRows.length, created, failed },
+    rows: updatedRows,
+    ...(createRows.length === 1
+      ? responses[0] !== null
+        ? { response: responses[0] }
+        : {}
+      : { responses }),
   };
 }
 

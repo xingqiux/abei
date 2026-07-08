@@ -329,10 +329,191 @@ describe('resource commands', () => {
         duplicate: 0,
         ambiguous: 0,
         submitted: 1,
+        created: 1,
+        failed: 0,
       },
-      rows: [expect.objectContaining({ row: 1, status: 'created' })],
+      rows: [
+        expect.objectContaining({ row: 1, status: 'created', response: { data: { id: '100' } } }),
+      ],
       response: { data: { id: '100' } },
     });
+  });
+
+  test('transactions import confirm submits independent rows as separate groups, not one split', async () => {
+    const inputPath = join(tempDir, 'transactions.json');
+    await writeFile(
+      inputPath,
+      JSON.stringify([
+        {
+          type: 'withdrawal',
+          date: '2026-06-08',
+          source_id: '8',
+          destination_name: 'Coffee Shop',
+          amount: '12.34',
+          description: 'Coffee',
+        },
+        {
+          type: 'withdrawal',
+          date: '2026-06-08',
+          source_id: '8',
+          destination_name: 'Bookstore',
+          amount: '45.50',
+          description: 'Book',
+        },
+      ]),
+    );
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: { id: '200' } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: { id: '201' } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+
+    const result = await runCli([
+      'transactions',
+      'import',
+      '--input',
+      inputPath,
+      '--confirm',
+      '--format',
+      'json',
+    ]);
+
+    // 1 GET for existing-transaction lookup + one POST per independent row.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(requestBody(fetchMock.mock.calls[1])).toEqual({
+      transactions: [
+        {
+          type: 'withdrawal',
+          date: '2026-06-08',
+          source_id: '8',
+          destination_name: 'Coffee Shop',
+          amount: '12.34',
+          description: 'Coffee',
+        },
+      ],
+    });
+    expect(requestBody(fetchMock.mock.calls[2])).toEqual({
+      transactions: [
+        {
+          type: 'withdrawal',
+          date: '2026-06-08',
+          source_id: '8',
+          destination_name: 'Bookstore',
+          amount: '45.50',
+          description: 'Book',
+        },
+      ],
+    });
+
+    expect(JSON.parse(result.logs.join('\n'))).toEqual({
+      mode: 'confirm',
+      summary: {
+        total: 2,
+        create: 2,
+        duplicate: 0,
+        ambiguous: 0,
+        submitted: 2,
+        created: 2,
+        failed: 0,
+      },
+      rows: [
+        expect.objectContaining({ row: 1, status: 'created', response: { data: { id: '200' } } }),
+        expect.objectContaining({ row: 2, status: 'created', response: { data: { id: '201' } } }),
+      ],
+      responses: [{ data: { id: '200' } }, { data: { id: '201' } }],
+    });
+  });
+
+  test('transactions import confirm reports which rows failed when one create fails', async () => {
+    const inputPath = join(tempDir, 'transactions.json');
+    await writeFile(
+      inputPath,
+      JSON.stringify([
+        {
+          type: 'withdrawal',
+          date: '2026-06-08',
+          source_id: '8',
+          destination_name: 'Coffee Shop',
+          amount: '12.34',
+          description: 'Coffee',
+        },
+        {
+          type: 'withdrawal',
+          date: '2026-06-08',
+          source_id: '8',
+          destination_name: 'Bookstore',
+          amount: '45.50',
+          description: 'Book',
+        },
+      ]),
+    );
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: { id: '300' } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: 'Internal Server Error' }), {
+          status: 500,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+
+    const result = await runCli([
+      'transactions',
+      'import',
+      '--input',
+      inputPath,
+      '--confirm',
+      '--format',
+      'json',
+    ]);
+
+    // Both rows are still attempted even though the second one fails.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    const parsed = JSON.parse(result.logs.join('\n'));
+    expect(parsed.summary).toEqual({
+      total: 2,
+      create: 2,
+      duplicate: 0,
+      ambiguous: 0,
+      submitted: 2,
+      created: 1,
+      failed: 1,
+    });
+    expect(parsed.rows[0]).toMatchObject({
+      row: 1,
+      status: 'created',
+      response: { data: { id: '300' } },
+    });
+    expect(parsed.rows[1]).toMatchObject({ row: 2, status: 'failed' });
+    expect(parsed.rows[1].error).toContain('Internal Server Error');
+    expect(parsed.responses).toEqual([{ data: { id: '300' } }, null]);
   });
 
   test('transactions import converts source timezone before preview and confirm', async () => {
@@ -402,6 +583,8 @@ describe('resource commands', () => {
         duplicate: 0,
         ambiguous: 0,
         submitted: 1,
+        created: 1,
+        failed: 0,
       },
       rows: [
         expect.objectContaining({

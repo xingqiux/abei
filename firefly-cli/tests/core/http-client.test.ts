@@ -1,6 +1,10 @@
 import { describe, expect, test, vi } from 'vitest';
 
-import { FireflyHttpError, FireflyNetworkError, FireflyTimeoutError } from '../../src/core/errors.js';
+import {
+  FireflyHttpError,
+  FireflyNetworkError,
+  FireflyTimeoutError,
+} from '../../src/core/errors.js';
 import { FireflyHttpClient } from '../../src/core/http-client.js';
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
