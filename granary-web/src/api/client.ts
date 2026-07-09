@@ -1,4 +1,41 @@
-const TOKEN = import.meta.env.VITE_FIREFLY_TOKEN
+/**
+ * 运行时令牌方案（见 docs/design/granary-web-plan.md §3）：
+ * 生产环境不把 PAT 烤进构建产物，改为启动后由用户在 TokenGate 里粘贴，存 localStorage。
+ * 读取顺序：localStorage('granary.token') → import.meta.env.VITE_FIREFLY_TOKEN（仅开发期兜底）。
+ */
+export const TOKEN_STORAGE_KEY = 'granary.token'
+
+/** 401 时全局广播，TokenGate 监听后弹出令牌页；避免每个查询自己处理未授权。 */
+export const UNAUTHORIZED_EVENT = 'granary:unauthorized'
+
+export function getStoredToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function setStoredToken(token: string): void {
+  localStorage.setItem(TOKEN_STORAGE_KEY, token.trim())
+}
+
+export function clearStoredToken(): void {
+  localStorage.removeItem(TOKEN_STORAGE_KEY)
+}
+
+/** 当前生效 token：localStorage 优先，其次开发期 .env.local 兜底。 */
+export function getActiveToken(): string {
+  return getStoredToken() || import.meta.env.VITE_FIREFLY_TOKEN || ''
+}
+
+export function hasActiveToken(): boolean {
+  return getActiveToken().length > 0
+}
+
+function notifyUnauthorized(): void {
+  window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+}
 
 export class FireflyApiError extends Error {
   status: number
@@ -6,6 +43,14 @@ export class FireflyApiError extends Error {
     super(message)
     this.status = status
     this.name = 'FireflyApiError'
+  }
+}
+
+/** 401：令牌缺失或已失效。抛出后 TokenGate 通过 UNAUTHORIZED_EVENT 监听并弹出令牌页。 */
+export class FireflyAuthError extends FireflyApiError {
+  constructor(message = '未授权：令牌缺失或已失效') {
+    super(401, message)
+    this.name = 'FireflyAuthError'
   }
 }
 
@@ -26,8 +71,18 @@ function formatErrorBody(status: number, statusText: string, raw: string): strin
   return `${status} ${statusText}: ${raw.slice(0, 300)}`
 }
 
+async function throwForResponse(res: Response): Promise<never> {
+  const body = await res.text().catch(() => '')
+  if (res.status === 401) {
+    notifyUnauthorized()
+    throw new FireflyAuthError(formatErrorBody(res.status, res.statusText, body))
+  }
+  throw new FireflyApiError(res.status, formatErrorBody(res.status, res.statusText, body))
+}
+
 /**
- * 调用本地 Firefly III API（开发期经 Vite proxy 转发 /api → 127.0.0.1:8001）。
+ * 调用本地 Firefly III API（开发期经 Vite proxy 转发 /api → 127.0.0.1:8001；
+ * 生产由同域 nginx 反代 /api → app，见 granary-web/nginx.conf）。
  */
 export async function fireflyFetch<T = unknown>(
   path: string,
@@ -42,15 +97,12 @@ export async function fireflyFetch<T = unknown>(
 
   const res = await fetch(url.toString(), {
     headers: {
-      Authorization: `Bearer ${TOKEN}`,
+      Authorization: `Bearer ${getActiveToken()}`,
       Accept: 'application/json',
     },
   })
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new FireflyApiError(res.status, formatErrorBody(res.status, res.statusText, body))
-  }
+  if (!res.ok) return throwForResponse(res)
 
   return res.json() as Promise<T>
 }
@@ -64,17 +116,14 @@ export async function fireflyPost<T = unknown>(path: string, body: unknown): Pro
   const res = await fetch(url.toString(), {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${TOKEN}`,
+      Authorization: `Bearer ${getActiveToken()}`,
       Accept: 'application/json',
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
   })
 
-  if (!res.ok) {
-    const responseBody = await res.text().catch(() => '')
-    throw new FireflyApiError(res.status, formatErrorBody(res.status, res.statusText, responseBody))
-  }
+  if (!res.ok) return throwForResponse(res)
 
   return res.json() as Promise<T>
 }

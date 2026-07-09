@@ -11,6 +11,7 @@ import {
 import { CategoryChip } from '../../components/granary/CategoryChip'
 import { StatusChip } from '../../components/granary/StatusChip'
 import { Skeleton } from '../../components/granary/Skeleton'
+import { requestTokenReset } from '../../components/TokenGate'
 import pkg from '../../../package.json'
 
 const CHIP_LIMIT = 12
@@ -197,7 +198,7 @@ export function SettingsPage() {
           </div>
 
           <a
-            href="http://127.0.0.1:8001"
+            href={import.meta.env.VITE_LEGACY_URL ?? 'http://127.0.0.1:8001'}
             target="_blank"
             rel="noreferrer"
             className="flex w-fit items-center gap-1.5"
@@ -206,6 +207,15 @@ export function SettingsPage() {
             <ExternalLink aria-hidden size={13} color="currentColor" />
             旧版界面（过渡期兜底）
           </a>
+
+          <button
+            type="button"
+            onClick={requestTokenReset}
+            className="w-fit rounded-[6px] px-2.5 py-1.5 text-[11.5px]"
+            style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', fontWeight: 'var(--g-weight-demibold)' }}
+          >
+            更换 API 令牌
+          </button>
         </div>
       </Card>
     </div>
