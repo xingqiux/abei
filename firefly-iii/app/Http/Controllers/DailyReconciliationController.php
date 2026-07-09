@@ -13,6 +13,7 @@ use FireflyIII\Enums\TransactionTypeEnum;
 use FireflyIII\Helpers\Collector\GroupCollectorInterface;
 use FireflyIII\Models\TransactionCurrency;
 use FireflyIII\Models\TransactionJournal;
+use FireflyIII\Services\DailyReconciliation\DailyReconciliationSummaryService;
 use FireflyIII\Services\Internal\Update\JournalUpdateService;
 use FireflyIII\Support\Facades\Amount;
 use FireflyIII\Support\Facades\Preferences;
@@ -23,7 +24,7 @@ use Illuminate\View\View;
 
 final class DailyReconciliationController extends Controller
 {
-    public function __construct()
+    public function __construct(private readonly DailyReconciliationSummaryService $summaryService)
     {
         parent::__construct();
 
@@ -62,13 +63,12 @@ final class DailyReconciliationController extends Controller
         ;
         $groups->setPath(route('daily-reconciliation.index', ['date' => $day->format('Y-m-d')]));
 
-        /** @var GroupCollectorInterface $summaryCollector */
-        $summaryCollector = app(GroupCollectorInterface::class);
+        $totals = $this->summaryService->singleDayTotals(auth()->user(), $day);
 
         return view('daily-reconciliation.index', [
             'day'         => $day,
             'groups'      => $groups,
-            'summary'     => $this->summary($summaryCollector->setRange($start, $end)->setTypes($types)->getExtractedJournals()),
+            'summary'     => $this->formatDaySummary($totals),
             'prevDate'    => $day->copy()->subDay()->format('Y-m-d'),
             'nextDate'    => $day->copy()->addDay()->format('Y-m-d'),
             'currentDate' => $day->format('Y-m-d'),
@@ -113,32 +113,18 @@ final class DailyReconciliationController extends Controller
         return redirect()->route('daily-reconciliation.index', ['date' => $data['return_date'] ?? $tj->date->format('Y-m-d')]);
     }
 
-    private function summary(array $transactions): array
+    /**
+     * @param array{income:string,expense:string,net:string,count:int,currency_id:int|null} $totals
+     */
+    private function formatDaySummary(array $totals): array
     {
-        $income = '0';
-        $expense = '0';
-        $count = 0;
-        $currency = null;
-
-        foreach ($transactions as $transaction) {
-            ++$count;
-            $currency ??= TransactionCurrency::find((int) $transaction['currency_id']);
-            $amount = (string) $transaction['amount'];
-            if (TransactionTypeEnum::DEPOSIT->value === $transaction['transaction_type_type']) {
-                $income = bcadd($income, bcmul($amount, '-1'));
-            }
-            if (TransactionTypeEnum::WITHDRAWAL->value === $transaction['transaction_type_type']) {
-                $expense = bcadd($expense, $amount);
-            }
-        }
-
-        $net = bcsub($income, $expense);
+        $currency = null === $totals['currency_id'] ? null : TransactionCurrency::find($totals['currency_id']);
 
         return [
-            'income'  => Amount::formatAnything($currency ?? Amount::getPrimaryCurrency(), $income, false),
-            'expense' => Amount::formatAnything($currency ?? Amount::getPrimaryCurrency(), $expense, false),
-            'net'     => Amount::formatAnything($currency ?? Amount::getPrimaryCurrency(), $net, false),
-            'count'   => $count,
+            'income'  => Amount::formatAnything($currency ?? Amount::getPrimaryCurrency(), $totals['income'], false),
+            'expense' => Amount::formatAnything($currency ?? Amount::getPrimaryCurrency(), $totals['expense'], false),
+            'net'     => Amount::formatAnything($currency ?? Amount::getPrimaryCurrency(), $totals['net'], false),
+            'count'   => $totals['count'],
         ];
     }
 }

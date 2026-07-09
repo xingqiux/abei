@@ -9,6 +9,7 @@ use FireflyIII\Http\Controllers\Controller;
 use FireflyIII\Models\BillArtifact;
 use FireflyIII\Models\BillStatementRow;
 use FireflyIII\Models\BillTask;
+use FireflyIII\Services\BillIngestion\BillInboxSummaryService;
 use FireflyIII\Services\BillIngestion\BillStatementRowImportService;
 use FireflyIII\Services\BillIngestion\BillStatementRowSplitService;
 use FireflyIII\Services\BillIngestion\BillMailboxSyncService;
@@ -36,6 +37,7 @@ class IndexController extends Controller
         private readonly BillStatementRowImportService $rowImportService,
         private readonly BillStatementRowSplitService $rowSplitService,
         private readonly BillSourceChannelRegistry $channelRegistry,
+        private readonly BillInboxSummaryService $summaryService,
     ) {
         parent::__construct();
 
@@ -52,7 +54,7 @@ class IndexController extends Controller
         Log::channel('audit')->info('User visits bill inbox index page.');
 
         return view('bill-inbox.index', [
-            'sourceChannels' => $this->sourceChannels(),
+            'sourceChannels' => $this->summaryService->channelSummaries(auth()->user()),
             'mailboxStatus'  => $this->mailboxStatus(),
             'builtInChannels'=> $this->channelRegistry->settingsChannels(),
             'statusLabels'   => $this->statusLabels(),
@@ -496,55 +498,6 @@ class IndexController extends Controller
             'folder'      => $settings['folder'],
             'hasPassword' => '' !== (string) Preferences::getEncrypted('bill_inbox_mailbox_password', '')->data,
         ];
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function sourceChannels(): array
-    {
-        $channels = [];
-        foreach ($this->channelRegistry->settingsChannels() as $channel) {
-            $source = (string) $channel['source'];
-            $stats  = BillTask::query()
-                ->where('user_id', auth()->id())
-                ->where('source', $source)
-                ->selectRaw('status, count(*) as total')
-                ->groupBy('status')
-                ->pluck('total', 'status')
-                ->toArray()
-            ;
-            $latest = BillTask::query()
-                ->where('user_id', auth()->id())
-                ->where('source', $source)
-                ->with('mailMessage')
-                ->orderByDesc('received_at')
-                ->orderByDesc('id')
-                ->first()
-            ;
-            $pendingRows = BillStatementRow::query()
-                ->where('user_id', auth()->id())
-                ->where('status', 'pending')
-                ->whereHas('billTask', static fn ($query) => $query->where('source', $source))
-                ->count()
-            ;
-
-            $channels[] = [
-                'source'             => $source,
-                'name'               => $channel['name'],
-                'description'        => $channel['description'],
-                'needs_secret_count' => (int) ($stats['needs_secret'] ?? 0),
-                'todo_count'         => (int) ($stats['received'] ?? 0) + (int) ($stats['ready'] ?? 0),
-                'failed_count'       => (int) ($stats['failed'] ?? 0) + (int) ($stats['unknown'] ?? 0),
-                'parsed_count'       => (int) ($stats['parsed'] ?? 0),
-                'pending_row_count'  => $pendingRows,
-                'latest_task'        => $latest,
-                'latest_status'      => null === $latest ? null : (string) $latest->status,
-                'latest_received_at' => null === $latest ? null : $latest->received_at,
-            ];
-        }
-
-        return $channels;
     }
 
     /**

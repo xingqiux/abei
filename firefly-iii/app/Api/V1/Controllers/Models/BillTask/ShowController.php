@@ -7,12 +7,15 @@ namespace FireflyIII\Api\V1\Controllers\Models\BillTask;
 use FireflyIII\Api\V1\Controllers\Controller;
 use FireflyIII\Api\V1\Requests\PaginationRequest;
 use FireflyIII\Models\BillTask;
+use FireflyIII\Services\BillIngestion\BillStatementRowSummaryService;
 use FireflyIII\User;
 use Illuminate\Http\JsonResponse;
 
 final class ShowController extends Controller
 {
     use BillTaskResponse;
+
+    public function __construct(private readonly BillStatementRowSummaryService $rowSummaryService) {}
 
     public function index(PaginationRequest $request): JsonResponse
     {
@@ -35,8 +38,9 @@ final class ShowController extends Controller
         }
 
         $paginator                           = $query->paginate($limit, ['*'], 'page', $page);
+        $rowCounts                           = $this->rowSummaryService->countsForTasks($user, $paginator->getCollection()->pluck('id')->all());
 
-        return response()->json($this->collectionResponse($paginator));
+        return response()->json($this->collectionResponse($paginator, $rowCounts));
     }
 
     public function show(BillTask $billTask): JsonResponse
@@ -49,6 +53,10 @@ final class ShowController extends Controller
             'events'                 => fn ($query) => $query->orderBy('id'),
         ]);
 
-        return response()->json($this->itemResponse($billTask, true));
+        /** @var User $user */
+        $user      = auth()->user();
+        $rowCounts = $this->rowSummaryService->countsForTasks($user, [$billTask->id]);
+
+        return response()->json($this->itemResponse($billTask, true, $rowCounts[$billTask->id] ?? null));
     }
 }

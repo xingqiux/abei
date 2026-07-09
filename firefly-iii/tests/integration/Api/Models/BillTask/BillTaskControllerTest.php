@@ -92,6 +92,67 @@ final class BillTaskControllerTest extends TestCase
         $response->assertJsonPath('data.0.attributes.status', 'parsed');
     }
 
+    public function testIndexAndShowExposeRowCountsPerTask(): void
+    {
+        $pending   = $this->createStatementRow();
+        $duplicate = $this->createStatementRow([
+            'row_number'        => 2,
+            'status'            => 'pending',
+            'duplicate_state'   => 'duplicate',
+            'platform_order_no' => 'row-counts-duplicate-0001',
+            'merchant_order_no' => 'row-counts-duplicate-merchant-0001',
+            'external_key'      => 'alipay:order:row-counts-duplicate-0001',
+            'fingerprint'       => 'fp-row-counts-duplicate',
+        ]);
+        $imported  = $this->createStatementRow([
+            'row_number'        => 3,
+            'status'            => 'imported',
+            'transaction_group_id' => 999,
+            'platform_order_no' => 'row-counts-imported-0001',
+            'merchant_order_no' => 'row-counts-imported-merchant-0001',
+            'external_key'      => 'alipay:order:row-counts-imported-0001',
+            'fingerprint'       => 'fp-row-counts-imported',
+        ]);
+
+        $this->actingAs($this->user, 'api');
+
+        $index = $this->getJson(route('api.v1.bill-tasks.index'));
+        $index->assertStatus(200);
+        $index->assertJsonPath('data.0.attributes.row_counts.total', 3);
+        $index->assertJsonPath('data.0.attributes.row_counts.pending', 2);
+        $index->assertJsonPath('data.0.attributes.row_counts.imported', 1);
+        $index->assertJsonPath('data.0.attributes.row_counts.duplicate', 1);
+        $index->assertJsonPath('data.0.attributes.row_counts.conflict', 0);
+
+        $show = $this->getJson(route('api.v1.bill-tasks.show', ['billTask' => $this->task->id]));
+        $show->assertStatus(200);
+        $show->assertJsonPath('data.attributes.row_counts.total', 3);
+        $show->assertJsonPath('data.attributes.row_counts.pending', 2);
+        $show->assertJsonPath('data.attributes.row_counts.imported', 1);
+        $show->assertJsonPath('data.attributes.row_counts.duplicate', 1);
+
+        unset($pending, $duplicate, $imported);
+    }
+
+    public function testEntryEndpointsRequireAuthentication(): void
+    {
+        // setUp() already calls actingAs() for the happy-path tests in this class;
+        // forget the resolved guards so these requests hit the controllers unauthenticated.
+        $this->app['auth']->forgetGuards();
+
+        $index = $this->get(route('api.v1.bill-tasks.index'), ['Accept' => 'application/json']);
+        $index->assertStatus(401);
+
+        $show = $this->get(route('api.v1.bill-tasks.show', ['billTask' => $this->task->id]), ['Accept' => 'application/json']);
+        $show->assertStatus(401);
+
+        $import = $this->post(route('api.v1.bill-tasks.import', ['billTask' => $this->task->id]), [], ['Accept' => 'application/json']);
+        $import->assertStatus(401);
+
+        $ignore = $this->post(route('api.v1.bill-tasks.ignore', ['billTask' => $this->task->id]), [], ['Accept' => 'application/json']);
+        $ignore->assertStatus(401);
+    }
+
     public function testShowIncludesMailArtifactsEventsAndCurrentChallenge(): void
     {
         $this->actingAs($this->user, 'api');

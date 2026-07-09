@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace FireflyIII\Api\V1\Controllers\Models\BillTask;
 
 use FireflyIII\Api\V1\Controllers\Controller;
+use FireflyIII\Services\BillIngestion\BillInboxSummaryService;
 use FireflyIII\Services\BillIngestion\BillMailboxSyncService;
 use FireflyIII\Services\BillIngestion\BillSourceChannelRegistry;
 use FireflyIII\Services\BillIngestion\BillTaskActionService;
@@ -20,7 +21,16 @@ final class BillInboxController extends Controller
         private readonly BillTaskProcessor $taskProcessor,
         private readonly BillTaskActionService $actionService,
         private readonly BillSourceChannelRegistry $channelRegistry,
+        private readonly BillInboxSummaryService $summaryService,
     ) {}
+
+    /**
+     * 账单收件箱首页/侧栏用的渠道计数汇总，供 granary-web 新前端使用。
+     */
+    public function summary(): JsonResponse
+    {
+        return response()->json($this->summaryService->apiSummary(auth()->user()));
+    }
 
     public function settings(): JsonResponse
     {

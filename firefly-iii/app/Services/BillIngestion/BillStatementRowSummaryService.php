@@ -40,6 +40,58 @@ class BillStatementRowSummaryService
     }
 
     /**
+     * Cheap, DB-aggregation-only row counts per bill task, for use on list
+     * endpoints (e.g. GET /api/v1/bill-tasks) where per-row cross-source
+     * matching (see CrossSourceDuplicateMatcher) would be too expensive to run
+     * for every task on the page. Callers that need the full picture for a
+     * single task should use reviewTaskRows() instead.
+     *
+     * @param array<int,int> $taskIds
+     *
+     * @return array<int, array{total:int,pending:int,imported:int,duplicate:int,conflict:int}>
+     */
+    public function countsForTasks(User $user, array $taskIds): array
+    {
+        $counts = [];
+        foreach ($taskIds as $taskId) {
+            $counts[$taskId] = ['total' => 0, 'pending' => 0, 'imported' => 0, 'duplicate' => 0, 'conflict' => 0];
+        }
+        if ([] === $taskIds) {
+            return $counts;
+        }
+
+        $statusCounts = BillStatementRow::query()
+            ->where('user_id', $user->id)
+            ->whereIn('bill_task_id', $taskIds)
+            ->selectRaw('bill_task_id, status, count(*) as total')
+            ->groupBy('bill_task_id', 'status')
+            ->get()
+        ;
+        foreach ($statusCounts as $row) {
+            $taskId = (int) $row->bill_task_id;
+            $counts[$taskId]['total'] += (int) $row->total;
+            if (in_array($row->status, ['pending', 'imported'], true)) {
+                $counts[$taskId][$row->status] = (int) $row->total;
+            }
+        }
+
+        $duplicateCounts = BillStatementRow::query()
+            ->where('user_id', $user->id)
+            ->whereIn('bill_task_id', $taskIds)
+            ->whereIn('duplicate_state', ['duplicate', 'conflict'])
+            ->selectRaw('bill_task_id, duplicate_state, count(*) as total')
+            ->groupBy('bill_task_id', 'duplicate_state')
+            ->get()
+        ;
+        foreach ($duplicateCounts as $row) {
+            $taskId = (int) $row->bill_task_id;
+            $counts[$taskId][$row->duplicate_state] = (int) $row->total;
+        }
+
+        return $counts;
+    }
+
+    /**
      * @return array<string,mixed>
      */
     public function reviewTaskRows(User $user, int $taskId): array

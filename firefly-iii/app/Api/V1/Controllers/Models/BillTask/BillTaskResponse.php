@@ -16,10 +16,13 @@ use Illuminate\Pagination\LengthAwarePaginator;
 
 trait BillTaskResponse
 {
-    protected function collectionResponse(LengthAwarePaginator $paginator): array
+    /**
+     * @param array<int, array{total:int,pending:int,imported:int,duplicate:int,conflict:int}> $rowCounts
+     */
+    protected function collectionResponse(LengthAwarePaginator $paginator, array $rowCounts = []): array
     {
         return [
-            'data'  => $paginator->getCollection()->map(fn (BillTask $task): array => $this->taskResource($task))->values()->all(),
+            'data'  => $paginator->getCollection()->map(fn (BillTask $task): array => $this->taskResource($task, $rowCounts[$task->id] ?? null))->values()->all(),
             'meta'  => [
                 'pagination' => [
                     'total'        => $paginator->total(),
@@ -39,10 +42,13 @@ trait BillTaskResponse
         ];
     }
 
-    protected function itemResponse(BillTask $task, bool $includeRelated = false): array
+    /**
+     * @param null|array{total:int,pending:int,imported:int,duplicate:int,conflict:int} $rowCounts
+     */
+    protected function itemResponse(BillTask $task, bool $includeRelated = false, ?array $rowCounts = null): array
     {
         $response = [
-            'data' => $this->taskResource($task),
+            'data' => $this->taskResource($task, $rowCounts),
         ];
 
         if ($includeRelated) {
@@ -100,8 +106,13 @@ trait BillTaskResponse
         ];
     }
 
-    protected function taskResource(BillTask $task): array
+    /**
+     * @param null|array{total:int,pending:int,imported:int,duplicate:int,conflict:int} $rowCounts
+     */
+    protected function taskResource(BillTask $task, ?array $rowCounts = null): array
     {
+        $rowCounts = $rowCounts ?? ['total' => 0, 'pending' => 0, 'imported' => 0, 'duplicate' => 0, 'conflict' => 0];
+
         return [
             'type'          => 'bill-tasks',
             'id'            => (string) $task->id,
@@ -115,6 +126,18 @@ trait BillTaskResponse
                 'error_code'                  => $task->error_code,
                 'error_message'               => $task->error_message,
                 'metadata'                    => $this->publicMetadata($task->metadata),
+                // Cheap DB-aggregation counts (see BillStatementRowSummaryService::countsForTasks).
+                // 'pending' is the "候选行数" (rows still waiting to be stored); 'duplicate'/'conflict'
+                // are rows already flagged by the same-source dedup pass. Cross-source match counts
+                // are NOT included here (too expensive to compute per row on a list page) -- fetch
+                // GET /api/v1/bill-tasks/{id}/review for the full cross-source picture.
+                'row_counts'                  => [
+                    'total'     => $rowCounts['total'],
+                    'pending'   => $rowCounts['pending'],
+                    'imported'  => $rowCounts['imported'],
+                    'duplicate' => $rowCounts['duplicate'],
+                    'conflict'  => $rowCounts['conflict'],
+                ],
                 'created_at'                  => optional($task->created_at)->toAtomString(),
                 'updated_at'                  => optional($task->updated_at)->toAtomString(),
             ],

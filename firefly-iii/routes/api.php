@@ -428,11 +428,23 @@ Route::group(
         'as'        => 'api.v1.bill-inbox.',
     ],
     static function (): void {
+        Route::get('summary', ['uses' => 'BillInboxController@summary', 'as' => 'summary']);
         Route::get('settings', ['uses' => 'BillInboxController@settings', 'as' => 'settings']);
         Route::put('settings', ['uses' => 'BillInboxController@updateSettings', 'as' => 'settings.update']);
         Route::post('sync', ['uses' => 'BillInboxController@sync', 'as' => 'sync']);
         Route::post('process', ['uses' => 'BillInboxController@process', 'as' => 'process']);
         Route::post('cleanup-stale', ['uses' => 'BillInboxController@cleanupStale', 'as' => 'cleanup-stale']);
+    }
+);
+
+Route::group(
+    [
+        'namespace' => 'FireflyIII\Api\V1\Controllers\DailyReconciliation',
+        'prefix'    => 'v1/daily-reconciliation',
+        'as'        => 'api.v1.daily-reconciliation.',
+    ],
+    static function (): void {
+        Route::get('summary', ['uses' => 'SummaryController@summary', 'as' => 'summary']);
     }
 );
 
