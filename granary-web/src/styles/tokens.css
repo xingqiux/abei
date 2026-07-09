@@ -1,0 +1,72 @@
+/* 谷仓 Granary · 设计 Token（ui-design-spec.md §2） */
+
+:root {
+  /* 色彩 - dark（默认） */
+  --g-bg: #0a0f1c;
+  --g-surface: #111a2e;
+  --g-surface-2: #1a2745;
+  --g-border: #243356;
+  --g-ink: #e8ebf2;
+  --g-ink-2: #8a94ab;
+  --g-accent: #fca311;
+  --g-accent-ink: #14213d;
+  --g-income: #45c08f;
+  --g-expense: #f07e64;
+  --g-transfer: #7e9bc9;
+  --g-warn: #e8c15a;
+  --g-danger: #e5484d;
+  --g-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 8px 24px rgb(0 0 0 / 0.35);
+
+  /* 侧栏底色，比 bg 略深一档 */
+  --g-sidebar-bg: #0e1526;
+  --g-sidebar-border: #1c2946;
+
+  /* 图表分类色板（6+1） */
+  --g-chart-1: #fca311;
+  --g-chart-2: #45c08f;
+  --g-chart-3: #7e9bc9;
+  --g-chart-4: #d98ba6;
+  --g-chart-5: #a3b36b;
+  --g-chart-6: #c9873b;
+  --g-chart-other: #5c6880;
+
+  /* 字体 */
+  --g-font-ui: 'MiSans', -apple-system, 'PingFang SC', 'HarmonyOS Sans SC', sans-serif;
+  --g-font-num: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  /* misans 子集包内实际声明的数字字重（非标准 400/600） */
+  --g-weight-regular: 330;
+  --g-weight-demibold: 450;
+
+  /* 动效 */
+  --t-fast: 120ms;
+  --t-base: 240ms;
+  --t-slow: 480ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --g-bg: #ececea;
+    --g-surface: #ffffff;
+    --g-surface-2: #f4f4f2;
+    --g-border: #dcdcd8;
+    --g-ink: #14192b;
+    --g-ink-2: #6a7183;
+    --g-accent: #d97e00;
+    --g-accent-ink: #ffffff;
+    --g-income: #17805f;
+    --g-expense: #c05237;
+    --g-transfer: #4e6e8e;
+    --g-warn: #9a7a16;
+    --g-danger: #c4302b;
+    --g-shadow: 0 1px 2px rgb(16 20 40 / 0.06), 0 8px 24px rgb(16 20 40 / 0.1);
+
+    --g-sidebar-bg: #f4f4f2;
+    --g-sidebar-border: #dcdcd8;
+
+    color-scheme: light;
+  }
+}

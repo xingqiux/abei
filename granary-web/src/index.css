@@ -1,0 +1,120 @@
+@import 'tailwindcss';
+
+/* 字体：MiSans（按 unicode-range 切片按需加载）+ JetBrains Mono */
+@import 'misans/lib/Normal/MiSans-Regular.min.css';
+@import 'misans/lib/Normal/MiSans-Demibold.min.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/600.css';
+
+@import './styles/tokens.css';
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--g-bg);
+  background-image: radial-gradient(600px at 85% -10%, rgb(252 163 17 / 0.07), transparent 70%);
+  background-attachment: fixed;
+  color: var(--g-ink);
+  font-family: var(--g-font-ui);
+  font-weight: var(--g-weight-regular);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  position: relative;
+}
+
+@media (prefers-color-scheme: light) {
+  body {
+    background-image: radial-gradient(600px at 85% -10%, rgb(217 126 0 / 0.05), transparent 70%);
+  }
+}
+
+/*
+ * 谷物噪点层（规范 §2.4）：内联 SVG feTurbulence 生成，平铺在 body::before。
+ * fractalNoise baseFrequency=0.8 numOctaves=2，深色 4% 透明度用 overlay 混合，
+ * 浅色 3% 透明度用 multiply 混合——避免 normal 混合在中灰噪点上产生"发灰"的雾感。
+ * 只在页面留白处可见：卡片/侧栏等不透明底会完全遮住这一层，因此不影响表格对比度。
+ */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  opacity: 0.04;
+  mix-blend-mode: overlay;
+}
+
+@media (prefers-color-scheme: light) {
+  body::before {
+    opacity: 0.03;
+    mix-blend-mode: multiply;
+  }
+}
+
+/* 内容层必须盖在噪点层（z-index:0）之上 */
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+.font-num {
+  font-family: var(--g-font-num);
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--g-accent) 35%, transparent);
+}
+
+/* 滚动条：细、低调 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--g-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 骨架屏 shimmer */
+@keyframes g-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.g-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--g-surface-2) 25%,
+    color-mix(in srgb, var(--g-surface-2) 60%, var(--g-ink-2) 15%) 50%,
+    var(--g-surface-2) 75%
+  );
+  background-size: 200% 100%;
+  animation: g-shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .g-skeleton {
+    animation: none;
+  }
+}

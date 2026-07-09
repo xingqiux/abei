@@ -1,0 +1,221 @@
+import { useEffect, useMemo, useState } from 'react'
+import type { BillImportResponse, BillTask } from '../../api/schemas'
+import { useBillTaskRows, useImportBillTaskRows } from '../../api/queries'
+import { CategoryChip } from '../../components/granary/CategoryChip'
+import { EmptyState } from '../../components/granary/EmptyState'
+import { Skeleton } from '../../components/granary/Skeleton'
+import { showToast } from '../../store/toastStore'
+import { formatAmount, formatMonthDay } from '../../lib/format'
+import { directionColorVar, directionSign, isRowSelectable, rowBadge } from './billInboxHelpers'
+import { StatusChip } from '../../components/granary/StatusChip'
+import { ImportConfirmDialog } from './ImportConfirmDialog'
+import { IgnoreConfirmDialog } from './IgnoreConfirmDialog'
+
+const PAGE_SIZE = 50
+
+export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored: () => void }) {
+  const rowsQuery = useBillTaskRows(task.id, 'pending')
+  const rows = useMemo(() => rowsQuery.data?.data ?? [], [rowsQuery.data])
+
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [dryRun, setDryRun] = useState<BillImportResponse | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [ignoreOpen, setIgnoreOpen] = useState(false)
+
+  const eligibleIds = useMemo(() => rows.filter(isRowSelectable).map((r) => r.id), [rows])
+
+  // 行数据到位后默认全选可入账行；task 切换（rows 引用变化）时重置
+  useEffect(() => {
+    setSelected(new Set(eligibleIds))
+    setVisibleCount(PAGE_SIZE)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowsQuery.data])
+
+  const importMutation = useImportBillTaskRows()
+
+  const allEligibleSelected = eligibleIds.length > 0 && eligibleIds.every((id) => selected.has(id))
+  const someEligibleSelected = eligibleIds.some((id) => selected.has(id))
+
+  function toggleRow(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleAll() {
+    setSelected(allEligibleSelected ? new Set() : new Set(eligibleIds))
+  }
+
+  async function handleImportClick() {
+    if (selected.size === 0) return
+    try {
+      const res = await importMutation.mutateAsync({ taskId: task.id, rowIds: Array.from(selected), confirm: false })
+      setDryRun(res)
+      setConfirmOpen(true)
+    } catch {
+      showToast({ message: '干跑请求失败，请重试', kind: 'error' })
+    }
+  }
+
+  async function handleConfirmImport() {
+    try {
+      const res = await importMutation.mutateAsync({ taskId: task.id, rowIds: Array.from(selected), confirm: true })
+      setConfirmOpen(false)
+      setDryRun(null)
+      showToast({ message: `已入账 ${res.summary.imported} 笔`, kind: 'success' })
+    } catch {
+      showToast({ message: '入账失败，请重试', kind: 'error' })
+    }
+  }
+
+  const visibleRows = rows.slice(0, visibleCount)
+  const canLoadMore = visibleCount < rows.length
+
+  return (
+    <div
+      className="mx-2 mb-1 flex flex-col gap-3 rounded-[10px] p-3"
+      style={{ background: 'var(--g-bg)', border: '1px solid var(--g-border)' }}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-[12.5px]" style={{ color: 'var(--g-ink-2)' }}>
+          已选 <span className="font-num" style={{ color: 'var(--g-ink)' }}>{selected.size}</span> / 可入账 {eligibleIds.length} 笔
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIgnoreOpen(true)}
+            className="rounded-[6px] px-2.5 py-1 text-[12px]"
+            style={{ background: 'transparent', color: 'var(--g-danger)' }}
+          >
+            忽略此任务
+          </button>
+          <button
+            type="button"
+            disabled={selected.size === 0 || importMutation.isPending}
+            onClick={handleImportClick}
+            className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
+            style={{ background: 'var(--g-accent)', color: 'var(--g-accent-ink)', fontWeight: 'var(--g-weight-demibold)' }}
+          >
+            {importMutation.isPending ? '处理中…' : `入账 ${selected.size} 笔`}
+          </button>
+        </div>
+      </div>
+
+      {rowsQuery.isLoading ? (
+        <div className="flex flex-col gap-1">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-8" />
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
+        <EmptyState icon="✅" message="该任务没有待处理的流水" />
+      ) : (
+        <div className="overflow-x-auto">
+          <div className="min-w-[720px]">
+            <div
+              className="flex h-7 items-center gap-2 px-2 text-[11px]"
+              style={{ color: 'var(--g-ink-2)', borderBottom: '1px solid var(--g-border)' }}
+            >
+              <input
+                type="checkbox"
+                aria-label="全选可入账行"
+                checked={allEligibleSelected}
+                ref={(el) => {
+                  if (el) el.indeterminate = !allEligibleSelected && someEligibleSelected
+                }}
+                onChange={toggleAll}
+                className="shrink-0"
+              />
+              <span className="w-[48px] shrink-0">日期</span>
+              <span className="min-w-0 flex-1">描述</span>
+              <span className="w-[80px] shrink-0">分类</span>
+              <span className="w-[180px] shrink-0">账户流向</span>
+              <span className="w-[110px] shrink-0 text-right">金额</span>
+              <span className="w-[64px] shrink-0 text-right">状态</span>
+            </div>
+
+            <div className="flex flex-col">
+              {visibleRows.map((row) => {
+                const a = row.attributes
+                const selectable = isRowSelectable(row)
+                const badge = rowBadge(row)
+                return (
+                  <div
+                    key={row.id}
+                    className="flex h-8 items-center gap-2 rounded-[4px] px-2 text-[12.5px] transition-colors hover:bg-[var(--g-surface-2)]"
+                  >
+                    <input
+                      type="checkbox"
+                      aria-label="选择此行"
+                      disabled={!selectable}
+                      checked={selected.has(row.id)}
+                      onChange={() => toggleRow(row.id)}
+                      className="shrink-0 disabled:opacity-30"
+                    />
+                    <span className="font-num w-[48px] shrink-0" style={{ color: 'var(--g-ink-2)' }}>
+                      {formatMonthDay(a.occurred_at)}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate" style={{ color: 'var(--g-ink)' }}>
+                      {a.firefly_description || a.counterparty || '--'}
+                    </span>
+                    <span className="w-[80px] shrink-0">
+                      {a.category_name ? <CategoryChip label={a.category_name} /> : null}
+                    </span>
+                    <span className="w-[180px] shrink-0 truncate text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>
+                      {a.source_name ?? '?'} → {a.destination_name ?? '?'}
+                    </span>
+                    <span className="font-num w-[110px] shrink-0 text-right" style={{ color: directionColorVar(a.direction) }}>
+                      {directionSign(a.direction)}¥{formatAmount(a.amount)}
+                    </span>
+                    <span className="w-[64px] shrink-0 text-right">
+                      {badge && <StatusChip label={badge.label} kind={badge.kind} />}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {canLoadMore && (
+        <div className="flex justify-center pt-1">
+          <button
+            type="button"
+            onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+            className="rounded-[6px] px-3 py-1.5 text-[12.5px]"
+            style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)' }}
+          >
+            加载更多（{rows.length - visibleCount} 条剩余）
+          </button>
+        </div>
+      )}
+
+      <ImportConfirmDialog
+        open={confirmOpen}
+        task={task}
+        dryRun={dryRun}
+        pending={importMutation.isPending}
+        onCancel={() => {
+          setConfirmOpen(false)
+          setDryRun(null)
+        }}
+        onConfirm={handleConfirmImport}
+      />
+
+      <IgnoreConfirmDialog
+        open={ignoreOpen}
+        task={task}
+        onCancel={() => setIgnoreOpen(false)}
+        onIgnored={() => {
+          setIgnoreOpen(false)
+          onIgnored()
+        }}
+      />
+    </div>
+  )
+}

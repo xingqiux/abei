@@ -1,0 +1,385 @@
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { useNavigate } from '@tanstack/react-router'
+import gsap from 'gsap'
+import { Plus, Search, type LucideIcon } from 'lucide-react'
+import { useCommandPaletteStore } from '../../store/commandPaletteStore'
+import { useRecordTxStore } from '../../store/recordTxStore'
+import { useSearchTransactions } from '../../api/queries'
+import { NAV_ITEMS } from '../../routes/navItems'
+import { fuzzyMatch } from '../../lib/fuzzyMatch'
+import { formatDateTime } from '../../lib/format'
+import type { TransactionKind } from '../../lib/format'
+import { MoneyText } from '../../components/granary/MoneyText'
+import { LottieIcon } from '../../components/granary/LottieIcon'
+import { prefersReducedMotion } from '../../motion/reducedMotion'
+
+const RECORD_KEYWORDS = ['记一笔', '记账', '新增交易', 'record', 'add', '+']
+
+interface ActionItem {
+  key: 'action'
+  id: string
+  label: string
+  icon: LucideIcon
+  run: () => void
+}
+
+interface NavPaletteItem {
+  key: 'nav'
+  id: string
+  label: string
+  icon: LucideIcon
+  run: () => void
+}
+
+interface SearchPaletteItem {
+  key: 'search'
+  id: string
+  description: string
+  date: string
+  amount: string
+  symbol: string
+  txKind: TransactionKind
+  run: () => void
+}
+
+type PaletteItem = ActionItem | NavPaletteItem | SearchPaletteItem
+
+/**
+ * 全局命令面板（Cmd+K）：搜索交易 / 跳页 / 快捷记账三合一（规范 §5/§6）。
+ * 触发：Cmd+K、Ctrl+K（随时可切换）、`/`（仅在未聚焦输入控件且面板未打开时）、顶栏搜索框点击。
+ */
+export function CommandPalette() {
+  const open = useCommandPaletteStore((s) => s.open)
+  const openPalette = useCommandPaletteStore((s) => s.openPalette)
+  const closePalette = useCommandPaletteStore((s) => s.close)
+  const toggle = useCommandPaletteStore((s) => s.toggle)
+  const openRecordForm = useRecordTxStore((s) => s.openForm)
+  const navigate = useNavigate()
+
+  const [query, setQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [activeIndex, setActiveIndex] = useState(0)
+
+  const cardRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+
+  function close() {
+    closePalette()
+  }
+
+  // 全局触发键：Cmd+K/Ctrl+K 随时可切换开关；`/` 只在未聚焦输入控件且面板尚未打开时打开。
+  useEffect(() => {
+    function onKeyDown(e: globalThis.KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        toggle()
+        return
+      }
+      if (e.key === '/' && !open) {
+        const target = e.target as HTMLElement | null
+        if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return
+        if (target?.isContentEditable) return
+        e.preventDefault()
+        openPalette()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [open, openPalette, toggle])
+
+  // 每次打开都重置查询态并自动聚焦输入框
+  useEffect(() => {
+    if (!open) return
+    setQuery('')
+    setDebouncedQuery('')
+    setActiveIndex(0)
+    requestAnimationFrame(() => inputRef.current?.focus())
+  }, [open])
+
+  // 搜索交易 300ms 防抖（规范 §5.c）
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedQuery(query), 300)
+    return () => window.clearTimeout(t)
+  }, [query])
+
+  const trimmedDebounced = debouncedQuery.trim()
+  const searchEnabled = open && trimmedDebounced.length >= 2
+  const searchQuery = useSearchTransactions(trimmedDebounced, { enabled: searchEnabled })
+  const isSearchLoading = searchEnabled && searchQuery.isFetching
+
+  // 入场动效：surface 底、阴影+1px 描边、240ms 入场（规范 §5/§6），尊重 reduced-motion
+  useLayoutEffect(() => {
+    if (!open) return
+    const el = cardRef.current
+    if (!el || prefersReducedMotion()) return
+    gsap.fromTo(
+      el,
+      { opacity: 0, y: -8, scale: 0.98 },
+      { opacity: 1, y: 0, scale: 1, duration: 0.24, ease: 'power3.out' },
+    )
+  }, [open])
+
+  const actionItems = useMemo<ActionItem[]>(() => {
+    const matches = !query.trim() || RECORD_KEYWORDS.some((k) => fuzzyMatch(query, k))
+    if (!matches) return []
+    return [
+      {
+        key: 'action',
+        id: 'action-record',
+        label: '记一笔',
+        icon: Plus,
+        run: () => {
+          close()
+          openRecordForm()
+        },
+      },
+    ]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, openRecordForm])
+
+  const navPaletteItems = useMemo<NavPaletteItem[]>(() => {
+    return NAV_ITEMS.filter((item) => fuzzyMatch(query, item.label)).map((item) => ({
+      key: 'nav' as const,
+      id: `nav-${item.to}`,
+      label: item.label,
+      icon: item.icon,
+      run: () => {
+        close()
+        navigate({ to: item.to })
+      },
+    }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, navigate])
+
+  const searchItems = useMemo<SearchPaletteItem[]>(() => {
+    if (!searchEnabled) return []
+    const groups = searchQuery.data?.data ?? []
+    const items: SearchPaletteItem[] = []
+    for (const group of groups) {
+      group.attributes.transactions.forEach((split, idx) => {
+        items.push({
+          key: 'search',
+          id: `search-${group.id}-${idx}`,
+          description: split.description,
+          date: split.date,
+          amount: split.amount,
+          symbol: split.currency_symbol,
+          txKind: split.type,
+          run: () => {
+            close()
+            navigate({ to: '/transactions' })
+          },
+        })
+      })
+    }
+    return items
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchEnabled, searchQuery.data, navigate])
+
+  const flatItems = useMemo<PaletteItem[]>(
+    () => [...actionItems, ...navPaletteItems, ...searchItems],
+    [actionItems, navPaletteItems, searchItems],
+  )
+  const indexById = useMemo(() => {
+    const m = new Map<string, number>()
+    flatItems.forEach((item, i) => m.set(item.id, i))
+    return m
+  }, [flatItems])
+
+  // 列表随查询变化时把高亮索引夹回有效范围
+  useEffect(() => {
+    setActiveIndex((prev) => (flatItems.length === 0 ? 0 : Math.min(prev, flatItems.length - 1)))
+  }, [flatItems.length])
+
+  useEffect(() => {
+    if (!open) return
+    const el = listRef.current?.querySelector(`[data-index="${activeIndex}"]`)
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [activeIndex, open])
+
+  function handleInputKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActiveIndex((prev) => (flatItems.length === 0 ? 0 : (prev + 1) % flatItems.length))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActiveIndex((prev) => (flatItems.length === 0 ? 0 : (prev - 1 + flatItems.length) % flatItems.length))
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      flatItems[activeIndex]?.run()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      close()
+    }
+  }
+
+  if (!open) return null
+
+  const showSearchSection = searchEnabled && (isSearchLoading || searchItems.length > 0)
+  const showNoResults = query.trim() !== '' && flatItems.length === 0 && !isSearchLoading
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[300] flex justify-center p-4"
+      style={{ background: 'rgb(0 0 0 / 0.5)', paddingTop: '25vh' }}
+      onClick={close}
+      role="presentation"
+    >
+      <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="命令面板"
+        onClick={(e) => e.stopPropagation()}
+        className="flex h-fit max-h-[60vh] w-full flex-col rounded-[10px]"
+        style={{
+          maxWidth: 560,
+          background: 'var(--g-surface)',
+          boxShadow: 'var(--g-shadow)',
+          border: '1px solid var(--g-border)',
+        }}
+      >
+        <div className="flex items-center gap-2 px-3.5 py-3" style={{ borderBottom: '1px solid var(--g-border)' }}>
+          <Search aria-hidden size={16} color="var(--g-ink-2)" />
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleInputKeyDown}
+            placeholder="搜索交易、跳转页面、记一笔…"
+            aria-label="命令面板搜索"
+            className="w-full bg-transparent text-[14px] outline-none"
+            style={{ color: 'var(--g-ink)' }}
+          />
+          <kbd
+            className="font-num shrink-0 rounded-[4px] px-1.5 text-[10px]"
+            style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink-2)', border: '1px solid var(--g-border)' }}
+          >
+            Esc
+          </kbd>
+        </div>
+
+        <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1.5">
+          {actionItems.length > 0 && (
+            <PaletteSection label="动作">
+              {actionItems.map((item) => (
+                <PaletteRow
+                  key={item.id}
+                  icon={item.icon}
+                  label={item.label}
+                  index={indexById.get(item.id) ?? 0}
+                  active={indexById.get(item.id) === activeIndex}
+                  onSelect={item.run}
+                  onHover={() => setActiveIndex(indexById.get(item.id) ?? 0)}
+                />
+              ))}
+            </PaletteSection>
+          )}
+
+          {navPaletteItems.length > 0 && (
+            <PaletteSection label="跳转">
+              {navPaletteItems.map((item) => (
+                <PaletteRow
+                  key={item.id}
+                  icon={item.icon}
+                  label={item.label}
+                  index={indexById.get(item.id) ?? 0}
+                  active={indexById.get(item.id) === activeIndex}
+                  onSelect={item.run}
+                  onHover={() => setActiveIndex(indexById.get(item.id) ?? 0)}
+                />
+              ))}
+            </PaletteSection>
+          )}
+
+          {showSearchSection && (
+            <PaletteSection label="搜索交易" loading={isSearchLoading}>
+              {searchItems.map((item) => {
+                const idx = indexById.get(item.id) ?? 0
+                const active = idx === activeIndex
+                return (
+                  <div
+                    key={item.id}
+                    data-index={idx}
+                    role="option"
+                    aria-selected={active}
+                    onMouseEnter={() => setActiveIndex(idx)}
+                    onClick={item.run}
+                    className="mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-[6px] px-2.5 py-1.5"
+                    style={{ background: active ? 'var(--g-surface-2)' : 'transparent' }}
+                  >
+                    <Search aria-hidden size={14} color="var(--g-ink-2)" className="shrink-0" />
+                    <div className="min-w-0 flex-1 truncate text-[12.5px]" style={{ color: 'var(--g-ink)' }}>
+                      {item.description}
+                    </div>
+                    <div className="font-num shrink-0 text-[11px]" style={{ color: 'var(--g-ink-2)' }}>
+                      {formatDateTime(item.date)}
+                    </div>
+                    <MoneyText className="shrink-0 text-[12.5px]" value={item.amount} kind={item.txKind} symbol={item.symbol} />
+                  </div>
+                )
+              })}
+            </PaletteSection>
+          )}
+
+          {showNoResults && (
+            <div className="px-4 py-6 text-center text-[12.5px]" style={{ color: 'var(--g-ink-2)' }}>
+              没有匹配结果
+            </div>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+function PaletteSection({ label, loading, children }: { label: string; loading?: boolean; children: ReactNode }) {
+  return (
+    <div className="py-1">
+      <div
+        className="flex items-center gap-1.5 px-4 py-1 text-[10.5px] uppercase"
+        style={{ color: 'var(--g-ink-2)', letterSpacing: '.06em' }}
+      >
+        {label}
+        {loading && <LottieIcon kind="loading" size={12} />}
+      </div>
+      <div className="flex flex-col gap-0.5">{children}</div>
+    </div>
+  )
+}
+
+function PaletteRow({
+  icon: Icon,
+  label,
+  index,
+  active,
+  onSelect,
+  onHover,
+}: {
+  icon: LucideIcon
+  label: string
+  index: number
+  active: boolean
+  onSelect: () => void
+  onHover: () => void
+}) {
+  return (
+    <div
+      data-index={index}
+      role="option"
+      aria-selected={active}
+      onMouseEnter={onHover}
+      onClick={onSelect}
+      className="mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-[6px] px-2.5 py-1.5"
+      style={{ background: active ? 'var(--g-surface-2)' : 'transparent' }}
+    >
+      <Icon aria-hidden size={15} color={active ? 'var(--g-ink)' : 'var(--g-ink-2)'} />
+      <span className="text-[12.5px]" style={{ color: 'var(--g-ink)' }}>
+        {label}
+      </span>
+    </div>
+  )
+}
