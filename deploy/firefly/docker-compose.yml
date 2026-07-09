@@ -20,6 +20,17 @@ services:
       timeout: 5s
       retries: 5
 
+  # 谷仓 Granary 新前端：纯静态 nginx，/api 与 /oauth 同域反代到 app（见 granary-web/nginx.conf）。
+  # 反代域名建议指到这个端口；旧界面 app 保留原端口作过渡期兜底。
+  granary-web:
+    image: ${GRANARY_WEB_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${GRANARY_WEB_PORT:-18002}:80"
+
   cron:
     image: ${FIREFLY_IMAGE}
     restart: unless-stopped

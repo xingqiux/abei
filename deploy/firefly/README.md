@@ -162,3 +162,38 @@ docker compose exec app php artisan upgrade:600-pgsql-sequences
 docker compose pull
 docker compose up -d
 ```
+
+## 谷仓 Granary 新前端（granary-web）
+
+新前端是纯静态 nginx 镜像，构建期**不注入任何令牌**（运行时由 TokenGate 保存到浏览器 localStorage）。
+
+### 构建推送
+
+```bash
+cd /Users/youla/proj/firefly-ai-accounting/granary-web
+docker buildx build --platform linux/amd64 \
+  --build-arg VITE_LEGACY_URL=https://firefly.xkqq.top \
+  -t docker.xkqq.top/firefly/granary-web:latest \
+  --push .
+```
+
+（`VITE_LEGACY_URL` 只影响设置页"旧版界面"链接，非敏感信息，可省略。）
+
+### 服务器配置
+
+`.env` 追加：
+
+```text
+GRANARY_WEB_IMAGE=docker.xkqq.top/firefly/granary-web:latest
+GRANARY_WEB_PORT=18002
+```
+
+`docker compose up -d granary-web` 后，反向代理把新域名（如 granary.xkqq.top）指向 `127.0.0.1:18002`。
+`/api` 与 `/oauth` 由容器内 nginx 同域反代到 `app` 服务，浏览器无跨域问题；
+旧界面 `firefly.xkqq.top` → `18001` 保留为过渡期兜底。
+
+### 首次打开
+
+页面会显示令牌设置页（TokenGate）：在旧界面 个人资料 → OAuth → 个人访问令牌 创建一个 PAT，
+粘贴保存即可（存 localStorage，仅本浏览器）。更换令牌：谷仓 设置 → 关于 → 更换 API 令牌。
+回滚：`.env` 里 `GRANARY_WEB_IMAGE` 改回旧 tag 后 `docker compose up -d granary-web`。
