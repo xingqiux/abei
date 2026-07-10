@@ -15,6 +15,8 @@ import {
   billTaskItemResponseSchema,
   billTasksResponseSchema,
   billsResponseSchema,
+  budgetItemResponseSchema,
+  budgetLimitItemResponseSchema,
   budgetLimitsResponseSchema,
   budgetsResponseSchema,
   categoriesResponseSchema,
@@ -41,6 +43,8 @@ import {
   type BillTaskItemResponse,
   type BillTasksResponse,
   type BillsResponse,
+  type BudgetItemResponse,
+  type BudgetLimitItemResponse,
   type BudgetLimitsResponse,
   type BudgetsResponse,
   type CategoriesResponse,
@@ -417,7 +421,7 @@ export async function getTransaction(groupId: string): Promise<TransactionDetail
 export interface UpdateTransactionInput {
   /** 拆分 journal id（string/number 均可，后端 numeric） */
   transaction_journal_id: string
-  type?: CreateTransactionType
+  type?: CreateTransactionType | string
   date?: string
   amount?: string
   description?: string
@@ -428,6 +432,8 @@ export interface UpdateTransactionInput {
   category_name?: string
   tags?: string[]
   notes?: string
+  /** 对账方案 b：PUT 置位 transactions.reconciled（2026-07-10 实测生效） */
+  reconciled?: boolean
 }
 
 /**
@@ -444,7 +450,7 @@ export async function updateTransaction(
     transaction_journal_id: input.transaction_journal_id,
   }
   if (input.type) tx.type = input.type
-  if (input.date) tx.date = `${input.date}T00:00:00+08:00`
+  if (input.date) tx.date = input.date.includes('T') ? input.date : `${input.date}T00:00:00+08:00`
   if (input.amount) tx.amount = input.amount
   if (input.description !== undefined) tx.description = input.description
   if (input.source_id) tx.source_id = input.source_id
@@ -454,11 +460,87 @@ export async function updateTransaction(
   if (input.category_name !== undefined) tx.category_name = input.category_name
   if (input.tags) tx.tags = input.tags
   if (input.notes !== undefined) tx.notes = input.notes
+  if (input.reconciled !== undefined) tx.reconciled = input.reconciled
 
   const raw = await fireflyPut(`/api/v1/transactions/${groupId}`, {
     transactions: [tx],
   })
   return transactionDetailResponseSchema.parse(raw)
+}
+
+/**
+ * 对账方案 b：GET 整组后 PUT 各 split 的 reconciled。
+ * 2026-07-10 实测 ¥0.01 自建交易 PUT reconciled:true 可置位，随后 GET 仍为 true。
+ */
+export async function setTransactionGroupReconciled(
+  groupId: string,
+  reconciled: boolean,
+): Promise<TransactionDetailResponse> {
+  const detail = await getTransaction(groupId)
+  const splits = detail.data.attributes.transactions
+  const body = {
+    transactions: splits.map((s) => {
+      const tx: Record<string, unknown> = {
+        transaction_journal_id: String(s.transaction_journal_id ?? ''),
+        type: s.type,
+        date: s.date,
+        amount: String(Math.abs(Number(s.amount))),
+        description: s.description,
+        reconciled,
+      }
+      if (s.source_id != null && s.source_id !== '') tx.source_id = String(s.source_id)
+      else if (s.source_name) tx.source_name = s.source_name
+      if (s.destination_id != null && s.destination_id !== '') tx.destination_id = String(s.destination_id)
+      else if (s.destination_name) tx.destination_name = s.destination_name
+      return tx
+    }),
+  }
+  const raw = await fireflyPut(`/api/v1/transactions/${groupId}`, body)
+  return transactionDetailResponseSchema.parse(raw)
+}
+
+/**
+ * 将某日全部普通交易标记为已对账（方案 b 批量）。
+ * 跳过 reconciliation 类型；逐 group PUT。
+ */
+export async function markDayTransactionsReconciled(date: string): Promise<{ total: number; updated: number }> {
+  const list = await getTransactions({ start: date, end: date }, { limit: 200, page: 1, type: 'all' })
+  let updated = 0
+  for (const g of list.data) {
+    const first = g.attributes.transactions[0]
+    if (!first) continue
+    if (first.type === 'reconciliation' || first.type === 'opening balance') continue
+    await setTransactionGroupReconciled(g.id, true)
+    updated += 1
+  }
+  return { total: list.data.length, updated }
+}
+
+/**
+ * 生成对账调整交易（type=reconciliation）。
+ * 实测 source_id=资产账户时后端自动挂 Reconciliation 账户为对方。
+ */
+export async function createReconciliationAdjustment(input: {
+  date: string
+  amount: string
+  source_id: string
+  description?: string
+}): Promise<TransactionDetailResponse> {
+  const raw = await fireflyPost('/api/v1/transactions', {
+    error_if_duplicate_hash: false,
+    transactions: [
+      {
+        type: 'reconciliation',
+        date: `${input.date}T12:00:00+08:00`,
+        amount: input.amount,
+        description: input.description ?? `对账调整 ${input.date}`,
+        source_id: input.source_id,
+        destination_id: input.source_id,
+        reconciled: true,
+      },
+    ],
+  })
+  return transactionCreateResponseSchema.parse(raw)
 }
 
 /**
@@ -485,6 +567,53 @@ export async function getBudgetLimits(budgetId: string, range: DateRange): Promi
     end: range.end,
   })
   return budgetLimitsResponseSchema.parse(raw)
+}
+
+/** POST /api/v1/budgets —— 创建预算（name 必填） */
+export async function createBudget(input: { name: string; active?: boolean }): Promise<BudgetItemResponse> {
+  const raw = await fireflyPost('/api/v1/budgets', {
+    name: input.name.trim(),
+    active: input.active ?? true,
+  })
+  return budgetItemResponseSchema.parse(raw)
+}
+
+/** PUT /api/v1/budgets/{id} */
+export async function updateBudget(
+  budgetId: string,
+  input: { name?: string; active?: boolean },
+): Promise<BudgetItemResponse> {
+  const body: Record<string, unknown> = {}
+  if (input.name !== undefined) body.name = input.name.trim()
+  if (input.active !== undefined) body.active = input.active
+  const raw = await fireflyPut(`/api/v1/budgets/${budgetId}`, body)
+  return budgetItemResponseSchema.parse(raw)
+}
+
+/** POST /api/v1/budgets/{id}/limits —— 为日期范围设限额 */
+export async function createBudgetLimit(
+  budgetId: string,
+  input: { start: string; end: string; amount: string },
+): Promise<BudgetLimitItemResponse> {
+  const raw = await fireflyPost(`/api/v1/budgets/${budgetId}/limits`, {
+    start: input.start,
+    end: input.end,
+    amount: input.amount,
+  })
+  return budgetLimitItemResponseSchema.parse(raw)
+}
+
+/** PUT /api/v1/budgets/{id}/limits/{limitId} —— 调整限额金额 */
+export async function updateBudgetLimit(
+  budgetId: string,
+  limitId: string,
+  input: { amount: string; start?: string; end?: string },
+): Promise<BudgetLimitItemResponse> {
+  const body: Record<string, unknown> = { amount: input.amount }
+  if (input.start) body.start = input.start
+  if (input.end) body.end = input.end
+  const raw = await fireflyPut(`/api/v1/budgets/${budgetId}/limits/${limitId}`, body)
+  return budgetLimitItemResponseSchema.parse(raw)
 }
 
 /** GET /api/v1/bills（预算与订阅页「订阅」tab，只读展示不分页——订阅数量通常较少） */

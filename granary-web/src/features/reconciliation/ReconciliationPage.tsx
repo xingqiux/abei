@@ -1,13 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useReconciliationSummary, useTransactions } from '../../api/queries'
+import {
+  useAssetAccounts,
+  useCreateReconciliationAdjustment,
+  useMarkDayReconciled,
+  useReconciliationSummary,
+  useTransactions,
+} from '../../api/queries'
 import { CalendarStrip } from './CalendarStrip'
 import { TransactionRow } from '../../components/granary/TransactionRow'
 import { Skeleton } from '../../components/granary/Skeleton'
 import { EmptyState } from '../../components/granary/EmptyState'
 import { CelebrateOverlay } from '../../components/granary/CelebrateOverlay'
+import { Modal } from '../../components/granary/Modal'
 import emptyWalletUrl from '../../assets/lottie/empty-wallet.json?url'
 import { formatAmount, formatMonthDay } from '../../lib/format'
 import { useStaggerIn } from '../../motion/useStaggerIn'
+import { showToast } from '../../store/toastStore'
+import { FireflyApiError } from '../../api/client'
 
 const DAYS_WINDOW = 30
 
@@ -28,14 +37,19 @@ export function ReconciliationPage() {
   const summaryQuery = useReconciliationSummary(DAYS_WINDOW)
   const [selected, setSelected] = useState<string | null>(null)
   const [celebrating, setCelebrating] = useState(false)
+  const [adjOpen, setAdjOpen] = useState(false)
+  const [adjAmount, setAdjAmount] = useState('')
+  const [adjAccountId, setAdjAccountId] = useState('')
 
-  // 接口按倒序（今天在前）返回；日历带按时间正序（旧→新）展示更贴近日历直觉
+  const markDay = useMarkDayReconciled()
+  const createAdj = useCreateReconciliationAdjustment()
+  const accountsQuery = useAssetAccounts()
+
   const chronoDays = useMemo(() => {
     const days = summaryQuery.data?.days ?? []
     return [...days].sort((a, b) => a.date.localeCompare(b.date))
   }, [summaryQuery.data])
 
-  // 默认选中最近一个有交易的日子；若都没有交易则选窗口内最后一天（今天）
   useEffect(() => {
     if (selected || chronoDays.length === 0) return
     const lastWithTx = [...chronoDays].reverse().find((d) => d.tx_count > 0)
@@ -80,6 +94,54 @@ export function ReconciliationPage() {
 
   const diffAmount = selectedDay?.diff_amount ? Number(selectedDay.diff_amount) : 0
   const hasDiff = !!selectedDay?.diff_amount && diffAmount !== 0
+  const canMark =
+    !!selectedDay && selectedDay.tx_count > 0 && (selectedDay.status === 'pending' || selectedDay.status === 'diff')
+
+  useEffect(() => {
+    if (!adjOpen) return
+    if (selectedDay?.diff_amount) setAdjAmount(String(Math.abs(Number(selectedDay.diff_amount))))
+    else setAdjAmount('')
+    const first = accountsQuery.data?.[0]?.id ?? ''
+    setAdjAccountId(first)
+  }, [adjOpen, selectedDay, accountsQuery.data])
+
+  async function handleMarkDay() {
+    if (!selectedDay) return
+    try {
+      const res = await markDay.mutateAsync(selectedDay.date)
+      showToast({ message: `已标记 ${res.updated} 笔为已对账`, kind: 'success' })
+      if (res.updated > 0) setCelebrating(true)
+    } catch (err) {
+      const message = err instanceof FireflyApiError ? err.message : '标记失败，请重试'
+      showToast({ message, kind: 'error', duration: 6000 })
+    }
+  }
+
+  async function handleCreateAdj() {
+    if (!selectedDay) return
+    const n = Number(adjAmount)
+    if (!adjAmount.trim() || !Number.isFinite(n) || n <= 0) {
+      showToast({ message: '请输入大于 0 的调整金额', kind: 'error' })
+      return
+    }
+    if (!adjAccountId) {
+      showToast({ message: '请选择资产账户', kind: 'error' })
+      return
+    }
+    try {
+      await createAdj.mutateAsync({
+        date: selectedDay.date,
+        amount: n.toFixed(2),
+        source_id: adjAccountId,
+        description: `对账调整 ${selectedDay.date}`,
+      })
+      setAdjOpen(false)
+      showToast({ message: '已生成调整交易', kind: 'success' })
+    } catch (err) {
+      const message = err instanceof FireflyApiError ? err.message : '创建失败，请重试'
+      showToast({ message, kind: 'error', duration: 6000 })
+    }
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -102,13 +164,40 @@ export function ReconciliationPage() {
 
       {selectedDay && (
         <>
-          <div className="flex items-baseline gap-2">
-            <span className="text-[14px]" style={{ fontWeight: 'var(--g-weight-demibold)', color: 'var(--g-ink)' }}>
-              {formatMonthDay(selectedDay.date)}
-            </span>
-            <span className="text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>
-              {selectedDay.date}
-            </span>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-baseline gap-2">
+              <span className="text-[14px]" style={{ fontWeight: 'var(--g-weight-demibold)', color: 'var(--g-ink)' }}>
+                {formatMonthDay(selectedDay.date)}
+              </span>
+              <span className="text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>
+                {selectedDay.date}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAdjOpen(true)}
+                className="rounded-[6px] px-3 py-1.5 text-[12.5px]"
+                style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)' }}
+              >
+                生成调整交易
+              </button>
+              {canMark && (
+                <button
+                  type="button"
+                  disabled={markDay.isPending}
+                  onClick={() => void handleMarkDay()}
+                  className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
+                  style={{
+                    background: 'var(--g-accent)',
+                    color: 'var(--g-accent-ink)',
+                    fontWeight: 'var(--g-weight-demibold)',
+                  }}
+                >
+                  {markDay.isPending ? '标记中…' : '标记本日已对账'}
+                </button>
+              )}
+            </div>
           </div>
 
           {hasDiff && (
@@ -117,16 +206,12 @@ export function ReconciliationPage() {
               style={{ background: 'var(--g-surface)', borderLeft: '3px solid var(--g-danger)' }}
             >
               <span className="text-[12.5px]" style={{ color: 'var(--g-ink)' }}>
-                该日存在对账差异 <span className="font-num" style={{ color: 'var(--g-danger)' }}>¥{formatAmount(diffAmount)}</span>
+                该日存在对账差异{' '}
+                <span className="font-num" style={{ color: 'var(--g-danger)' }}>
+                  ¥{formatAmount(diffAmount)}
+                </span>
+                （已有 Reconciliation 调整流水）
               </span>
-              <button
-                type="button"
-                disabled
-                className="shrink-0 rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-60"
-                style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink-2)', cursor: 'not-allowed' }}
-              >
-                生成调整交易（待实现）
-              </button>
             </div>
           )}
 
@@ -161,16 +246,69 @@ export function ReconciliationPage() {
         </>
       )}
 
-      <div className="flex justify-center pt-2">
-        <button
-          type="button"
-          onClick={() => setCelebrating(true)}
-          className="rounded-[6px] px-3 py-1.5 text-[12.5px]"
-          style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink-2)', border: 'none', cursor: 'pointer' }}
-        >
-          预览庆祝动效（对账清零时触发）
-        </button>
-      </div>
+      <Modal
+        open={adjOpen}
+        onClose={() => setAdjOpen(false)}
+        title="生成调整交易"
+        width={420}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setAdjOpen(false)}
+              className="rounded-[6px] px-3 py-1.5 text-[12.5px]"
+              style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)' }}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              disabled={createAdj.isPending}
+              onClick={() => void handleCreateAdj()}
+              className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
+              style={{
+                background: 'var(--g-accent)',
+                color: 'var(--g-accent-ink)',
+                fontWeight: 'var(--g-weight-demibold)',
+              }}
+            >
+              {createAdj.isPending ? '创建中…' : '创建'}
+            </button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3 text-[12.5px]">
+          <p style={{ color: 'var(--g-ink-2)' }}>
+            将写入 type=reconciliation 的调整交易，并自动标记 reconciled（方案 b）。对方账户由 Firefly
+            挂到该资产的对账账户。
+          </p>
+          <label className="flex flex-col gap-1">
+            <span style={{ color: 'var(--g-ink-2)' }}>金额</span>
+            <input
+              value={adjAmount}
+              onChange={(e) => setAdjAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+              className="font-num rounded-[6px] px-2.5 py-1.5 outline-none"
+              style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }}
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span style={{ color: 'var(--g-ink-2)' }}>资产账户</span>
+            <select
+              value={adjAccountId}
+              onChange={(e) => setAdjAccountId(e.target.value)}
+              className="rounded-[6px] px-2.5 py-1.5 outline-none"
+              style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }}
+            >
+              {(accountsQuery.data ?? []).map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </Modal>
+
       {celebrating && <CelebrateOverlay onDone={() => setCelebrating(false)} />}
     </div>
   )

@@ -11,8 +11,8 @@
 | transactions | 增删改查、附件、储蓄罐事件 | **部分** | 已接：列表/创建/搜索/编辑/删除/详情 GET；未接：附件 |
 | accounts | 增删改查、账户流水/储蓄罐/附件 | **部分** | 已接：分类型列表、**详情+流水+单账户余额趋势**；未接：写操作、附件 |
 | bill-tasks / bill-statement-rows / bill-inbox / bill-artifacts（自建） | 任务列表/详情/行/审阅/入账/忽略/重试/归档/验证码；行编辑/拆分；邮箱同步/处理/设置；附件下载 | **部分** | 已接：summary、列表、rows、import、ignore、sync、secret、retry、**行 PATCH**；未接：split、settings、artifacts |
-| daily-reconciliation（自建） | 逐日汇总 | **已接** | 标记对账/调整交易依赖 Firefly 原生 reconcile 流（无独立 API，见 §5） |
-| budgets / budget-limits / available-budgets | 增删改查、限额、无预算交易 | **部分** | 已接：只读列表+limits；未接：全部写操作、transactions-without-budget |
+| daily-reconciliation（自建） | 逐日汇总 | **已接读+写** | 写走方案 b：PUT transactions.reconciled + POST type=reconciliation 调整交易 |
+| budgets / budget-limits / available-budgets | 增删改查、限额、无预算交易 | **部分** | 已接：列表+limits、**创建预算/写限额**；未接：available-budgets、without-budget |
 | bills(=subscriptions) | 增删改查、关联交易/规则 | **部分** | 已接只读列表（subscriptions 是 bills 的新别名，同资源） |
 | piggy-banks | 增删改查、事件 | **部分** | 已接只读列表 |
 | categories / tags | 增删改查、关联交易 | **部分** | 已接只读列表（设置页概览） |
@@ -80,9 +80,9 @@
 顶栏日期范围选择器（近7/30 天、本月、上月、自定义）；滚动预设每次 hydrate 按今天重算。
 主题偏好未接。
 
-### 3.7 budgets/available-budgets 写操作 — Web 建预算 · 估级 M
-`POST budgets`、`POST budgets/{id}/limits`、available-budgets CRUD。预算页从只读升级为可建可调，
-超支进度条才有实际意义。`GET budgets/transactions-without-budget` 可做"无预算支出"审阅入口。
+### 3.7 budgets/available-budgets 写操作 — Web 建预算 · 估级 M · **部分完成**
+已接：`POST budgets`、`POST/PUT budgets/{id}/limits`（新建预算 + 当期限额编辑）。
+未接：available-budgets、transactions-without-budget。
 
 ### 3.8 search/transactions/count + search/accounts — 命令面板深化 · 估级 S
 结果计数（"共 42 条，显示前 10"）与账户搜索分区。
@@ -108,15 +108,15 @@ object-groups（分组）、currencies 写/exchange-rates（单币种下暂缓�
 5. ~~bill-statement-rows PATCH → 收件箱行内编辑~~（已完成；split 不同批，见结论）
 6. ~~preferences + 日期范围选择器~~（已完成：granary.date_range + 顶栏选择器）
 7. ~~accounts/{id}/transactions → 账户详情页~~（已完成）
-8. budgets 写操作（M）
+8. ~~budgets 写操作~~（已完成：创建+限额）
 9. search count/accounts + 命令面板深链（S，依赖 2）
 10. insight 扩展 + data/export（S）
+11. ~~对账写（方案 b）~~（已完成）
 
-## 5. 特别说明：对账写操作
-"标记已对账/生成调整交易"没有独立 API——Firefly 原生对账是 Web 流程
-（`/accounts/{id}/reconcile` 提交，写 `transactions.reconciled` 并生成 Reconciliation 交易）。
-接入方案二选一：a) 在 firefly-iii 补一个自建端点包装该 service（延续阶段 0 模式，推荐）；
-b) granary-web 直调交易 PUT 把 reconciled 置位（PUT transactions 支持 reconciled 字段，需实测）。
+## 5. 特别说明：对账写操作 · **已按方案 b 完成**
+2026-07-10 实测：`PUT /api/v1/transactions/{id}` 带 `reconciled:true` 可置位（¥0.01 自建后删）。
+granary-web：`markDayTransactionsReconciled` 批量 PUT；`createReconciliationAdjustment` POST type=reconciliation。
+未走方案 a（自建端点）。
 
 ## 6. 建议不接入
 

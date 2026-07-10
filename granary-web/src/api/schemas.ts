@@ -35,6 +35,7 @@ export const transactionSplitSchema = z
     destination_id: z.union([z.string(), z.number()]).nullable().optional(),
     tags: z.array(z.string()).nullable().optional(),
     notes: z.string().nullable().optional(),
+    reconciled: z.boolean().optional(),
   })
   .passthrough()
 
@@ -498,6 +499,22 @@ export const budgetLimitsResponseSchema = z
 
 export type BudgetLimit = z.infer<typeof budgetLimitSchema>
 export type BudgetLimitsResponse = z.infer<typeof budgetLimitsResponseSchema>
+
+/** POST/PUT budgets 与 budget-limits 的 Item 响应 */
+export const budgetItemResponseSchema = z
+  .object({
+    data: budgetSchema,
+  })
+  .passthrough()
+
+export const budgetLimitItemResponseSchema = z
+  .object({
+    data: budgetLimitSchema,
+  })
+  .passthrough()
+
+export type BudgetItemResponse = z.infer<typeof budgetItemResponseSchema>
+export type BudgetLimitItemResponse = z.infer<typeof budgetLimitItemResponseSchema>
 
 /**
  * GET /api/v1/bills（预算与订阅页「订阅」tab）。

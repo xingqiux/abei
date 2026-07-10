@@ -24,9 +24,13 @@ import {
   getBillTaskRows,
   getBillTasks,
   getBills,
+  createBudget,
+  createBudgetLimit,
+  createReconciliationAdjustment,
   getBudgetLimits,
   getBudgets,
   getCategories,
+  markDayTransactionsReconciled,
   getCurrencies,
   getExpenseByAsset,
   getExpenseByCategory,
@@ -46,6 +50,8 @@ import {
   submitBillTaskSecret,
   syncBillInbox,
   updateBillStatementRow,
+  updateBudget,
+  updateBudgetLimit,
   updateTransaction,
   type AccountChartPreselected,
   type AccountOverviewChartOpts,
@@ -334,6 +340,9 @@ function invalidateTransactionCaches(queryClient: ReturnType<typeof useQueryClie
   queryClient.invalidateQueries({ queryKey: ['account-transactions'] })
   queryClient.invalidateQueries({ queryKey: ['account'] })
   queryClient.invalidateQueries({ queryKey: ['accounts'] })
+  queryClient.invalidateQueries({ queryKey: ['reconciliation-summary'] })
+  queryClient.invalidateQueries({ queryKey: ['budgets'] })
+  queryClient.invalidateQueries({ queryKey: ['budget-limits'] })
 }
 
 /** 记一笔表单提交：成功后让交易列表/KPI/分类洞察缓存失效 */
@@ -406,6 +415,79 @@ export function useBudgetLimits(budgetIds: string[], range: DateRange) {
       staleTime: 60_000,
       enabled: ready,
     })),
+  })
+}
+
+function invalidateBudgetCaches(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ['budgets'] })
+  queryClient.invalidateQueries({ queryKey: ['budget-limits'] })
+}
+
+export function useCreateBudget() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { name: string; active?: boolean }) => createBudget(input),
+    onSuccess: () => invalidateBudgetCaches(queryClient),
+  })
+}
+
+export function useUpdateBudget() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ budgetId, input }: { budgetId: string; input: { name?: string; active?: boolean } }) =>
+      updateBudget(budgetId, input),
+    onSuccess: () => invalidateBudgetCaches(queryClient),
+  })
+}
+
+export function useCreateBudgetLimit() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      budgetId,
+      input,
+    }: {
+      budgetId: string
+      input: { start: string; end: string; amount: string }
+    }) => createBudgetLimit(budgetId, input),
+    onSuccess: () => invalidateBudgetCaches(queryClient),
+  })
+}
+
+export function useUpdateBudgetLimit() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      budgetId,
+      limitId,
+      input,
+    }: {
+      budgetId: string
+      limitId: string
+      input: { amount: string; start?: string; end?: string }
+    }) => updateBudgetLimit(budgetId, limitId, input),
+    onSuccess: () => invalidateBudgetCaches(queryClient),
+  })
+}
+
+/** 标记某日全部交易已对账（方案 b） */
+export function useMarkDayReconciled() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (date: string) => markDayTransactionsReconciled(date),
+    onSuccess: () => {
+      invalidateTransactionCaches(queryClient)
+    },
+  })
+}
+
+/** 生成对账调整交易（type=reconciliation） */
+export function useCreateReconciliationAdjustment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { date: string; amount: string; source_id: string; description?: string }) =>
+      createReconciliationAdjustment(input),
+    onSuccess: () => invalidateTransactionCaches(queryClient),
   })
 }
 
