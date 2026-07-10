@@ -5,6 +5,7 @@ import { PageTransition } from './PageTransition'
 import { BottomTabBar } from './BottomTabBar'
 import { MoreSheet } from './MoreSheet'
 import { ToastContainer } from '../granary/Toast'
+import { DateRangePreferenceSync } from '../DateRangePreferenceSync'
 import { RecordTransactionModal } from '../../features/record-transaction/RecordTransactionModal'
 import { CommandPalette } from '../../features/command-palette/CommandPalette'
 
@@ -13,6 +14,7 @@ export function AppShell() {
 
   return (
     <div className="flex h-full w-full">
+      <DateRangePreferenceSync />
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />

@@ -8,6 +8,9 @@ export const TOKEN_STORAGE_KEY = 'granary.token'
 /** 401 时全局广播，TokenGate 监听后弹出令牌页；避免每个查询自己处理未授权。 */
 export const UNAUTHORIZED_EVENT = 'granary:unauthorized'
 
+/** 用户粘贴并保存令牌后广播；DateRangePreferenceSync 等需重新启用依赖令牌的查询。 */
+export const TOKEN_READY_EVENT = 'granary:token-ready'
+
 export function getStoredToken(): string | null {
   try {
     return localStorage.getItem(TOKEN_STORAGE_KEY)

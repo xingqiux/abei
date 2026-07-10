@@ -23,7 +23,7 @@
 | search | transactions / count / accounts | **部分** | 已接 transactions；count 与 accounts 未接 |
 | autocomplete（17 端点） | 账户/分类/标签/币种等补全 | **部分** | 已接：accounts/categories/tags/transactions（记一笔 Combobox）；其余 13 个未接 |
 | attachments | 上传/下载/增删改 | **未接** | 收据凭证场景 |
-| preferences | 用户偏好读写 | **未接** | 日期范围/主题可持久化 |
+| preferences | 用户偏好读写 | **部分** | 已接 `granary.date_range`（顶栏日期范围）；主题等未接 |
 | data/export | 10 类 CSV 导出 | **未接** | |
 | currencies / exchange-rates | 币种启停/主币种/汇率管理 | 部分（只读列表） | 单币种使用为主 |
 | transaction-journals / -links / link-types | 拆分明细、交易关联 | **未接** | |
@@ -39,6 +39,7 @@
 | GET search/transactions | 命令面板搜索 |
 | GET insight/expense/category · expense/asset · income/revenue | 总览/报表条形图 |
 | GET chart/account/overview | 总览账户余额面积线（最多 4 条） |
+| GET/POST preferences（granary.date_range） | 顶栏日期范围持久化 |
 | GET accounts?type= | 账户页、记一笔账户下拉 |
 | GET bill-inbox/summary | 徽标、待办卡、渠道卡 |
 | GET bill-tasks · /{id}/rows · POST /{id}/import · /{id}/ignore · /{id}/secret · /{id}/retry | 收件箱列表/审阅/入账/忽略/验证码/重试 |
@@ -70,8 +71,10 @@
 ### 3.5 accounts/{id}/transactions — 账户详情页 · 估级 M
 点账户进详情：余额趋势（配 3.4）+ 该账户流水（复用交易列表组件）+ 基本信息。
 
-### 3.6 preferences — 偏好持久化 · 估级 S
-把全局日期范围、主题选择存到服务端（跨设备一致）；顺带做日期范围选择器 UI 时一起接。
+### 3.6 preferences — 偏好持久化 · 估级 S · **部分完成**
+已接：`GET/POST preferences` 读写自定义键 `granary.date_range`（preset + start/end）；
+顶栏日期范围选择器（近7/30 天、本月、上月、自定义）；滚动预设每次 hydrate 按今天重算。
+主题偏好未接。
 
 ### 3.7 budgets/available-budgets 写操作 — Web 建预算 · 估级 M
 `POST budgets`、`POST budgets/{id}/limits`、available-budgets CRUD。预算页从只读升级为可建可调，
@@ -99,7 +102,7 @@ object-groups（分组）、currencies 写/exchange-rates（单币种下暂缓�
 3. bill-inbox sync + bill-tasks secret/retry（M，收件箱自动化闭环）
 4. ~~chart/account/overview → 总览余额面积线~~（已完成）
 5. bill-statement-rows PATCH → 收件箱行内编辑（M）
-6. preferences + 日期范围选择器（S，连带修全局交互缺口）
+6. ~~preferences + 日期范围选择器~~（已完成：granary.date_range + 顶栏选择器）
 7. accounts/{id}/transactions → 账户详情页（M，复用任务 4 图表组件）
 8. budgets 写操作（M）
 9. search count/accounts + 命令面板深链（S，依赖 2）

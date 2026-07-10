@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { clearStoredToken, hasActiveToken, setStoredToken, UNAUTHORIZED_EVENT } from '../api/client'
+import {
+  clearStoredToken,
+  hasActiveToken,
+  setStoredToken,
+  TOKEN_READY_EVENT,
+  UNAUTHORIZED_EVENT,
+} from '../api/client'
 
 /** 「更换 API 令牌」按钮广播这个事件，TokenGate 监听后清空并重新弹出，逻辑与 401 拦截共用同一处理器。 */
 export const REQUEST_TOKEN_EVENT = 'granary:request-token'
@@ -52,6 +58,8 @@ export function TokenGate() {
     setError(null)
     setValue('')
     setOpen(false)
+    // 通知依赖令牌的订阅方（日期范围偏好等）重新启用查询。
+    window.dispatchEvent(new CustomEvent(TOKEN_READY_EVENT))
     // 令牌页可能是因 401 弹出的，之前失败的查询需要重新发一遍。
     void queryClient.invalidateQueries()
     void queryClient.refetchQueries()

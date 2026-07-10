@@ -1,4 +1,4 @@
-import { fireflyDelete, fireflyFetch, fireflyPost, fireflyPut } from './client'
+import { FireflyApiError, fireflyDelete, fireflyFetch, fireflyPost, fireflyPut } from './client'
 import {
   accountsResponseSchema,
   aboutResponseSchema,
@@ -50,10 +50,12 @@ import {
   type TransactionDetailResponse,
   accountChartOverviewSchema,
   insightCategoryResponseSchema,
+  preferenceResponseSchema,
   summaryResponseSchema,
   transactionsResponseSchema,
   type AccountChartOverview,
   type InsightCategoryEntry,
+  type PreferenceResponse,
   type SummaryResponse,
   type TransactionsResponse,
 } from './schemas'
@@ -480,6 +482,29 @@ export async function getCurrencies(): Promise<CurrenciesResponse> {
 export async function getAbout(): Promise<AboutResponse> {
   const raw = await fireflyFetch('/api/v1/about', {})
   return aboutResponseSchema.parse(raw)
+}
+
+/**
+ * GET /api/v1/preferences/{name} —— 按名取单条偏好。
+ * 不存在时 Firefly 返回 404，这里映射为 null（新建偏好前的正常状态）。
+ */
+export async function getPreferenceByName(name: string): Promise<PreferenceResponse | null> {
+  try {
+    const raw = await fireflyFetch(`/api/v1/preferences/${encodeURIComponent(name)}`)
+    return preferenceResponseSchema.parse(raw)
+  } catch (err) {
+    if (err instanceof FireflyApiError && err.status === 404) return null
+    throw err
+  }
+}
+
+/**
+ * POST /api/v1/preferences —— Preferences::set 语义，同名则更新（实测 upsert，id 不变）。
+ * body: { name, data }；data 可为对象（如 granary.date_range）。
+ */
+export async function setPreference(name: string, data: unknown): Promise<PreferenceResponse> {
+  const raw = await fireflyPost('/api/v1/preferences', { name, data })
+  return preferenceResponseSchema.parse(raw)
 }
 
 /**

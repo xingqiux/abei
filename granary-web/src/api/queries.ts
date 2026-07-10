@@ -11,6 +11,8 @@ import {
   getAccountsByType,
   getAssetAccounts,
   getBillInboxSummary,
+  getPreferenceByName,
+  setPreference,
   getBillTaskRows,
   getBillTasks,
   getBills,
@@ -383,6 +385,28 @@ export function useAbout() {
     queryKey: ['about'],
     queryFn: () => getAbout(),
     staleTime: 5 * 60_000,
+  })
+}
+
+/** GET preferences/{name}；404 → null。日期范围 hydration 用。 */
+export function usePreference(name: string, opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: ['preference', name],
+    queryFn: () => getPreferenceByName(name),
+    enabled: opts.enabled ?? true,
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+}
+
+/** POST preferences upsert */
+export function useSetPreference() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, data }: { name: string; data: unknown }) => setPreference(name, data),
+    onSuccess: (_res, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['preference', variables.name] })
+    },
   })
 }
 

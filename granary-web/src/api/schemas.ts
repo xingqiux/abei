@@ -726,3 +726,30 @@ export const accountChartOverviewSchema = z.array(accountChartSeriesSchema)
 
 export type AccountChartSeries = z.infer<typeof accountChartSeriesSchema>
 export type AccountChartOverview = z.infer<typeof accountChartOverviewSchema>
+
+/**
+ * GET/POST/PUT /api/v1/preferences[/{name}]
+ * Item 资源；attributes.data 可为任意 JSON（字符串/数字/布尔/数组/对象）。
+ */
+export const preferenceAttributesSchema = z
+  .object({
+    name: z.string(),
+    data: z.unknown(),
+  })
+  .passthrough()
+
+export const preferenceItemSchema = z
+  .object({
+    id: z.string(),
+    attributes: preferenceAttributesSchema,
+  })
+  .passthrough()
+
+export const preferenceResponseSchema = z
+  .object({
+    data: preferenceItemSchema,
+  })
+  .passthrough()
+
+export type PreferenceItem = z.infer<typeof preferenceItemSchema>
+export type PreferenceResponse = z.infer<typeof preferenceResponseSchema>

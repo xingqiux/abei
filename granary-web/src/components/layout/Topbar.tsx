@@ -1,11 +1,9 @@
 import { Search, Plus } from 'lucide-react'
-import { useDateRangeStore } from '../../store/dateRangeStore'
-import { formatMonthDay } from '../../lib/format'
 import { useRecordTxStore } from '../../store/recordTxStore'
 import { useCommandPaletteStore } from '../../store/commandPaletteStore'
+import { DateRangePicker } from '../granary/DateRangePicker'
 
 export function Topbar() {
-  const { start, end } = useDateRangeStore()
   const openRecordForm = useRecordTxStore((s) => s.openForm)
   const openCommandPalette = useCommandPaletteStore((s) => s.openPalette)
 
@@ -14,7 +12,7 @@ export function Topbar() {
       className="flex h-11 shrink-0 items-center gap-3 px-3 md:px-5"
       style={{ borderBottom: '1px solid var(--g-border)' }}
     >
-      {/* 移动端简化版：搜索图标 + 居中日期范围，「+ 记一笔」隐藏（底部 tab 中间已有，规范 §3） */}
+      {/* 移动端：搜索 + 居中日期范围选择器（规范 §3） */}
       <div className="flex w-full items-center md:hidden">
         <button
           type="button"
@@ -25,13 +23,13 @@ export function Topbar() {
         >
           <Search aria-hidden size={14} color="var(--g-ink-2)" />
         </button>
-        <div className="font-num flex-1 text-center text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>
-          {formatMonthDay(start)} → {formatMonthDay(end)}
+        <div className="flex flex-1 justify-center">
+          <DateRangePicker compact />
         </div>
         <div className="w-7 shrink-0" aria-hidden />
       </div>
 
-      {/* 桌面版：完整搜索框 + 日期范围 + 「+ 记一笔」（规范 §3） */}
+      {/* 桌面版：搜索框 + 日期范围选择器 + 「+ 记一笔」（规范 §3） */}
       <div className="hidden w-full items-center gap-3 md:flex">
         <div className="flex-1">
           <button
@@ -53,9 +51,7 @@ export function Topbar() {
           </button>
         </div>
 
-        <div className="font-num shrink-0 text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>
-          近30天 · {formatMonthDay(start)} → {formatMonthDay(end)}
-        </div>
+        <DateRangePicker />
 
         <button
           type="button"
