@@ -2,14 +2,21 @@ import type { TransactionSplit } from '../../api/schemas'
 import type { CreateTransactionType } from '../../api/firefly'
 import type { RecordTxEditPayload } from '../../store/recordTxStore'
 
+/** 仅这三类允许行内编辑/删除；Opening balance / Reconciliation 等必须只读 */
+export function isEditableTransactionType(
+  type: string,
+): type is CreateTransactionType {
+  return type === 'withdrawal' || type === 'deposit' || type === 'transfer'
+}
+
 function asId(v: string | number | null | undefined): string | undefined {
   if (v === null || v === undefined || v === '') return undefined
   return String(v)
 }
 
 function asEditType(type: string): CreateTransactionType {
-  if (type === 'deposit' || type === 'transfer' || type === 'withdrawal') return type
-  // 对账/开户余额等：按支出展示但保存时仍原样受限——v1 行操作通常只对主三类开放
+  if (isEditableTransactionType(type)) return type
+  // 调用方应先 isEditableTransactionType 门控；此处兜底避免误转
   return 'withdrawal'
 }
 

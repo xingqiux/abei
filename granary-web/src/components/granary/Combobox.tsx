@@ -70,6 +70,8 @@ export function Combobox({
 
   const [open, setOpen] = useState(false)
   const [highlight, setHighlight] = useState(0)
+  /** 仅在用户按过 ↑↓ 后，Enter 才选中候选，避免覆盖自由文本 */
+  const [kbdNav, setKbdNav] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const ignoreBlurRef = useRef(false)
@@ -87,6 +89,7 @@ export function Combobox({
   useEffect(() => {
     if (!showList) return
     setHighlight(0)
+    setKbdNav(false)
   }, [items, showList])
 
   // 下拉 120ms 淡入（规范 §6 时长档）
@@ -109,6 +112,7 @@ export function Combobox({
   function selectItem(item: ComboboxItem) {
     onChange(applySelection(item, value))
     setOpen(false)
+    setKbdNav(false)
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -117,6 +121,7 @@ export function Combobox({
         e.preventDefault()
         e.stopPropagation()
         setOpen(false)
+        setKbdNav(false)
       }
       return
     }
@@ -127,17 +132,20 @@ export function Combobox({
         return
       }
       if (items.length === 0) return
+      setKbdNav(true)
       setHighlight((h) => (h + 1) % items.length)
       return
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault()
       if (!open || items.length === 0) return
+      setKbdNav(true)
       setHighlight((h) => (h - 1 + items.length) % items.length)
       return
     }
     if (e.key === 'Enter') {
-      if (open && items[highlight]) {
+      // 未键盘导航时保留自由文本（不 preventDefault，便于表单默认提交行为若有）
+      if (open && kbdNav && items[highlight]) {
         e.preventDefault()
         selectItem(items[highlight])
       }
@@ -159,7 +167,9 @@ export function Combobox({
         aria-expanded={showList}
         aria-controls={listboxId}
         aria-autocomplete="list"
-        aria-activedescendant={showList && items[highlight] ? `${listboxId}-opt-${highlight}` : undefined}
+        aria-activedescendant={
+          showList && kbdNav && items[highlight] ? `${listboxId}-opt-${highlight}` : undefined
+        }
         aria-label={ariaLabel}
         value={value}
         placeholder={placeholder}
@@ -201,7 +211,7 @@ export function Combobox({
             </li>
           )}
           {items.map((item, i) => {
-            const active = i === highlight
+            const active = kbdNav && i === highlight
             return (
               <li
                 key={item.id}
@@ -213,7 +223,10 @@ export function Combobox({
                   background: active ? 'var(--g-surface-2)' : 'transparent',
                   color: 'var(--g-ink)',
                 }}
-                onMouseEnter={() => setHighlight(i)}
+                onMouseEnter={() => {
+                  setKbdNav(true)
+                  setHighlight(i)
+                }}
                 onMouseDown={(e) => {
                   // 阻止 input blur 抢先关列表
                   e.preventDefault()

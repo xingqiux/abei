@@ -8,7 +8,9 @@ import {
   autocompleteTransactionsSchema,
   billImportResponseSchema,
   billInboxSummarySchema,
+  billInboxSyncResultSchema,
   billStatementRowsResponseSchema,
+  billTaskItemResponseSchema,
   billTasksResponseSchema,
   billsResponseSchema,
   budgetLimitsResponseSchema,
@@ -30,7 +32,9 @@ import {
   type AutocompleteTransaction,
   type BillImportResponse,
   type BillInboxSummary,
+  type BillInboxSyncResult,
   type BillStatementRowsResponse,
+  type BillTaskItemResponse,
   type BillTasksResponse,
   type BillsResponse,
   type BudgetLimitsResponse,
@@ -168,6 +172,34 @@ export async function ignoreBillTask(taskId: string): Promise<unknown> {
   return fireflyPost(`/api/v1/bill-tasks/${taskId}/ignore`, {})
 }
 
+/**
+ * POST /api/v1/bill-inbox/sync —— 触发真实邮箱同步（红线：验证时点一次即可，勿轮点）。
+ * body 可选 {limit?:1-100}，默认后端 25。响应 attributes 含 scanned/created/processed 等。
+ */
+export async function syncBillInbox(opts: { limit?: number } = {}): Promise<BillInboxSyncResult> {
+  const body = opts.limit !== undefined ? { limit: opts.limit } : {}
+  const raw = await fireflyPost('/api/v1/bill-inbox/sync', body)
+  return billInboxSyncResultSchema.parse(raw)
+}
+
+/**
+ * POST /api/v1/bill-tasks/{id}/secret —— 提交解压密码/验证码（needs_secret 状态）。
+ * 实测 body 字段名是 value（非 password/secret），对照 ActionController@secret。
+ */
+export async function submitBillTaskSecret(taskId: string, value: string): Promise<BillTaskItemResponse> {
+  const raw = await fireflyPost(`/api/v1/bill-tasks/${taskId}/secret`, { value })
+  return billTaskItemResponseSchema.parse(raw)
+}
+
+/**
+ * POST /api/v1/bill-tasks/{id}/retry —— 失败任务重试，无 body。
+ * 响应为更新后的 bill-task Item。
+ */
+export async function retryBillTask(taskId: string): Promise<BillTaskItemResponse> {
+  const raw = await fireflyPost(`/api/v1/bill-tasks/${taskId}/retry`, {})
+  return billTaskItemResponseSchema.parse(raw)
+}
+
 export type AccountType = 'asset' | 'expense' | 'revenue' | 'liabilities'
 
 /**
@@ -192,15 +224,26 @@ export interface AccountSummary {
 }
 
 /**
- * 资产账户列表（记一笔表单的来源/目标下拉），只保留启用状态的账户。
- * 实测 GET /api/v1/accounts?type=asset 返回 {data:[{id, attributes:{name, active, ...}}]}。
+ * 记一笔/编辑表单的来源与转账账户下拉。
+ * 合并 type=asset 与 type=liabilities（花呗等 Debt 可作支出来源），只保留启用账户。
+ * 并发两请求后按 id 去重；负债账户排在资产后面。
  */
 export async function getAssetAccounts(): Promise<AccountSummary[]> {
-  const raw = await fireflyFetch('/api/v1/accounts', { type: 'asset', limit: 200 })
-  const parsed = accountsResponseSchema.parse(raw)
-  return parsed.data
-    .filter((a: Account) => a.attributes.active !== false)
-    .map((a: Account) => ({ id: a.id, name: a.attributes.name }))
+  const [assetRaw, liabRaw] = await Promise.all([
+    fireflyFetch('/api/v1/accounts', { type: 'asset', limit: 200 }),
+    fireflyFetch('/api/v1/accounts', { type: 'liabilities', limit: 200 }),
+  ])
+  const assets = accountsResponseSchema.parse(assetRaw).data
+  const liabilities = accountsResponseSchema.parse(liabRaw).data
+  const seen = new Set<string>()
+  const out: AccountSummary[] = []
+  for (const a of [...assets, ...liabilities] as Account[]) {
+    if (a.attributes.active === false) continue
+    if (seen.has(a.id)) continue
+    seen.add(a.id)
+    out.push({ id: a.id, name: a.attributes.name })
+  }
+  return out
 }
 
 export type CreateTransactionType = 'withdrawal' | 'deposit' | 'transfer'

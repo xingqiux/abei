@@ -14,7 +14,7 @@ import { useRecordTxStore } from '../../store/recordTxStore'
 import { showToast } from '../../store/toastStore'
 import { FireflyApiError } from '../../api/client'
 import type { TransactionSplit } from '../../api/schemas'
-import { buildEditPayload } from '../record-transaction/editPayload'
+import { buildEditPayload, isEditableTransactionType } from '../record-transaction/editPayload'
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -160,18 +160,30 @@ export function DashboardPage() {
             <EmptyState icon="🧾" message="本期暂无交易" />
           ) : (
             <div ref={recentListRef} className="flex flex-col">
-              {recentRows.map((row) => (
-                <TransactionRow
-                  key={row.groupId}
-                  tx={row.tx}
-                  ids={{
-                    groupId: row.groupId,
-                    journalId: String(row.tx.transaction_journal_id ?? row.groupId),
-                  }}
-                  onEdit={() => openEdit(buildEditPayload(row.groupId, row.tx, row.splitCount))}
-                  onDelete={() => setPendingDelete(row)}
-                />
-              ))}
+              {recentRows.map((row) => {
+                // Opening balance / Reconciliation 等不可行操作（避免误改初始余额）
+                const editable = isEditableTransactionType(row.tx.type)
+                return (
+                  <TransactionRow
+                    key={row.groupId}
+                    tx={row.tx}
+                    ids={
+                      editable
+                        ? {
+                            groupId: row.groupId,
+                            journalId: String(row.tx.transaction_journal_id ?? row.groupId),
+                          }
+                        : undefined
+                    }
+                    onEdit={
+                      editable
+                        ? () => openEdit(buildEditPayload(row.groupId, row.tx, row.splitCount))
+                        : undefined
+                    }
+                    onDelete={editable ? () => setPendingDelete(row) : undefined}
+                  />
+                )
+              })}
             </div>
           )}
         </Card>

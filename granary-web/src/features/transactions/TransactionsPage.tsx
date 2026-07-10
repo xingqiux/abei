@@ -13,7 +13,7 @@ import { useStaggerIn } from '../../motion/useStaggerIn'
 import { useRecordTxStore } from '../../store/recordTxStore'
 import { showToast } from '../../store/toastStore'
 import { FireflyApiError } from '../../api/client'
-import { buildEditPayload } from '../record-transaction/editPayload'
+import { buildEditPayload, isEditableTransactionType } from '../record-transaction/editPayload'
 
 const TABS: { label: string; value: TransactionTypeFilter }[] = [
   { label: '全部', value: 'all' },
@@ -162,18 +162,26 @@ export function TransactionsPage() {
                       {subtotal > 0 ? '+' : subtotal < 0 ? '-' : ''}¥{formatAmount(subtotal)}
                     </span>
                   </div>
-                  {rows.map((row) => (
-                    <TransactionRow
-                      key={row.groupId}
-                      tx={row.tx}
-                      ids={{
-                        groupId: row.groupId,
-                        journalId: String(row.tx.transaction_journal_id ?? row.groupId),
-                      }}
-                      onEdit={() => handleEdit(row)}
-                      onDelete={() => setPendingDelete(row)}
-                    />
-                  ))}
+                  {rows.map((row) => {
+                    // Opening balance / Reconciliation 等不可行操作（避免误改初始余额）
+                    const editable = isEditableTransactionType(row.tx.type)
+                    return (
+                      <TransactionRow
+                        key={row.groupId}
+                        tx={row.tx}
+                        ids={
+                          editable
+                            ? {
+                                groupId: row.groupId,
+                                journalId: String(row.tx.transaction_journal_id ?? row.groupId),
+                              }
+                            : undefined
+                        }
+                        onEdit={editable ? () => handleEdit(row) : undefined}
+                        onDelete={editable ? () => setPendingDelete(row) : undefined}
+                      />
+                    )
+                  })}
                 </div>
               )
             })}
