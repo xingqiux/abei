@@ -233,14 +233,32 @@ export function RecordTransactionModal() {
     requestAnimationFrame(() => amountRef.current?.focus())
   }
 
+  function isDirty(): boolean {
+    if (isEdit && edit) {
+      // 对比打开编辑时的初值；未改动不弹确认
+      return (
+        type !== edit.type ||
+        amount.trim() !== edit.amount.trim() ||
+        description.trim() !== edit.description.trim() ||
+        date !== edit.date ||
+        sourceId !== (edit.sourceId ?? '') ||
+        destId !== (edit.destId ?? '') ||
+        category.trim() !== (edit.category ?? '').trim() ||
+        tagsRaw.trim() !== (edit.tagsRaw ?? '').trim() ||
+        notes.trim() !== (edit.notes ?? '').trim()
+      )
+    }
+    // 创建：金额或描述有内容即视为已填写
+    return amount.trim() !== '' || description.trim() !== ''
+  }
+
   function handleRequestClose() {
     if (multiSplitBlocked) {
       resetAll()
       close()
       return
     }
-    const dirty = amount.trim() !== '' || description.trim() !== ''
-    if (dirty && !window.confirm(isEdit ? '放弃已修改的内容？' : '放弃已填写的记一笔内容？')) return
+    if (isDirty() && !window.confirm(isEdit ? '放弃已修改的内容？' : '放弃已填写的记一笔内容？')) return
     resetAll()
     close()
   }

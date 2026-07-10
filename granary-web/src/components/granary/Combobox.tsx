@@ -129,17 +129,31 @@ export function Combobox({
       e.preventDefault()
       if (!open) {
         setOpen(true)
+        // 打开后首次 ↓ 落在第 0 项；items 尚未就绪时等列表出现再导航
+        if (items.length > 0) {
+          setKbdNav(true)
+          setHighlight(0)
+        }
         return
       }
       if (items.length === 0) return
-      setKbdNav(true)
+      // 首次键盘导航：highlight 默认 0，若直接 +1 会跳到第 2 项
+      if (!kbdNav) {
+        setKbdNav(true)
+        setHighlight(0)
+        return
+      }
       setHighlight((h) => (h + 1) % items.length)
       return
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault()
       if (!open || items.length === 0) return
-      setKbdNav(true)
+      if (!kbdNav) {
+        setKbdNav(true)
+        setHighlight(items.length - 1)
+        return
+      }
       setHighlight((h) => (h - 1 + items.length) % items.length)
       return
     }
