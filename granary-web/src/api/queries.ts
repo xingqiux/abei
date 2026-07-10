@@ -1,4 +1,10 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import {
   autocompleteAccounts,
   autocompleteCategories,
@@ -48,11 +54,20 @@ import {
   type TransactionTypeFilter,
   type UpdateTransactionInput,
 } from './firefly'
+import { useDateRangeStore } from '../store/dateRangeStore'
 
-export function useSummaryBasic(range: DateRange) {
+/** 依赖全局日期范围的查询：等 preferences hydrate 后再发，避免冷启动默认近30天双发 */
+function useDateRangeReady(extraEnabled = true): boolean {
+  const hydrated = useDateRangeStore((s) => s.hydrated)
+  return hydrated && extraEnabled
+}
+
+export function useSummaryBasic(range: DateRange, opts: { enabled?: boolean } = {}) {
+  const ready = useDateRangeReady(opts.enabled ?? true)
   return useQuery({
     queryKey: ['summary-basic', range.start, range.end],
     queryFn: () => getSummaryBasic(range),
+    enabled: ready,
   })
 }
 
@@ -60,10 +75,11 @@ export function useTransactions(
   range: DateRange,
   opts: { limit?: number; page?: number; type?: TransactionTypeFilter; enabled?: boolean } = {},
 ) {
+  const ready = useDateRangeReady(opts.enabled ?? true)
   return useQuery({
     queryKey: ['transactions', range.start, range.end, opts.limit, opts.page, opts.type],
     queryFn: () => getTransactions(range, opts),
-    enabled: opts.enabled ?? true,
+    enabled: ready,
   })
 }
 
@@ -77,26 +93,32 @@ export function useSearchTransactions(query: string, opts: { enabled: boolean })
   })
 }
 
-export function useExpenseByCategory(range: DateRange) {
+export function useExpenseByCategory(range: DateRange, opts: { enabled?: boolean } = {}) {
+  const ready = useDateRangeReady(opts.enabled ?? true)
   return useQuery({
     queryKey: ['expense-by-category', range.start, range.end],
     queryFn: () => getExpenseByCategory(range),
+    enabled: ready,
   })
 }
 
 /** 报表页「收入来源排行」 */
-export function useIncomeByRevenue(range: DateRange) {
+export function useIncomeByRevenue(range: DateRange, opts: { enabled?: boolean } = {}) {
+  const ready = useDateRangeReady(opts.enabled ?? true)
   return useQuery({
     queryKey: ['income-by-revenue', range.start, range.end],
     queryFn: () => getIncomeByRevenue(range),
+    enabled: ready,
   })
 }
 
 /** 报表页「账户流出排行」 */
-export function useExpenseByAsset(range: DateRange) {
+export function useExpenseByAsset(range: DateRange, opts: { enabled?: boolean } = {}) {
+  const ready = useDateRangeReady(opts.enabled ?? true)
   return useQuery({
     queryKey: ['expense-by-asset', range.start, range.end],
     queryFn: () => getExpenseByAsset(range),
+    enabled: ready,
   })
 }
 
@@ -108,6 +130,7 @@ export function useAccountOverviewChart(
   range: DateRange,
   opts: AccountOverviewChartOpts & { enabled?: boolean } = {},
 ) {
+  const ready = useDateRangeReady(opts.enabled ?? true)
   const accountKey = opts.accounts?.join(',') ?? ''
   const preselected: AccountChartPreselected | 'empty' =
     opts.accounts && opts.accounts.length > 0 ? 'empty' : (opts.preselected ?? 'assets')
@@ -121,7 +144,7 @@ export function useAccountOverviewChart(
       accountKey,
     ],
     queryFn: () => getAccountOverviewChart(range, opts),
-    enabled: opts.enabled ?? true,
+    enabled: ready,
     staleTime: 60_000,
   })
 }
@@ -252,29 +275,35 @@ export function useAccount(accountId: string | null) {
   })
 }
 
-/** GET /api/v1/accounts/{id}/transactions —— 账户详情流水（分页） */
-export function useAccountTransactions(
+/**
+ * GET /api/v1/accounts/{id}/transactions —— 账户详情无限滚动。
+ * 用 useInfiniteQuery 派生 pages，避免手动 loaded append 在 invalidate/refetch 时重复累加。
+ */
+export function useInfiniteAccountTransactions(
   accountId: string | null,
   range: DateRange,
-  opts: { limit?: number; page?: number; type?: TransactionTypeFilter; enabled?: boolean } = {},
+  opts: { limit?: number; type?: TransactionTypeFilter; enabled?: boolean } = {},
 ) {
-  return useQuery({
-    queryKey: [
-      'account-transactions',
-      accountId,
-      range.start,
-      range.end,
-      opts.limit,
-      opts.page,
-      opts.type ?? 'all',
-    ],
-    queryFn: () =>
+  const ready = useDateRangeReady((opts.enabled ?? true) && !!accountId)
+  const limit = opts.limit ?? 50
+  const type = opts.type ?? 'all'
+  return useInfiniteQuery({
+    queryKey: ['account-transactions', accountId, range.start, range.end, limit, type],
+    queryFn: ({ pageParam }) =>
       getAccountTransactions(accountId as string, range, {
-        limit: opts.limit,
-        page: opts.page,
+        limit,
+        page: pageParam,
         type: opts.type,
       }),
-    enabled: (opts.enabled ?? true) && !!accountId,
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => {
+      const p = lastPage.meta?.pagination
+      if (!p) return undefined
+      const current = p.current_page ?? 1
+      const totalPages = p.total_pages ?? 1
+      return current < totalPages ? current + 1 : undefined
+    },
+    enabled: ready,
   })
 }
 
@@ -338,10 +367,12 @@ export function useAccountsByType(type: AccountType, opts: { limit: number }) {
 }
 
 /** 预算与订阅页「预算」tab：用全局日期范围 store 计算当期已花费 */
-export function useBudgets(range: DateRange) {
+export function useBudgets(range: DateRange, opts: { enabled?: boolean } = {}) {
+  const ready = useDateRangeReady(opts.enabled ?? true)
   return useQuery({
     queryKey: ['budgets', range.start, range.end],
     queryFn: () => getBudgets(range),
+    enabled: ready,
   })
 }
 
@@ -350,11 +381,13 @@ export function useBudgets(range: DateRange) {
  * 调用方按下标与 budgetIds 一一对应读取结果（同 useBudgetTasksByStatuses 的用法）。
  */
 export function useBudgetLimits(budgetIds: string[], range: DateRange) {
+  const ready = useDateRangeReady(budgetIds.length > 0)
   return useQueries({
     queries: budgetIds.map((id) => ({
       queryKey: ['budget-limits', id, range.start, range.end],
       queryFn: () => getBudgetLimits(id, range),
       staleTime: 60_000,
+      enabled: ready,
     })),
   })
 }

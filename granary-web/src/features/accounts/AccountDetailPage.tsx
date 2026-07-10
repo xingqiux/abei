@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useParams } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 import {
   useAccount,
   useAccountOverviewChart,
-  useAccountTransactions,
   useDeleteTransaction,
+  useInfiniteAccountTransactions,
 } from '../../api/queries'
 import { useDateRangeStore } from '../../store/dateRangeStore'
 import { BalanceAreaChart } from '../../components/granary/BalanceAreaChart'
@@ -23,7 +23,8 @@ import { FireflyApiError } from '../../api/client'
 import type { TransactionSplit } from '../../api/schemas'
 import { buildEditPayload, isEditableTransactionType } from '../record-transaction/editPayload'
 
-const PAGE_SIZE = 50
+/** 账户流水每页条数；偏小以便「加载更多」在常见数据量下可用，并便于分页失效回归。 */
+const PAGE_SIZE = 20
 
 const TYPE_LABEL: Record<string, string> = {
   asset: '资产',
@@ -79,37 +80,29 @@ export function AccountDetailPage() {
     accounts: [accountId],
     enabled: !!accountId,
   })
-  const [page, setPage] = useState(1)
-  const [loaded, setLoaded] = useState<LoadedRow[]>([])
   const [pendingDelete, setPendingDelete] = useState<LoadedRow | null>(null)
 
-  const txQuery = useAccountTransactions(accountId, range, { limit: PAGE_SIZE, page })
+  const txQuery = useInfiniteAccountTransactions(accountId, range, { limit: PAGE_SIZE })
   const openEdit = useRecordTxStore((s) => s.openEdit)
   const deleteMutation = useDeleteTransaction()
 
-  useEffect(() => {
-    setPage(1)
-    setLoaded([])
-  }, [accountId, range.start, range.end])
-
-  useEffect(() => {
-    if (!txQuery.data) return
-    const rows: LoadedRow[] = txQuery.data.data
-      .map((g) => {
-        const splits = g.attributes.transactions
-        const tx = splits[0]
-        if (!tx) return null
-        return { groupId: g.id, splitCount: splits.length, tx }
-      })
-      .filter((r): r is LoadedRow => r !== null)
-    setLoaded((prev) => (page === 1 ? rows : [...prev, ...rows]))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const rows: LoadedRow[] = useMemo(() => {
+    const pages = txQuery.data?.pages ?? []
+    return pages.flatMap((page) =>
+      page.data
+        .map((g) => {
+          const splits = g.attributes.transactions
+          const tx = splits[0]
+          if (!tx) return null
+          return { groupId: g.id, splitCount: splits.length, tx }
+        })
+        .filter((r): r is LoadedRow => r !== null),
+    )
   }, [txQuery.data])
 
-  const totalPages = txQuery.data?.meta?.pagination?.total_pages ?? 1
-  const totalTx = txQuery.data?.meta?.pagination?.total
-  const canLoadMore = page < totalPages
-  const listRef = useStaggerIn<HTMLDivElement>([txQuery.isSuccess && page === 1])
+  const totalTx = txQuery.data?.pages[0]?.meta?.pagination?.total
+  const canLoadMore = !!txQuery.hasNextPage
+  const listRef = useStaggerIn<HTMLDivElement>([txQuery.isSuccess && (txQuery.data?.pages.length ?? 0) === 1])
 
   const balanceSeries = useMemo(() => {
     const raw = chartQuery.data ?? []
@@ -261,18 +254,18 @@ export function AccountDetailPage() {
       </div>
 
       <Card title={typeof totalTx === 'number' ? `流水 · 共 ${totalTx} 笔` : '流水'}>
-        {txQuery.isLoading && page === 1 ? (
+        {txQuery.isLoading ? (
           <div className="flex flex-col gap-1">
             {Array.from({ length: 8 }).map((_, i) => (
               <Skeleton key={i} className="h-8" />
             ))}
           </div>
-        ) : loaded.length === 0 ? (
+        ) : rows.length === 0 ? (
           <EmptyState lottieSrc={emptyWalletUrl} message="本期该账户暂无交易" />
         ) : (
           <>
             <div ref={listRef} className="flex flex-col">
-              {loaded.map((row) => {
+              {rows.map((row) => {
                 const editable = isEditableTransactionType(row.tx.type)
                 return (
                   <TransactionRow
@@ -300,12 +293,12 @@ export function AccountDetailPage() {
               <div className="flex justify-center pt-3">
                 <button
                   type="button"
-                  disabled={txQuery.isFetching}
-                  onClick={() => setPage((p) => p + 1)}
+                  disabled={txQuery.isFetchingNextPage}
+                  onClick={() => void txQuery.fetchNextPage()}
                   className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-60"
                   style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)' }}
                 >
-                  {txQuery.isFetching ? '加载中…' : '加载更多'}
+                  {txQuery.isFetchingNextPage ? '加载中…' : '加载更多'}
                 </button>
               </div>
             )}
