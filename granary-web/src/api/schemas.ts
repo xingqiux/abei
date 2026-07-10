@@ -18,7 +18,7 @@ export const summaryResponseSchema = z.record(z.string(), summaryEntrySchema)
 export type SummaryEntry = z.infer<typeof summaryEntrySchema>
 export type SummaryResponse = z.infer<typeof summaryResponseSchema>
 
-/** GET /api/v1/transactions 单笔拆分 */
+/** GET /api/v1/transactions 单笔拆分（列表与详情共用；编辑需 journal_id / 账户 id） */
 export const transactionSplitSchema = z
   .object({
     description: z.string(),
@@ -29,6 +29,12 @@ export const transactionSplitSchema = z
     source_name: z.string().nullable(),
     destination_name: z.string().nullable(),
     category_name: z.string().nullable(),
+    /** 拆分 journal id；PUT 时必带（实测 string） */
+    transaction_journal_id: z.union([z.string(), z.number()]).optional(),
+    source_id: z.union([z.string(), z.number()]).nullable().optional(),
+    destination_id: z.union([z.string(), z.number()]).nullable().optional(),
+    tags: z.array(z.string()).nullable().optional(),
+    notes: z.string().nullable().optional(),
   })
   .passthrough()
 
@@ -118,7 +124,10 @@ export const accountsResponseSchema = z
 export type Account = z.infer<typeof accountSchema>
 export type AccountsResponse = z.infer<typeof accountsResponseSchema>
 
-/** POST /api/v1/transactions 响应：Item 资源，data 是单个对象而非数组 */
+/**
+ * POST/PUT /api/v1/transactions 与 GET /api/v1/transactions/{id} 响应：
+ * Item 资源，data 是单个对象而非数组（与列表 Collection 不同）。
+ */
 export const transactionCreateResponseSchema = z
   .object({
     data: transactionGroupSchema,
@@ -126,6 +135,9 @@ export const transactionCreateResponseSchema = z
   .passthrough()
 
 export type TransactionCreateResponse = z.infer<typeof transactionCreateResponseSchema>
+/** GET/PUT 单笔与创建响应同形 */
+export const transactionDetailResponseSchema = transactionCreateResponseSchema
+export type TransactionDetailResponse = TransactionCreateResponse
 
 /**
  * GET /api/v1/insight/expense/category

@@ -127,3 +127,39 @@ export async function fireflyPost<T = unknown>(path: string, body: unknown): Pro
 
   return res.json() as Promise<T>
 }
+
+/** PUT：交易编辑等写操作。 */
+export async function fireflyPut<T = unknown>(path: string, body: unknown): Promise<T> {
+  const url = new URL(path, window.location.origin)
+
+  const res = await fetch(url.toString(), {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${getActiveToken()}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) return throwForResponse(res)
+
+  return res.json() as Promise<T>
+}
+
+/**
+ * DELETE：实测 DELETE /api/v1/transactions/{groupId} 返回 204 空体。
+ */
+export async function fireflyDelete(path: string): Promise<void> {
+  const url = new URL(path, window.location.origin)
+
+  const res = await fetch(url.toString(), {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${getActiveToken()}`,
+      Accept: 'application/json',
+    },
+  })
+
+  if (!res.ok) return throwForResponse(res)
+}

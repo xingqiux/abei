@@ -8,7 +8,7 @@
 
 | 资源域 | 服务端能力 | 前端状态 | 备注 |
 |---|---|---|---|
-| transactions | 增删改查、附件、储蓄罐事件 | **部分** | 已接：列表/创建/搜索；未接：编辑/删除/详情/附件 |
+| transactions | 增删改查、附件、储蓄罐事件 | **部分** | 已接：列表/创建/搜索/编辑/删除/详情 GET；未接：附件 |
 | accounts | 增删改查、账户流水/储蓄罐/附件 | **部分** | 已接：分类型列表；未接：详情页、账户流水、写操作 |
 | bill-tasks / bill-statement-rows / bill-inbox / bill-artifacts（自建） | 任务列表/详情/行/审阅/入账/忽略/重试/归档/验证码；行编辑/拆分；邮箱同步/处理/设置；附件下载 | **部分** | 已接：summary、列表、rows、import、ignore；未接：**sync、secret、retry、行 PATCH、split、settings、artifacts** |
 | daily-reconciliation（自建） | 逐日汇总 | **已接** | 标记对账/调整交易依赖 Firefly 原生 reconcile 流（无独立 API，见 §5） |
@@ -35,7 +35,7 @@
 | 端点 | 用途 |
 |---|---|
 | GET summary/basic | 总览/报表 KPI |
-| GET/POST transactions | 交易列表、近期交易、Top10、记一笔 |
+| GET/POST/PUT/DELETE transactions · GET transactions/{id} | 列表、记一笔、行内编辑/删除、详情 |
 | GET search/transactions | 命令面板搜索 |
 | GET insight/expense/category · expense/asset · income/revenue | 总览/报表条形图 |
 | GET accounts?type= | 账户页、记一笔账户下拉 |
@@ -52,10 +52,9 @@
 已接 4 个：`accounts`（types=Expense/Revenue account）、`categories`、`tags`、`transactions`（描述历史）。
 `Combobox` 防抖 200ms + 自由文本；标签只补全最后一个逗号后 token。其余 13 个端点与命令面板深化待后续。
 
-### 3.2 transactions 编辑/删除/详情 — 审阅闭环刚需 · 估级 M
-`GET/PUT/DELETE transactions/{id}`。**接入**：TransactionRow 行尾 hover 操作（编辑/删除/克隆），
-编辑复用记一笔表单（传初值）；删除走现有确认框规范。命令面板搜索结果的"深链"也解锁
-（跳详情而非列表）。
+### 3.2 transactions 编辑/删除/详情 — 审阅闭环刚需 · 估级 M · **部分完成**
+已接 `GET/PUT/DELETE transactions/{id}`：交易页与总览近期交易行操作；编辑复用记一笔 Modal
+（多拆分 group 提示走旧版）；删除确认框（规范 §5）。命令面板深链见任务 9；附件未接。
 
 ### 3.3 收件箱动作补全 — 核心工作流 · 估级 M~L
 未接的自建端点：`POST bill-inbox/sync`（触发邮箱同步，渠道卡加按钮+同步中 Lottie）、

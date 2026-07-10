@@ -5,6 +5,7 @@ import {
   autocompleteTags,
   autocompleteTransactions,
   createTransaction,
+  deleteTransaction,
   getAbout,
   getAccountsByType,
   getAssetAccounts,
@@ -25,14 +26,17 @@ import {
   getRules,
   getSummaryBasic,
   getTags,
+  getTransaction,
   getTransactions,
   ignoreBillTask,
   importBillTaskRows,
   searchTransactions,
+  updateTransaction,
   type AccountType,
   type CreateTransactionInput,
   type DateRange,
   type TransactionTypeFilter,
+  type UpdateTransactionInput,
 } from './firefly'
 
 export function useSummaryBasic(range: DateRange) {
@@ -166,16 +170,49 @@ export function useAssetAccounts() {
   })
 }
 
+/** 交易写操作成功后统一失效的 queryKey 范围 */
+function invalidateTransactionCaches(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ['transactions'] })
+  queryClient.invalidateQueries({ queryKey: ['summary-basic'] })
+  queryClient.invalidateQueries({ queryKey: ['expense-by-category'] })
+  queryClient.invalidateQueries({ queryKey: ['search-transactions'] })
+}
+
 /** 记一笔表单提交：成功后让交易列表/KPI/分类洞察缓存失效 */
 export function useCreateTransaction() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (input: CreateTransactionInput) => createTransaction(input),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['summary-basic'] })
-      queryClient.invalidateQueries({ queryKey: ['expense-by-category'] })
+    onSuccess: () => invalidateTransactionCaches(queryClient),
+  })
+}
+
+/** GET /api/v1/transactions/{groupId}，编辑前可选拉详情 */
+export function useTransaction(groupId: string | null) {
+  return useQuery({
+    queryKey: ['transaction', groupId],
+    queryFn: () => getTransaction(groupId as string),
+    enabled: !!groupId,
+  })
+}
+
+export function useUpdateTransaction() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ groupId, input }: { groupId: string; input: UpdateTransactionInput }) =>
+      updateTransaction(groupId, input),
+    onSuccess: (_data, variables) => {
+      invalidateTransactionCaches(queryClient)
+      queryClient.invalidateQueries({ queryKey: ['transaction', variables.groupId] })
     },
+  })
+}
+
+export function useDeleteTransaction() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (groupId: string) => deleteTransaction(groupId),
+    onSuccess: () => invalidateTransactionCaches(queryClient),
   })
 }
 

@@ -1,4 +1,4 @@
-import { fireflyFetch, fireflyPost } from './client'
+import { fireflyDelete, fireflyFetch, fireflyPost, fireflyPut } from './client'
 import {
   accountsResponseSchema,
   aboutResponseSchema,
@@ -21,6 +21,7 @@ import {
   rulesResponseSchema,
   tagsResponseSchema,
   transactionCreateResponseSchema,
+  transactionDetailResponseSchema,
   type Account,
   type AboutResponse,
   type AutocompleteAccount,
@@ -42,6 +43,7 @@ import {
   type RulesResponse,
   type TagsResponse,
   type TransactionCreateResponse,
+  type TransactionDetailResponse,
   insightCategoryResponseSchema,
   summaryResponseSchema,
   transactionsResponseSchema,
@@ -248,6 +250,71 @@ export async function createTransaction(input: CreateTransactionInput): Promise<
     transactions: [tx],
   })
   return transactionCreateResponseSchema.parse(raw)
+}
+
+/**
+ * GET /api/v1/transactions/{groupId}
+ * 实测响应与 POST 创建相同：{data: transactionGroup}，data 是对象不是数组。
+ * group.attributes.transactions[] 每项含 transaction_journal_id（PUT 必带）。
+ */
+export async function getTransaction(groupId: string): Promise<TransactionDetailResponse> {
+  const raw = await fireflyFetch(`/api/v1/transactions/${groupId}`)
+  return transactionDetailResponseSchema.parse(raw)
+}
+
+export interface UpdateTransactionInput {
+  /** 拆分 journal id（string/number 均可，后端 numeric） */
+  transaction_journal_id: string
+  type?: CreateTransactionType
+  date?: string
+  amount?: string
+  description?: string
+  source_id?: string
+  source_name?: string
+  destination_id?: string
+  destination_name?: string
+  category_name?: string
+  tags?: string[]
+  notes?: string
+}
+
+/**
+ * PUT /api/v1/transactions/{groupId}
+ * body 形如 {transactions:[{transaction_journal_id, ...改动字段}]}。
+ * 字段名对照 UpdateRequest.php；实测改 description/amount 生效，响应同 GET 单笔。
+ * 多拆分 group（transactions.length > 1）v1 前端不支持编辑。
+ */
+export async function updateTransaction(
+  groupId: string,
+  input: UpdateTransactionInput,
+): Promise<TransactionDetailResponse> {
+  const tx: Record<string, unknown> = {
+    transaction_journal_id: input.transaction_journal_id,
+  }
+  if (input.type) tx.type = input.type
+  if (input.date) tx.date = `${input.date}T00:00:00+08:00`
+  if (input.amount) tx.amount = input.amount
+  if (input.description !== undefined) tx.description = input.description
+  if (input.source_id) tx.source_id = input.source_id
+  else if (input.source_name) tx.source_name = input.source_name
+  if (input.destination_id) tx.destination_id = input.destination_id
+  else if (input.destination_name) tx.destination_name = input.destination_name
+  if (input.category_name !== undefined) tx.category_name = input.category_name
+  if (input.tags) tx.tags = input.tags
+  if (input.notes !== undefined) tx.notes = input.notes
+
+  const raw = await fireflyPut(`/api/v1/transactions/${groupId}`, {
+    transactions: [tx],
+  })
+  return transactionDetailResponseSchema.parse(raw)
+}
+
+/**
+ * DELETE /api/v1/transactions/{groupId}
+ * 实测 204 空体；路径 id 是 group id（非 journal id）。
+ */
+export async function deleteTransaction(groupId: string): Promise<void> {
+  await fireflyDelete(`/api/v1/transactions/${groupId}`)
 }
 
 /**

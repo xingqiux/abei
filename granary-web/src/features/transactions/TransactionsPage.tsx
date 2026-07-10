@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useDateRangeStore } from '../../store/dateRangeStore'
-import { useTransactions } from '../../api/queries'
+import { useDeleteTransaction, useTransactions } from '../../api/queries'
 import type { TransactionSplit } from '../../api/schemas'
 import type { TransactionTypeFilter } from '../../api/firefly'
 import { TransactionRow } from '../../components/granary/TransactionRow'
+import { DeleteTransactionDialog } from '../../components/granary/DeleteTransactionDialog'
 import { Skeleton } from '../../components/granary/Skeleton'
 import { EmptyState } from '../../components/granary/EmptyState'
 import emptyWalletUrl from '../../assets/lottie/empty-wallet.json?url'
 import { formatAmount, formatDayGroupLabel } from '../../lib/format'
 import { useStaggerIn } from '../../motion/useStaggerIn'
+import { useRecordTxStore } from '../../store/recordTxStore'
+import { showToast } from '../../store/toastStore'
+import { FireflyApiError } from '../../api/client'
+import { buildEditPayload } from '../record-transaction/editPayload'
 
 const TABS: { label: string; value: TransactionTypeFilter }[] = [
   { label: '全部', value: 'all' },
@@ -19,15 +24,23 @@ const TABS: { label: string; value: TransactionTypeFilter }[] = [
 
 const PAGE_SIZE = 80
 
+interface LoadedRow {
+  groupId: string
+  splitCount: number
+  tx: TransactionSplit
+}
+
 export function TransactionsPage() {
   const range = useDateRangeStore()
   const [type, setType] = useState<TransactionTypeFilter>('all')
   const [page, setPage] = useState(1)
-  const [loaded, setLoaded] = useState<TransactionSplit[]>([])
+  const [loaded, setLoaded] = useState<LoadedRow[]>([])
+  const [pendingDelete, setPendingDelete] = useState<LoadedRow | null>(null)
 
+  const openEdit = useRecordTxStore((s) => s.openEdit)
+  const deleteMutation = useDeleteTransaction()
   const query = useTransactions(range, { limit: PAGE_SIZE, page, type })
 
-  // 切换 tab 或日期范围时重置分页与已加载数据
   useEffect(() => {
     setPage(1)
     setLoaded([])
@@ -35,7 +48,14 @@ export function TransactionsPage() {
 
   useEffect(() => {
     if (!query.data) return
-    const rows = query.data.data.map((g) => g.attributes.transactions[0]).filter(Boolean)
+    const rows: LoadedRow[] = query.data.data
+      .map((g) => {
+        const splits = g.attributes.transactions
+        const tx = splits[0]
+        if (!tx) return null
+        return { groupId: g.id, splitCount: splits.length, tx }
+      })
+      .filter((r): r is LoadedRow => r !== null)
     setLoaded((prev) => (page === 1 ? rows : [...prev, ...rows]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query.data])
@@ -44,17 +64,33 @@ export function TransactionsPage() {
   const canLoadMore = page < totalPages
 
   const groups = useMemo(() => {
-    const map = new Map<string, TransactionSplit[]>()
-    for (const tx of loaded) {
-      const day = tx.date.slice(0, 10)
+    const map = new Map<string, LoadedRow[]>()
+    for (const row of loaded) {
+      const day = row.tx.date.slice(0, 10)
       const arr = map.get(day)
-      if (arr) arr.push(tx)
-      else map.set(day, [tx])
+      if (arr) arr.push(row)
+      else map.set(day, [row])
     }
     return Array.from(map.entries())
   }, [loaded])
 
   const listRef = useStaggerIn<HTMLDivElement>([query.isSuccess && page === 1])
+
+  function handleEdit(row: LoadedRow) {
+    openEdit(buildEditPayload(row.groupId, row.tx, row.splitCount))
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete) return
+    try {
+      await deleteMutation.mutateAsync(pendingDelete.groupId)
+      showToast({ kind: 'success', message: '已删除交易' })
+      setPendingDelete(null)
+    } catch (err) {
+      const message = err instanceof FireflyApiError ? err.message : '删除失败，请重试'
+      showToast({ kind: 'error', message, duration: 6000 })
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -99,10 +135,10 @@ export function TransactionsPage() {
           )
         ) : (
           <div ref={listRef} className="flex flex-col">
-            {groups.map(([day, txs]) => {
-              const subtotal = txs.reduce((acc, tx) => {
-                if (tx.type === 'withdrawal') return acc - Number(tx.amount)
-                if (tx.type === 'deposit') return acc + Number(tx.amount)
+            {groups.map(([day, rows]) => {
+              const subtotal = rows.reduce((acc, row) => {
+                if (row.tx.type === 'withdrawal') return acc - Number(row.tx.amount)
+                if (row.tx.type === 'deposit') return acc + Number(row.tx.amount)
                 return acc
               }, 0)
               return (
@@ -112,12 +148,31 @@ export function TransactionsPage() {
                     style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink-2)' }}
                   >
                     <span>{formatDayGroupLabel(day)}</span>
-                    <span className="font-num" style={{ color: subtotal < 0 ? 'var(--g-expense)' : subtotal > 0 ? 'var(--g-income)' : 'var(--g-ink-2)' }}>
+                    <span
+                      className="font-num"
+                      style={{
+                        color:
+                          subtotal < 0
+                            ? 'var(--g-expense)'
+                            : subtotal > 0
+                              ? 'var(--g-income)'
+                              : 'var(--g-ink-2)',
+                      }}
+                    >
                       {subtotal > 0 ? '+' : subtotal < 0 ? '-' : ''}¥{formatAmount(subtotal)}
                     </span>
                   </div>
-                  {txs.map((tx, i) => (
-                    <TransactionRow key={i} tx={tx} />
+                  {rows.map((row) => (
+                    <TransactionRow
+                      key={row.groupId}
+                      tx={row.tx}
+                      ids={{
+                        groupId: row.groupId,
+                        journalId: String(row.tx.transaction_journal_id ?? row.groupId),
+                      }}
+                      onEdit={() => handleEdit(row)}
+                      onDelete={() => setPendingDelete(row)}
+                    />
                   ))}
                 </div>
               )
@@ -139,6 +194,14 @@ export function TransactionsPage() {
           </div>
         )}
       </div>
+
+      <DeleteTransactionDialog
+        open={!!pendingDelete}
+        tx={pendingDelete?.tx ?? null}
+        pending={deleteMutation.isPending}
+        onClose={() => setPendingDelete(null)}
+        onConfirm={confirmDelete}
+      />
     </div>
   )
 }

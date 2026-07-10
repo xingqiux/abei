@@ -1,14 +1,20 @@
-import { useMemo, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useDateRangeStore } from '../../store/dateRangeStore'
-import { useExpenseByCategory, useSummaryBasic, useTransactions } from '../../api/queries'
+import { useDeleteTransaction, useExpenseByCategory, useSummaryBasic, useTransactions } from '../../api/queries'
 import { KpiCard } from '../../components/granary/KpiCard'
 import { TodoCard } from '../../components/granary/TodoCard'
 import { CategoryBarChart, type CategoryBarDatum } from '../../components/granary/CategoryBarChart'
 import { TransactionRow } from '../../components/granary/TransactionRow'
+import { DeleteTransactionDialog } from '../../components/granary/DeleteTransactionDialog'
 import { Skeleton } from '../../components/granary/Skeleton'
 import { EmptyState } from '../../components/granary/EmptyState'
 import { formatMonthDay } from '../../lib/format'
 import { useStaggerIn } from '../../motion/useStaggerIn'
+import { useRecordTxStore } from '../../store/recordTxStore'
+import { showToast } from '../../store/toastStore'
+import { FireflyApiError } from '../../api/client'
+import type { TransactionSplit } from '../../api/schemas'
+import { buildEditPayload } from '../record-transaction/editPayload'
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -24,6 +30,12 @@ function Card({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
+interface RecentRow {
+  groupId: string
+  splitCount: number
+  tx: TransactionSplit
+}
+
 export function DashboardPage() {
   const range = useDateRangeStore()
   const rangeLabel = `${formatMonthDay(range.start)} → ${formatMonthDay(range.end)}`
@@ -31,6 +43,9 @@ export function DashboardPage() {
   const summaryQuery = useSummaryBasic(range)
   const categoryQuery = useExpenseByCategory(range)
   const recentQuery = useTransactions(range, { limit: 12, page: 1, type: 'all' })
+  const openEdit = useRecordTxStore((s) => s.openEdit)
+  const deleteMutation = useDeleteTransaction()
+  const [pendingDelete, setPendingDelete] = useState<RecentRow | null>(null)
 
   const kpis = useMemo(() => {
     const s = summaryQuery.data
@@ -51,8 +66,28 @@ export function DashboardPage() {
     return top
   }, [categoryQuery.data])
 
-  const recentTx = recentQuery.data?.data.map((g) => g.attributes.transactions[0]).filter(Boolean) ?? []
+  const recentRows: RecentRow[] =
+    recentQuery.data?.data
+      .map((g) => {
+        const splits = g.attributes.transactions
+        const tx = splits[0]
+        if (!tx) return null
+        return { groupId: g.id, splitCount: splits.length, tx }
+      })
+      .filter((r): r is RecentRow => r !== null) ?? []
   const recentListRef = useStaggerIn<HTMLDivElement>([recentQuery.isSuccess])
+
+  async function confirmDelete() {
+    if (!pendingDelete) return
+    try {
+      await deleteMutation.mutateAsync(pendingDelete.groupId)
+      showToast({ kind: 'success', message: '已删除交易' })
+      setPendingDelete(null)
+    } catch (err) {
+      const message = err instanceof FireflyApiError ? err.message : '删除失败，请重试'
+      showToast({ kind: 'error', message, duration: 6000 })
+    }
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -121,17 +156,34 @@ export function DashboardPage() {
                 <Skeleton key={i} className="h-8" />
               ))}
             </div>
-          ) : recentTx.length === 0 ? (
+          ) : recentRows.length === 0 ? (
             <EmptyState icon="🧾" message="本期暂无交易" />
           ) : (
             <div ref={recentListRef} className="flex flex-col">
-              {recentTx.map((tx, i) => (
-                <TransactionRow key={i} tx={tx} />
+              {recentRows.map((row) => (
+                <TransactionRow
+                  key={row.groupId}
+                  tx={row.tx}
+                  ids={{
+                    groupId: row.groupId,
+                    journalId: String(row.tx.transaction_journal_id ?? row.groupId),
+                  }}
+                  onEdit={() => openEdit(buildEditPayload(row.groupId, row.tx, row.splitCount))}
+                  onDelete={() => setPendingDelete(row)}
+                />
               ))}
             </div>
           )}
         </Card>
       </div>
+
+      <DeleteTransactionDialog
+        open={!!pendingDelete}
+        tx={pendingDelete?.tx ?? null}
+        pending={deleteMutation.isPending}
+        onClose={() => setPendingDelete(null)}
+        onConfirm={confirmDelete}
+      />
     </div>
   )
 }
