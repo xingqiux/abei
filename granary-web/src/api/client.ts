@@ -86,12 +86,20 @@ async function throwForResponse(res: Response): Promise<never> {
  */
 export async function fireflyFetch<T = unknown>(
   path: string,
-  params?: Record<string, string | number | undefined>,
+  params?: Record<string, string | number | readonly (string | number)[] | undefined>,
 ): Promise<T> {
   const url = new URL(path, window.location.origin)
   if (params) {
     for (const [key, value] of Object.entries(params)) {
-      if (value !== undefined) url.searchParams.set(key, String(value))
+      if (value === undefined) continue
+      // 数组参数：Firefly chart 等用 accounts[]=id 形式（见 ChartRequest accounts.*）
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          url.searchParams.append(`${key}[]`, String(item))
+        }
+        continue
+      }
+      url.searchParams.set(key, String(value))
     }
   }
 

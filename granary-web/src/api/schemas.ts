@@ -695,3 +695,26 @@ export const autocompleteTransactionSchema = z
 
 export const autocompleteTransactionsSchema = z.array(autocompleteTransactionSchema)
 export type AutocompleteTransaction = z.infer<typeof autocompleteTransactionSchema>
+
+/**
+ * GET /api/v1/chart/account/overview
+ * 非 JSON:API：数组，每项是一条账户余额时间序列。
+ * entries / pc_entries 的 key 为 Atom 时间戳，value 为余额字符串。
+ * 响应不含 account id，仅 label（账户名）。
+ */
+export const accountChartSeriesSchema = z
+  .object({
+    label: z.string(),
+    currency_code: z.string().optional(),
+    currency_symbol: z.string().optional(),
+    type: z.string().optional(),
+    period: z.string().optional(),
+    entries: z.record(z.string(), z.union([z.string(), z.number()])),
+    pc_entries: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+  })
+  .passthrough()
+
+export const accountChartOverviewSchema = z.array(accountChartSeriesSchema)
+
+export type AccountChartSeries = z.infer<typeof accountChartSeriesSchema>
+export type AccountChartOverview = z.infer<typeof accountChartOverviewSchema>

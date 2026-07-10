@@ -18,7 +18,7 @@
 | categories / tags | 增删改查、关联交易 | **部分** | 已接只读列表（设置页概览） |
 | rules / rule-groups / recurrences | 增删改查、**test/trigger** | **部分** | 已接只读列表；触发/测试未接 |
 | insight（expense 11 / income 7 / transfer 6） | 多维度聚合 | **部分** | 已接 3 个；tag/bill/no-budget/no-category/total 等未接 |
-| chart（account/balance/budget/category） | 现成图表数据源 | **未接** | `chart/account/overview` 正是总览缺的余额趋势线数据 |
+| chart（account/balance/budget/category） | 现成图表数据源 | **部分** | 已接 `chart/account/overview`（总览余额面积线）；balance/budget/category 未接 |
 | summary | basic | **已接** | |
 | search | transactions / count / accounts | **部分** | 已接 transactions；count 与 accounts 未接 |
 | autocomplete（17 端点） | 账户/分类/标签/币种等补全 | **部分** | 已接：accounts/categories/tags/transactions（记一笔 Combobox）；其余 13 个未接 |
@@ -38,6 +38,7 @@
 | GET/POST/PUT/DELETE transactions · GET transactions/{id} | 列表、记一笔、行内编辑/删除、详情 |
 | GET search/transactions | 命令面板搜索 |
 | GET insight/expense/category · expense/asset · income/revenue | 总览/报表条形图 |
+| GET chart/account/overview | 总览账户余额面积线（最多 4 条） |
 | GET accounts?type= | 账户页、记一笔账户下拉 |
 | GET bill-inbox/summary | 徽标、待办卡、渠道卡 |
 | GET bill-tasks · /{id}/rows · POST /{id}/import · /{id}/ignore · /{id}/secret · /{id}/retry | 收件箱列表/审阅/入账/忽略/验证码/重试 |
@@ -62,8 +63,9 @@
 行内表单，body.`value`）、`POST /{id}/retry`（failed/unknown + 错误信息）。
 未接：行 PATCH、split、settings、review、artifacts。
 
-### 3.4 chart/account/overview + chart/balance — 总览余额趋势 · 估级 S~M
-现成的余额时间序列数据源，正好补规范 §4.4 欠的"账户余额面积线"（最多 4 条，D3+GSAP 绘制）。
+### 3.4 chart/account/overview + chart/balance — 总览余额趋势 · 估级 S~M · **部分完成**
+已接 `GET chart/account/overview`（`preselected=assets` + 自适应 period，Top 4 面积线，D3 坐标 + GSAP clip 揭示）。
+`chart/balance/*` 与 budget/category chart 未接。
 
 ### 3.5 accounts/{id}/transactions — 账户详情页 · 估级 M
 点账户进详情：余额趋势（配 3.4）+ 该账户流水（复用交易列表组件）+ 基本信息。
@@ -95,10 +97,10 @@ object-groups（分组）、currencies 写/exchange-rates（单币种下暂缓�
 1. autocomplete → 记一笔补全（S，日常输入体验）
 2. transactions PUT/DELETE/详情 → 行操作+编辑（M，闭环刚需）
 3. bill-inbox sync + bill-tasks secret/retry（M，收件箱自动化闭环）
-4. chart/account/overview → 总览余额面积线（S~M，规范欠账）
+4. ~~chart/account/overview → 总览余额面积线~~（已完成）
 5. bill-statement-rows PATCH → 收件箱行内编辑（M）
 6. preferences + 日期范围选择器（S，连带修全局交互缺口）
-7. accounts/{id}/transactions → 账户详情页（M）
+7. accounts/{id}/transactions → 账户详情页（M，复用任务 4 图表组件）
 8. budgets 写操作（M）
 9. search count/accounts + 命令面板深链（S，依赖 2）
 10. insight 扩展 + data/export（S）

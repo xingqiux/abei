@@ -7,6 +7,7 @@ import {
   createTransaction,
   deleteTransaction,
   getAbout,
+  getAccountOverviewChart,
   getAccountsByType,
   getAssetAccounts,
   getBillInboxSummary,
@@ -35,6 +36,8 @@ import {
   submitBillTaskSecret,
   syncBillInbox,
   updateTransaction,
+  type AccountChartPreselected,
+  type AccountOverviewChartOpts,
   type AccountType,
   type CreateTransactionInput,
   type DateRange,
@@ -90,6 +93,32 @@ export function useExpenseByAsset(range: DateRange) {
   return useQuery({
     queryKey: ['expense-by-asset', range.start, range.end],
     queryFn: () => getExpenseByAsset(range),
+  })
+}
+
+/**
+ * 总览 / 账户详情：账户余额时间序列。
+ * opts.accounts 有值时按 id 拉单账户或多账户；否则 preselected 默认 assets。
+ */
+export function useAccountOverviewChart(
+  range: DateRange,
+  opts: AccountOverviewChartOpts & { enabled?: boolean } = {},
+) {
+  const accountKey = opts.accounts?.join(',') ?? ''
+  const preselected: AccountChartPreselected | 'empty' =
+    opts.accounts && opts.accounts.length > 0 ? 'empty' : (opts.preselected ?? 'assets')
+  return useQuery({
+    queryKey: [
+      'chart-account-overview',
+      range.start,
+      range.end,
+      opts.period ?? 'auto',
+      preselected,
+      accountKey,
+    ],
+    queryFn: () => getAccountOverviewChart(range, opts),
+    enabled: opts.enabled ?? true,
+    staleTime: 60_000,
   })
 }
 
@@ -215,6 +244,7 @@ function invalidateTransactionCaches(queryClient: ReturnType<typeof useQueryClie
   queryClient.invalidateQueries({ queryKey: ['summary-basic'] })
   queryClient.invalidateQueries({ queryKey: ['expense-by-category'] })
   queryClient.invalidateQueries({ queryKey: ['search-transactions'] })
+  queryClient.invalidateQueries({ queryKey: ['chart-account-overview'] })
 }
 
 /** 记一笔表单提交：成功后让交易列表/KPI/分类洞察缓存失效 */

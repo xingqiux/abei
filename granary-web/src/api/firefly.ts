@@ -48,9 +48,11 @@ import {
   type TagsResponse,
   type TransactionCreateResponse,
   type TransactionDetailResponse,
+  accountChartOverviewSchema,
   insightCategoryResponseSchema,
   summaryResponseSchema,
   transactionsResponseSchema,
+  type AccountChartOverview,
   type InsightCategoryEntry,
   type SummaryResponse,
   type TransactionsResponse,
@@ -116,6 +118,60 @@ export async function getExpenseByAsset(range: DateRange): Promise<InsightCatego
     end: range.end,
   })
   return insightCategoryResponseSchema.parse(raw)
+}
+
+/** chart/account/overview 的 period 枚举（config/firefly.php valid_view_ranges） */
+export type ChartPeriod = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y'
+
+/**
+ * preselected 缺省为 empty，会走 frontpageAccounts 偏好；
+ * 本地实测偏好里的 id 可能已失效导致空数组，总览默认用 assets。
+ * accounts 显式传入时覆盖 preselected（账户详情单序列用）。
+ */
+export type AccountChartPreselected = 'all' | 'assets' | 'liabilities'
+
+export interface AccountOverviewChartOpts {
+  period?: ChartPeriod
+  preselected?: AccountChartPreselected
+  /** 账户 id 列表；与 preselected 同时传时仍会返回这些账户（preselected=empty 路径） */
+  accounts?: readonly (string | number)[]
+}
+
+/**
+ * 按日期跨度选 period：短窗用日粒度才有面积线密度；长窗降采样避免点过密。
+ * 任务 4 / 任务 7 共用。
+ */
+export function pickChartPeriod(range: DateRange): ChartPeriod {
+  const startMs = Date.parse(`${range.start}T00:00:00`)
+  const endMs = Date.parse(`${range.end}T00:00:00`)
+  const days = Math.max(1, Math.round((endMs - startMs) / 86_400_000) + 1)
+  if (days <= 62) return '1D'
+  if (days <= 180) return '1W'
+  return '1M'
+}
+
+/**
+ * GET /api/v1/chart/account/overview?start&end&period&preselected|accounts[]
+ * 实测：不带 preselected/accounts 时可能因 frontpageAccounts 失效返回 []。
+ */
+export async function getAccountOverviewChart(
+  range: DateRange,
+  opts: AccountOverviewChartOpts = {},
+): Promise<AccountChartOverview> {
+  const period = opts.period ?? pickChartPeriod(range)
+  const params: Record<string, string | number | readonly (string | number)[] | undefined> = {
+    start: range.start,
+    end: range.end,
+    period,
+  }
+  if (opts.accounts && opts.accounts.length > 0) {
+    // 显式账户列表时 preselected 保持 empty，CollectsAccountsFromFilter 直接返回这些账户
+    params.accounts = opts.accounts
+  } else {
+    params.preselected = opts.preselected ?? 'assets'
+  }
+  const raw = await fireflyFetch('/api/v1/chart/account/overview', params)
+  return accountChartOverviewSchema.parse(raw)
 }
 
 export async function getBillInboxSummary(): Promise<BillInboxSummary> {

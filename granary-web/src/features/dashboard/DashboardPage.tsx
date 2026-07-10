@@ -1,14 +1,22 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useDateRangeStore } from '../../store/dateRangeStore'
-import { useDeleteTransaction, useExpenseByCategory, useSummaryBasic, useTransactions } from '../../api/queries'
+import {
+  useAccountOverviewChart,
+  useDeleteTransaction,
+  useExpenseByCategory,
+  useSummaryBasic,
+  useTransactions,
+} from '../../api/queries'
 import { KpiCard } from '../../components/granary/KpiCard'
 import { TodoCard } from '../../components/granary/TodoCard'
 import { CategoryBarChart, type CategoryBarDatum } from '../../components/granary/CategoryBarChart'
+import { BalanceAreaChart } from '../../components/granary/BalanceAreaChart'
 import { TransactionRow } from '../../components/granary/TransactionRow'
 import { DeleteTransactionDialog } from '../../components/granary/DeleteTransactionDialog'
 import { Skeleton } from '../../components/granary/Skeleton'
 import { EmptyState } from '../../components/granary/EmptyState'
 import { formatMonthDay } from '../../lib/format'
+import { pickTopBalanceSeries } from '../../lib/chartSeries'
 import { useStaggerIn } from '../../motion/useStaggerIn'
 import { useRecordTxStore } from '../../store/recordTxStore'
 import { showToast } from '../../store/toastStore'
@@ -43,6 +51,8 @@ export function DashboardPage() {
   const summaryQuery = useSummaryBasic(range)
   const categoryQuery = useExpenseByCategory(range)
   const recentQuery = useTransactions(range, { limit: 12, page: 1, type: 'all' })
+  // 资产账户余额面积线（最多 4 条）；preselected=assets，避免 frontpageAccounts 失效返回 []
+  const chartQuery = useAccountOverviewChart(range, { preselected: 'assets' })
   const openEdit = useRecordTxStore((s) => s.openEdit)
   const deleteMutation = useDeleteTransaction()
   const [pendingDelete, setPendingDelete] = useState<RecentRow | null>(null)
@@ -65,6 +75,11 @@ export function DashboardPage() {
     if (restSum > 0) top.push({ name: '其他', value: restSum })
     return top
   }, [categoryQuery.data])
+
+  const balanceSeries = useMemo(
+    () => pickTopBalanceSeries(chartQuery.data ?? [], 4),
+    [chartQuery.data],
+  )
 
   const recentRows: RecentRow[] =
     recentQuery.data?.data
@@ -188,6 +203,18 @@ export function DashboardPage() {
           )}
         </Card>
       </div>
+
+      <Card title="账户余额">
+        {chartQuery.isLoading ? (
+          <Skeleton className="h-[220px]" />
+        ) : chartQuery.isError ? (
+          <EmptyState icon="📉" message="余额趋势加载失败" />
+        ) : balanceSeries.length === 0 ? (
+          <EmptyState icon="📉" message="本期暂无账户余额序列" />
+        ) : (
+          <BalanceAreaChart series={balanceSeries} />
+        )}
+      </Card>
 
       <DeleteTransactionDialog
         open={!!pendingDelete}
