@@ -87,8 +87,9 @@ export function BalanceAreaChart({
       .y((d) => yScale(d.value))
       .curve(curveMonotoneX)
 
-    // 面积基线：0 在域内则贴 0，否则贴 y 底
-    const baselineY = y0 <= 0 && y1 >= 0 ? yScale(0) : yScale(y0)
+    // 面积基线：0 在域内则贴 0，否则贴 y 底；zeroInDomain 单独传出给虚线绘制
+    const zeroInDomain = y0 <= 0 && y1 >= 0
+    const baselineY = zeroInDomain ? yScale(0) : yScale(y0)
     const areaGen = d3Area<{ date: string; value: number }>()
       .x((d) => xScale(parseLocalDate(d.date)))
       .y0(baselineY)
@@ -108,7 +109,7 @@ export function BalanceAreaChart({
     const xTicks = xScale.ticks(Math.min(5, Math.max(2, Math.floor(innerW / 90))))
     const yTicks = yScale.ticks(4)
 
-    return { paths, xScale, yScale, xTicks, yTicks, innerW, innerH, baselineY }
+    return { paths, xScale, yScale, xTicks, yTicks, innerW, innerH, baselineY, zeroInDomain }
   }, [series, width, height])
 
   // 入场：左→右 clip 揭示（规范 §6 图表生长 480ms）
@@ -235,8 +236,8 @@ export function BalanceAreaChart({
             )
           })}
 
-          {/* 零线（若在域内） */}
-          {geometry.baselineY >= 0 && geometry.baselineY <= innerH && (
+          {/* 仅当 0 真在 y 域内时画零虚线（避免全正数据在底边画假零线） */}
+          {geometry.zeroInDomain && (
             <line
               x1={0}
               x2={innerW}

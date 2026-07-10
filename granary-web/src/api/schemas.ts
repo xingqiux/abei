@@ -701,7 +701,15 @@ export type AutocompleteTransaction = z.infer<typeof autocompleteTransactionSche
  * 非 JSON:API：数组，每项是一条账户余额时间序列。
  * entries / pc_entries 的 key 为 Atom 时间戳，value 为余额字符串。
  * 响应不含 account id，仅 label（账户名）。
+ *
+ * PHP 空数组序列化为 JSON []（非 {}）；单币种下 pc_entries 恒为 []，
+ * 必须先把空数组预处理成 {}，否则 z.record 100% 拒收。
  */
+const chartEntriesRecord = z.preprocess(
+  (v) => (Array.isArray(v) && v.length === 0 ? {} : v),
+  z.record(z.string(), z.union([z.string(), z.number()])),
+)
+
 export const accountChartSeriesSchema = z
   .object({
     label: z.string(),
@@ -709,8 +717,8 @@ export const accountChartSeriesSchema = z
     currency_symbol: z.string().optional(),
     type: z.string().optional(),
     period: z.string().optional(),
-    entries: z.record(z.string(), z.union([z.string(), z.number()])),
-    pc_entries: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+    entries: chartEntriesRecord,
+    pc_entries: chartEntriesRecord.optional(),
   })
   .passthrough()
 
