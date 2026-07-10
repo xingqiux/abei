@@ -1,7 +1,8 @@
+import { Link } from '@tanstack/react-router'
 import type { Account } from '../../api/schemas'
 import { formatAmount } from '../../lib/format'
 
-/** 账户一行（32px）：名称、账号尾号（如有）、当前余额（语义色由调用方决定）、最近活动日期 */
+/** 账户一行（32px）：名称、账号尾号（如有）、当前余额（语义色由调用方决定）、最近活动日期；整行可点进详情 */
 export function AccountRow({ account, balanceColorVar }: { account: Account; balanceColorVar: string }) {
   const a = account.attributes
   const symbol = a.currency_symbol ?? '¥'
@@ -10,8 +11,11 @@ export function AccountRow({ account, balanceColorVar }: { account: Account; bal
   const lastActivity = a.last_activity ? a.last_activity.slice(0, 10) : '—'
 
   return (
-    <div
+    <Link
+      to="/accounts/$accountId"
+      params={{ accountId: account.id }}
       className="flex h-8 items-center gap-3 rounded-[4px] px-2 text-[12.5px] transition-colors hover:bg-[var(--g-surface-2)]"
+      style={{ textDecoration: 'none' }}
     >
       <div className="min-w-0 flex-1 truncate" style={{ color: 'var(--g-ink)', fontWeight: 'var(--g-weight-demibold)' }}>
         {a.name}
@@ -28,6 +32,6 @@ export function AccountRow({ account, balanceColorVar }: { account: Account; bal
       <div className="w-[90px] shrink-0 text-right text-[11px]" style={{ color: 'var(--g-ink-2)' }}>
         {lastActivity}
       </div>
-    </div>
+    </Link>
   )
 }

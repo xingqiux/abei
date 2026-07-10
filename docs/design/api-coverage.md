@@ -9,7 +9,7 @@
 | 资源域 | 服务端能力 | 前端状态 | 备注 |
 |---|---|---|---|
 | transactions | 增删改查、附件、储蓄罐事件 | **部分** | 已接：列表/创建/搜索/编辑/删除/详情 GET；未接：附件 |
-| accounts | 增删改查、账户流水/储蓄罐/附件 | **部分** | 已接：分类型列表；未接：详情页、账户流水、写操作 |
+| accounts | 增删改查、账户流水/储蓄罐/附件 | **部分** | 已接：分类型列表、**详情+流水+单账户余额趋势**；未接：写操作、附件 |
 | bill-tasks / bill-statement-rows / bill-inbox / bill-artifacts（自建） | 任务列表/详情/行/审阅/入账/忽略/重试/归档/验证码；行编辑/拆分；邮箱同步/处理/设置；附件下载 | **部分** | 已接：summary、列表、rows、import、ignore、**sync、secret、retry**；未接：行 PATCH、split、settings、artifacts |
 | daily-reconciliation（自建） | 逐日汇总 | **已接** | 标记对账/调整交易依赖 Firefly 原生 reconcile 流（无独立 API，见 §5） |
 | budgets / budget-limits / available-budgets | 增删改查、限额、无预算交易 | **部分** | 已接：只读列表+limits；未接：全部写操作、transactions-without-budget |
@@ -40,7 +40,8 @@
 | GET insight/expense/category · expense/asset · income/revenue | 总览/报表条形图 |
 | GET chart/account/overview | 总览账户余额面积线（最多 4 条） |
 | GET/POST preferences（granary.date_range） | 顶栏日期范围持久化 |
-| GET accounts?type= | 账户页、记一笔账户下拉 |
+| GET accounts?type= · GET accounts/{id} · GET accounts/{id}/transactions | 账户列表/详情/流水 |
+| GET accounts?type=（记一笔） | 资产+负债账户下拉 |
 | GET bill-inbox/summary | 徽标、待办卡、渠道卡 |
 | GET bill-tasks · /{id}/rows · POST /{id}/import · /{id}/ignore · /{id}/secret · /{id}/retry | 收件箱列表/审阅/入账/忽略/验证码/重试 |
 | POST bill-inbox/sync | 渠道卡触发邮箱同步（验证时点一次） |
@@ -68,8 +69,9 @@
 已接 `GET chart/account/overview`（`preselected=assets` + 自适应 period，Top 4 面积线，D3 坐标 + GSAP clip 揭示）。
 `chart/balance/*` 与 budget/category chart 未接。
 
-### 3.5 accounts/{id}/transactions — 账户详情页 · 估级 M
-点账户进详情：余额趋势（配 3.4）+ 该账户流水（复用交易列表组件）+ 基本信息。
+### 3.5 accounts/{id}/transactions — 账户详情页 · 估级 M · **已完成**
+`/accounts/$accountId`：基本信息 + `chart/account/overview?accounts[]=` 余额趋势（复用 BalanceAreaChart）+
+`accounts/{id}/transactions` 流水（分页/行编辑删除）。账户列表行可点进详情。
 
 ### 3.6 preferences — 偏好持久化 · 估级 S · **部分完成**
 已接：`GET/POST preferences` 读写自定义键 `granary.date_range`（preset + start/end）；
@@ -103,7 +105,7 @@ object-groups（分组）、currencies 写/exchange-rates（单币种下暂缓�
 4. ~~chart/account/overview → 总览余额面积线~~（已完成）
 5. bill-statement-rows PATCH → 收件箱行内编辑（M）
 6. ~~preferences + 日期范围选择器~~（已完成：granary.date_range + 顶栏选择器）
-7. accounts/{id}/transactions → 账户详情页（M，复用任务 4 图表组件）
+7. ~~accounts/{id}/transactions → 账户详情页~~（已完成）
 8. budgets 写操作（M）
 9. search count/accounts + 命令面板深链（S，依赖 2）
 10. insight 扩展 + data/export（S）

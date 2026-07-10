@@ -90,6 +90,11 @@ export const accountAttributesSchema = z
     iban: z.string().nullable().optional(),
     last_activity: z.string().nullable().optional(),
     liability_type: z.string().nullable().optional(),
+    opening_balance: z.string().nullable().optional(),
+    opening_balance_date: z.string().nullable().optional(),
+    account_role: z.string().nullable().optional(),
+    notes: z.string().nullable().optional(),
+    include_net_worth: z.boolean().optional(),
   })
   .passthrough()
 
@@ -123,6 +128,15 @@ export const accountsResponseSchema = z
 
 export type Account = z.infer<typeof accountSchema>
 export type AccountsResponse = z.infer<typeof accountsResponseSchema>
+
+/** GET /api/v1/accounts/{id} —— Item 资源（data 为单对象） */
+export const accountDetailResponseSchema = z
+  .object({
+    data: accountSchema,
+  })
+  .passthrough()
+
+export type AccountDetailResponse = z.infer<typeof accountDetailResponseSchema>
 
 /**
  * POST/PUT /api/v1/transactions 与 GET /api/v1/transactions/{id} 响应：

@@ -97,7 +97,10 @@ export function DateRangePicker({ compact = false }: { compact?: boolean }) {
           id={panelId}
           role="dialog"
           aria-label="选择日期范围"
-          className="absolute right-0 z-50 mt-1 w-[280px] rounded-[10px] p-3"
+          // 桌面：右对齐触发器；移动端 compact 居中，避免居中按钮 + right-0 把面板裁出视口
+          className={`absolute z-50 mt-1 w-[280px] rounded-[10px] p-3 ${
+            compact ? 'left-1/2 -translate-x-1/2' : 'right-0'
+          }`}
           style={{
             background: 'var(--g-surface)',
             boxShadow: 'var(--g-shadow)',
@@ -152,7 +155,7 @@ export function DateRangePicker({ compact = false }: { compact?: boolean }) {
                   background: 'var(--g-surface-2)',
                   color: 'var(--g-ink)',
                   border: '1px solid var(--g-border)',
-                  colorScheme: 'dark',
+                  // 跟随页面 color-scheme（tokens.css dark/light），勿写死 dark
                 }}
               />
             </label>
@@ -170,7 +173,6 @@ export function DateRangePicker({ compact = false }: { compact?: boolean }) {
                   background: 'var(--g-surface-2)',
                   color: 'var(--g-ink)',
                   border: '1px solid var(--g-border)',
-                  colorScheme: 'dark',
                 }}
               />
             </label>

@@ -6,6 +6,7 @@ import { ReconciliationPage } from '../features/reconciliation/ReconciliationPag
 import { BillInboxPage } from '../features/bill-inbox/BillInboxPage'
 import { BudgetsPage } from '../features/budgets/BudgetsPage'
 import { AccountsPage } from '../features/accounts/AccountsPage'
+import { AccountDetailPage } from '../features/accounts/AccountDetailPage'
 import { ReportsPage } from '../features/reports/ReportsPage'
 import { SettingsPage } from '../features/settings/SettingsPage'
 
@@ -49,6 +50,12 @@ const accountsRoute = createRoute({
   component: AccountsPage,
 })
 
+const accountDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/accounts/$accountId',
+  component: AccountDetailPage,
+})
+
 const reportsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/reports',
@@ -68,6 +75,7 @@ const routeTree = rootRoute.addChildren([
   reconciliationRoute,
   budgetsRoute,
   accountsRoute,
+  accountDetailRoute,
   reportsRoute,
   settingsRoute,
 ])

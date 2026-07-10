@@ -34,6 +34,16 @@ export function seriesToPoints(series: AccountChartSeries): BalancePoint[] {
     .sort((a, b) => a.date.localeCompare(b.date))
 }
 
+/** 单条 chart series → 图表组件数据（账户详情单序列用，保留全 0） */
+export function toBalanceSeries(series: AccountChartSeries): BalanceSeries {
+  return {
+    key: series.label,
+    name: series.label,
+    currencySymbol: series.currency_symbol ?? '¥',
+    points: seriesToPoints(series),
+  }
+}
+
 /**
  * 总览：最多 max 条，按期末 |余额| 降序；剔除全程为 0 的空序列。
  * 规范 §4：账户余额面积线最多 4 条。
@@ -42,17 +52,8 @@ export function pickTopBalanceSeries(
   raw: AccountChartSeries[],
   max = 4,
 ): BalanceSeries[] {
-  const mapped: BalanceSeries[] = raw.map((s) => {
-    const points = seriesToPoints(s)
-    return {
-      key: s.label,
-      name: s.label,
-      currencySymbol: s.currency_symbol ?? '¥',
-      points,
-    }
-  })
-
-  return mapped
+  return raw
+    .map(toBalanceSeries)
     .filter((s) => s.points.some((p) => p.value !== 0))
     .sort((a, b) => {
       const lastA = Math.abs(a.points.at(-1)?.value ?? 0)

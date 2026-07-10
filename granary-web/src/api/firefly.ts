@@ -1,6 +1,7 @@
 import { FireflyApiError, fireflyDelete, fireflyFetch, fireflyPost, fireflyPut } from './client'
 import {
   accountsResponseSchema,
+  accountDetailResponseSchema,
   aboutResponseSchema,
   autocompleteAccountsSchema,
   autocompleteCategoriesSchema,
@@ -25,6 +26,7 @@ import {
   transactionCreateResponseSchema,
   transactionDetailResponseSchema,
   type Account,
+  type AccountDetailResponse,
   type AboutResponse,
   type AutocompleteAccount,
   type AutocompleteCategory,
@@ -274,6 +276,31 @@ export async function getAccountsByType(
     page: opts.page ?? 1,
   })
   return accountsResponseSchema.parse(raw)
+}
+
+/** GET /api/v1/accounts/{id} */
+export async function getAccount(accountId: string): Promise<AccountDetailResponse> {
+  const raw = await fireflyFetch(`/api/v1/accounts/${accountId}`)
+  return accountDetailResponseSchema.parse(raw)
+}
+
+/**
+ * GET /api/v1/accounts/{id}/transactions?start&end&limit&page
+ * 响应结构与 GET /transactions 一致（transaction groups + pagination meta）。
+ */
+export async function getAccountTransactions(
+  accountId: string,
+  range: DateRange,
+  opts: { limit?: number; page?: number; type?: TransactionTypeFilter } = {},
+): Promise<TransactionsResponse> {
+  const raw = await fireflyFetch(`/api/v1/accounts/${accountId}/transactions`, {
+    start: range.start,
+    end: range.end,
+    limit: opts.limit ?? 50,
+    page: opts.page ?? 1,
+    type: opts.type && opts.type !== 'all' ? opts.type : undefined,
+  })
+  return transactionsResponseSchema.parse(raw)
 }
 
 export interface AccountSummary {

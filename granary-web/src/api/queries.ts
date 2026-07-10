@@ -7,8 +7,10 @@ import {
   createTransaction,
   deleteTransaction,
   getAbout,
+  getAccount,
   getAccountOverviewChart,
   getAccountsByType,
+  getAccountTransactions,
   getAssetAccounts,
   getBillInboxSummary,
   getPreferenceByName,
@@ -240,6 +242,42 @@ export function useAssetAccounts() {
   })
 }
 
+/** GET /api/v1/accounts/{id} —— 账户详情页头信息 */
+export function useAccount(accountId: string | null) {
+  return useQuery({
+    queryKey: ['account', accountId],
+    queryFn: () => getAccount(accountId as string),
+    enabled: !!accountId,
+    staleTime: 60_000,
+  })
+}
+
+/** GET /api/v1/accounts/{id}/transactions —— 账户详情流水（分页） */
+export function useAccountTransactions(
+  accountId: string | null,
+  range: DateRange,
+  opts: { limit?: number; page?: number; type?: TransactionTypeFilter; enabled?: boolean } = {},
+) {
+  return useQuery({
+    queryKey: [
+      'account-transactions',
+      accountId,
+      range.start,
+      range.end,
+      opts.limit,
+      opts.page,
+      opts.type ?? 'all',
+    ],
+    queryFn: () =>
+      getAccountTransactions(accountId as string, range, {
+        limit: opts.limit,
+        page: opts.page,
+        type: opts.type,
+      }),
+    enabled: (opts.enabled ?? true) && !!accountId,
+  })
+}
+
 /** 交易写操作成功后统一失效的 queryKey 范围 */
 function invalidateTransactionCaches(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({ queryKey: ['transactions'] })
@@ -247,6 +285,9 @@ function invalidateTransactionCaches(queryClient: ReturnType<typeof useQueryClie
   queryClient.invalidateQueries({ queryKey: ['expense-by-category'] })
   queryClient.invalidateQueries({ queryKey: ['search-transactions'] })
   queryClient.invalidateQueries({ queryKey: ['chart-account-overview'] })
+  queryClient.invalidateQueries({ queryKey: ['account-transactions'] })
+  queryClient.invalidateQueries({ queryKey: ['account'] })
+  queryClient.invalidateQueries({ queryKey: ['accounts'] })
 }
 
 /** 记一笔表单提交：成功后让交易列表/KPI/分类洞察缓存失效 */
