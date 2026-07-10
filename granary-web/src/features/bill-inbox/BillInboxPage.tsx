@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useBillInboxSummary, useBillTasksByStatuses } from '../../api/queries'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useBillInboxSummary, useBillTasksByStatuses, useSyncBillInbox } from '../../api/queries'
 import { EmptyState } from '../../components/granary/EmptyState'
 import { Skeleton } from '../../components/granary/Skeleton'
 import { useStaggerIn } from '../../motion/useStaggerIn'
@@ -7,15 +7,41 @@ import { ChannelCard } from './ChannelCard'
 import { TaskRow } from './TaskRow'
 import { TaskDetailPanel } from './TaskDetailPanel'
 import { SOURCE_FALLBACK_LABELS, TAB_CONFIG, type InboxTab } from './billInboxHelpers'
+import { showToast } from '../../store/toastStore'
+import { FireflyApiError } from '../../api/client'
 
 const LIMIT_STEP = 30
 
 export function BillInboxPage() {
   const summaryQuery = useBillInboxSummary()
+  const syncMutation = useSyncBillInbox()
+  /** 防止用户连点触发多次真实邮箱同步（红线） */
+  const syncOnceGuard = useRef(false)
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<InboxTab>('parsed')
   const [limit, setLimit] = useState(LIMIT_STEP)
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
+
+  async function handleSync() {
+    if (syncMutation.isPending || syncOnceGuard.current) return
+    syncOnceGuard.current = true
+    try {
+      const res = await syncMutation.mutateAsync({})
+      const a = res.data.attributes
+      showToast({
+        kind: 'success',
+        message: `同步完成：扫描 ${a.scanned}，新建 ${a.created}，处理 ${a.processed}`,
+      })
+    } catch (err) {
+      const message = err instanceof FireflyApiError ? err.message : '同步失败，请稍后重试'
+      showToast({ kind: 'error', message, duration: 6000 })
+    } finally {
+      // 成功后仍允许用户手动再点（会话内不永久锁死），只挡连点；pending 本身已挡并发
+      window.setTimeout(() => {
+        syncOnceGuard.current = false
+      }, 2000)
+    }
+  }
 
   useEffect(() => {
     setLimit(LIMIT_STEP)
@@ -75,6 +101,8 @@ export function BillInboxPage() {
                 channel={channel}
                 active={selectedChannel === channel.key}
                 onToggle={() => setSelectedChannel((prev) => (prev === channel.key ? null : channel.key))}
+                onSync={() => void handleSync()}
+                syncing={syncMutation.isPending}
               />
             ))}
       </div>

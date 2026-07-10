@@ -371,6 +371,43 @@ export type BillImportRowResult = z.infer<typeof billImportRowResultSchema>
 export type BillImportResponse = z.infer<typeof billImportResponseSchema>
 
 /**
+ * POST /api/v1/bill-inbox/sync 响应（对照 BillInboxController@sync）。
+ * 可选 limit；会真实扫邮箱，前端验证时只点一次。
+ */
+export const billInboxSyncResultSchema = z
+  .object({
+    data: z
+      .object({
+        type: z.string().optional(),
+        attributes: z
+          .object({
+            scanned: z.number(),
+            created: z.number(),
+            ignored: z.number(),
+            duplicates: z.number(),
+            failed: z.number(),
+            processed: z.number(),
+            process_failed: z.number(),
+            errors: z.array(z.unknown()).optional(),
+          })
+          .passthrough(),
+      })
+      .passthrough(),
+  })
+  .passthrough()
+
+export type BillInboxSyncResult = z.infer<typeof billInboxSyncResultSchema>
+
+/** POST secret / retry 返回单个 bill-task Item（与列表 data[] 项同形） */
+export const billTaskItemResponseSchema = z
+  .object({
+    data: billTaskSchema,
+  })
+  .passthrough()
+
+export type BillTaskItemResponse = z.infer<typeof billTaskItemResponseSchema>
+
+/**
  * GET /api/v1/budgets（预算与订阅页「预算」tab）。
  * 字段核对自 firefly-iii/app/Transformers/BudgetTransformer.php：spent 是按 start/end 查询参数
  * 计算出的当期花费数组（通常单币种一项），budget 对象本身不带"限额"——手动限额需另请求

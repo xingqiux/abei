@@ -30,7 +30,10 @@ import {
   getTransactions,
   ignoreBillTask,
   importBillTaskRows,
+  retryBillTask,
   searchTransactions,
+  submitBillTaskSecret,
+  syncBillInbox,
   updateTransaction,
   type AccountType,
   type CreateTransactionInput,
@@ -154,6 +157,42 @@ export function useIgnoreBillTask() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (taskId: string) => ignoreBillTask(taskId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] })
+      queryClient.invalidateQueries({ queryKey: ['bill-tasks'] })
+    },
+  })
+}
+
+/** 邮箱同步：成功后刷新徽标与任务列表（红线：勿在 UI 上自动轮询触发） */
+export function useSyncBillInbox() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (opts?: { limit?: number }) => syncBillInbox(opts ?? {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] })
+      queryClient.invalidateQueries({ queryKey: ['bill-tasks'] })
+    },
+  })
+}
+
+export function useSubmitBillTaskSecret() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ taskId, value }: { taskId: string; value: string }) =>
+      submitBillTaskSecret(taskId, value),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] })
+      queryClient.invalidateQueries({ queryKey: ['bill-tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['bill-task-rows', variables.taskId] })
+    },
+  })
+}
+
+export function useRetryBillTask() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (taskId: string) => retryBillTask(taskId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] })
       queryClient.invalidateQueries({ queryKey: ['bill-tasks'] })
