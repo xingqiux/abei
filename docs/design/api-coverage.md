@@ -10,7 +10,7 @@
 |---|---|---|---|
 | transactions | 增删改查、附件、储蓄罐事件 | **部分** | 已接：列表/创建/搜索/编辑/删除/详情 GET；未接：附件 |
 | accounts | 增删改查、账户流水/储蓄罐/附件 | **部分** | 已接：分类型列表、**详情+流水+单账户余额趋势**；未接：写操作、附件 |
-| bill-tasks / bill-statement-rows / bill-inbox / bill-artifacts（自建） | 任务列表/详情/行/审阅/入账/忽略/重试/归档/验证码；行编辑/拆分；邮箱同步/处理/设置；附件下载 | **部分** | 已接：summary、列表、rows、import、ignore、**sync、secret、retry**；未接：行 PATCH、split、settings、artifacts |
+| bill-tasks / bill-statement-rows / bill-inbox / bill-artifacts（自建） | 任务列表/详情/行/审阅/入账/忽略/重试/归档/验证码；行编辑/拆分；邮箱同步/处理/设置；附件下载 | **部分** | 已接：summary、列表、rows、import、ignore、sync、secret、retry、**行 PATCH**；未接：split、settings、artifacts |
 | daily-reconciliation（自建） | 逐日汇总 | **已接** | 标记对账/调整交易依赖 Firefly 原生 reconcile 流（无独立 API，见 §5） |
 | budgets / budget-limits / available-budgets | 增删改查、限额、无预算交易 | **部分** | 已接：只读列表+limits；未接：全部写操作、transactions-without-budget |
 | bills(=subscriptions) | 增删改查、关联交易/规则 | **部分** | 已接只读列表（subscriptions 是 bills 的新别名，同资源） |
@@ -40,6 +40,7 @@
 | GET insight/expense/category · expense/asset · income/revenue | 总览/报表条形图 |
 | GET chart/account/overview | 总览账户余额面积线（最多 4 条） |
 | GET/POST preferences（granary.date_range） | 顶栏日期范围持久化 |
+| PATCH bill-statement-rows/{id} | 收件箱行内改描述/分类/金额 |
 | GET accounts?type= · GET accounts/{id} · GET accounts/{id}/transactions | 账户列表/详情/流水 |
 | GET accounts?type=（记一笔） | 资产+负债账户下拉 |
 | GET bill-inbox/summary | 徽标、待办卡、渠道卡 |
@@ -63,7 +64,8 @@
 ### 3.3 收件箱动作补全 — 核心工作流 · 估级 M~L · **部分完成**
 已接：`POST bill-inbox/sync`（渠道卡同步按钮 + loading Lottie）、`POST bill-tasks/{id}/secret`（needs_secret
 行内表单，body.`value`）、`POST /{id}/retry`（failed/unknown + 错误信息）。
-未接：行 PATCH、split、settings、review、artifacts。
+已接：`PATCH bill-statement-rows/{id}`（描述/分类/金额行内编辑）。
+未接：split（组合支付拆分 UI 另立任务，见任务 5 结论）、settings、review、artifacts。
 
 ### 3.4 chart/account/overview + chart/balance — 总览余额趋势 · 估级 S~M · **部分完成**
 已接 `GET chart/account/overview`（`preselected=assets` + 自适应 period，Top 4 面积线，D3 坐标 + GSAP clip 揭示）。
@@ -103,7 +105,7 @@ object-groups（分组）、currencies 写/exchange-rates（单币种下暂缓�
 2. transactions PUT/DELETE/详情 → 行操作+编辑（M，闭环刚需）
 3. bill-inbox sync + bill-tasks secret/retry（M，收件箱自动化闭环）
 4. ~~chart/account/overview → 总览余额面积线~~（已完成）
-5. bill-statement-rows PATCH → 收件箱行内编辑（M）
+5. ~~bill-statement-rows PATCH → 收件箱行内编辑~~（已完成；split 不同批，见结论）
 6. ~~preferences + 日期范围选择器~~（已完成：granary.date_range + 顶栏选择器）
 7. ~~accounts/{id}/transactions → 账户详情页~~（已完成）
 8. budgets 写操作（M）

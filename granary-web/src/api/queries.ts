@@ -45,6 +45,7 @@ import {
   searchTransactions,
   submitBillTaskSecret,
   syncBillInbox,
+  updateBillStatementRow,
   updateTransaction,
   type AccountChartPreselected,
   type AccountOverviewChartOpts,
@@ -52,6 +53,7 @@ import {
   type CreateTransactionInput,
   type DateRange,
   type TransactionTypeFilter,
+  type UpdateBillStatementRowInput,
   type UpdateTransactionInput,
 } from './firefly'
 import { useDateRangeStore } from '../store/dateRangeStore'
@@ -190,6 +192,21 @@ export function useBillTaskRows(taskId: string | null, status?: string) {
     queryFn: () => getBillTaskRows(taskId as string, { status }),
     enabled: !!taskId,
     staleTime: 15_000,
+  })
+}
+
+/** PATCH bill-statement-rows/{id}：成功后刷新该任务行列表 */
+export function useUpdateBillStatementRow() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ rowId, input }: { rowId: string; input: UpdateBillStatementRowInput }) =>
+      updateBillStatementRow(rowId, input),
+    onSuccess: (res) => {
+      const taskId = String(res.data.attributes.bill_task_id)
+      queryClient.invalidateQueries({ queryKey: ['bill-task-rows', taskId] })
+      queryClient.invalidateQueries({ queryKey: ['bill-tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] })
+    },
   })
 }
 

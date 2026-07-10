@@ -6,17 +6,15 @@ import {
   useRetryBillTask,
   useSubmitBillTaskSecret,
 } from '../../api/queries'
-import { CategoryChip } from '../../components/granary/CategoryChip'
 import { EmptyState } from '../../components/granary/EmptyState'
 import { Skeleton } from '../../components/granary/Skeleton'
 import { showToast } from '../../store/toastStore'
-import { formatAmount, formatMonthDay } from '../../lib/format'
-import { directionColorVar, directionSign, isRowSelectable, rowBadge } from './billInboxHelpers'
-import { StatusChip } from '../../components/granary/StatusChip'
+import { isRowSelectable } from './billInboxHelpers'
 import { ImportConfirmDialog } from './ImportConfirmDialog'
 import { IgnoreConfirmDialog } from './IgnoreConfirmDialog'
 import { FireflyApiError } from '../../api/client'
 import { LottieIcon } from '../../components/granary/LottieIcon'
+import { StatementRow } from './StatementRow'
 
 const PAGE_SIZE = 50
 
@@ -299,50 +297,14 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
                 </div>
 
                 <div className="flex flex-col">
-                  {visibleRows.map((row) => {
-                    const a = row.attributes
-                    const selectable = isRowSelectable(row)
-                    const badge = rowBadge(row)
-                    return (
-                      <div
-                        key={row.id}
-                        className="flex h-8 items-center gap-2 rounded-[4px] px-2 text-[12.5px] transition-colors hover:bg-[var(--g-surface-2)]"
-                      >
-                        <input
-                          type="checkbox"
-                          aria-label="选择此行"
-                          disabled={!selectable}
-                          checked={selected.has(row.id)}
-                          onChange={() => toggleRow(row.id)}
-                          className="shrink-0 disabled:opacity-30"
-                        />
-                        <span className="font-num w-[48px] shrink-0" style={{ color: 'var(--g-ink-2)' }}>
-                          {formatMonthDay(a.occurred_at)}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate" style={{ color: 'var(--g-ink)' }}>
-                          {a.firefly_description || a.counterparty || '--'}
-                        </span>
-                        <span className="w-[80px] shrink-0">
-                          {a.category_name ? <CategoryChip label={a.category_name} /> : null}
-                        </span>
-                        <span
-                          className="w-[180px] shrink-0 truncate text-[11.5px]"
-                          style={{ color: 'var(--g-ink-2)' }}
-                        >
-                          {a.source_name ?? '?'} → {a.destination_name ?? '?'}
-                        </span>
-                        <span
-                          className="font-num w-[110px] shrink-0 text-right"
-                          style={{ color: directionColorVar(a.direction) }}
-                        >
-                          {directionSign(a.direction)}¥{formatAmount(a.amount)}
-                        </span>
-                        <span className="w-[64px] shrink-0 text-right">
-                          {badge && <StatusChip label={badge.label} kind={badge.kind} />}
-                        </span>
-                      </div>
-                    )
-                  })}
+                  {visibleRows.map((row) => (
+                    <StatementRow
+                      key={row.id}
+                      row={row}
+                      selected={selected.has(row.id)}
+                      onToggle={() => toggleRow(row.id)}
+                    />
+                  ))}
                 </div>
               </div>
             </div>

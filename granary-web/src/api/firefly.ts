@@ -1,4 +1,4 @@
-import { FireflyApiError, fireflyDelete, fireflyFetch, fireflyPost, fireflyPut } from './client'
+import { FireflyApiError, fireflyDelete, fireflyFetch, fireflyPatch, fireflyPost, fireflyPut } from './client'
 import {
   accountsResponseSchema,
   accountDetailResponseSchema,
@@ -10,6 +10,7 @@ import {
   billImportResponseSchema,
   billInboxSummarySchema,
   billInboxSyncResultSchema,
+  billStatementRowItemResponseSchema,
   billStatementRowsResponseSchema,
   billTaskItemResponseSchema,
   billTasksResponseSchema,
@@ -35,6 +36,7 @@ import {
   type BillImportResponse,
   type BillInboxSummary,
   type BillInboxSyncResult,
+  type BillStatementRowItemResponse,
   type BillStatementRowsResponse,
   type BillTaskItemResponse,
   type BillTasksResponse,
@@ -218,6 +220,28 @@ export async function getBillTaskRows(
     status: opts.status,
   })
   return billStatementRowsResponseSchema.parse(raw)
+}
+
+/**
+ * PATCH /api/v1/bill-statement-rows/{id}
+ * 收件箱行内编辑：金额/分类/描述等（ActionController@updateRow 校验字段）。
+ * 同时写 amount 与 firefly_amount、firefly_description，保证入账预览与展示一致。
+ */
+export interface UpdateBillStatementRowInput {
+  firefly_description?: string
+  category_name?: string | null
+  amount?: string
+  firefly_amount?: string
+  description?: string
+  notes?: string | null
+}
+
+export async function updateBillStatementRow(
+  rowId: string,
+  input: UpdateBillStatementRowInput,
+): Promise<BillStatementRowItemResponse> {
+  const raw = await fireflyPatch(`/api/v1/bill-statement-rows/${rowId}`, input)
+  return billStatementRowItemResponseSchema.parse(raw)
 }
 
 export async function importBillTaskRows(

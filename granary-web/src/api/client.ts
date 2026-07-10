@@ -158,6 +158,25 @@ export async function fireflyPut<T = unknown>(path: string, body: unknown): Prom
   return res.json() as Promise<T>
 }
 
+/** PATCH：账单行局部更新等（Firefly 自建 bill-statement-rows）。 */
+export async function fireflyPatch<T = unknown>(path: string, body: unknown): Promise<T> {
+  const url = new URL(path, window.location.origin)
+
+  const res = await fetch(url.toString(), {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${getActiveToken()}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) return throwForResponse(res)
+
+  return res.json() as Promise<T>
+}
+
 /**
  * DELETE：实测 DELETE /api/v1/transactions/{groupId} 返回 204 空体。
  */

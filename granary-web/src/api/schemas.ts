@@ -342,6 +342,15 @@ export const billStatementRowsResponseSchema = z
 export type BillStatementRow = z.infer<typeof billStatementRowSchema>
 export type BillStatementRowsResponse = z.infer<typeof billStatementRowsResponseSchema>
 
+/** PATCH /api/v1/bill-statement-rows/{id} 响应：单条 Item */
+export const billStatementRowItemResponseSchema = z
+  .object({
+    data: billStatementRowSchema,
+  })
+  .passthrough()
+
+export type BillStatementRowItemResponse = z.infer<typeof billStatementRowItemResponseSchema>
+
 /** POST /api/v1/bill-tasks/{id}/import 响应 */
 export const billImportRowResultSchema = z
   .object({
