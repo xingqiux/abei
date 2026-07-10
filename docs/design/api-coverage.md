@@ -21,7 +21,7 @@
 | chart（account/balance/budget/category） | 现成图表数据源 | **未接** | `chart/account/overview` 正是总览缺的余额趋势线数据 |
 | summary | basic | **已接** | |
 | search | transactions / count / accounts | **部分** | 已接 transactions；count 与 accounts 未接 |
-| autocomplete（17 端点） | 账户/分类/标签/币种等补全 | **未接** | 记一笔表单目前是手打/下拉全量 |
+| autocomplete（17 端点） | 账户/分类/标签/币种等补全 | **部分** | 已接：accounts/categories/tags/transactions（记一笔 Combobox）；其余 13 个未接 |
 | attachments | 上传/下载/增删改 | **未接** | 收据凭证场景 |
 | preferences | 用户偏好读写 | **未接** | 日期范围/主题可持久化 |
 | data/export | 10 类 CSV 导出 | **未接** | |
@@ -44,13 +44,13 @@
 | GET daily-reconciliation/summary | 对账日历带 |
 | GET budgets · /{id}/limits · bills · piggy-banks | 预算与订阅页 |
 | GET categories · tags · rules · recurrences · currencies · about | 设置页概览 |
+| GET autocomplete/accounts · categories · tags · transactions | 记一笔 Combobox 补全（纯数组响应，非 JSON:API） |
 
 ## 3. 未接入能力详述（按价值排序）
 
-### 3.1 autocomplete 组 — 记一笔表单补全 · 估级 S
-17 个补全端点（accounts?types=、categories、tags、bills…）。**接入**：RecordTransactionModal 的
-描述/目标账户/分类/标签字段换成防抖 combobox（React Aria ComboBox），命令面板也可复用。
-天天用的输入路径，成本最低收益最直接。
+### 3.1 autocomplete 组 — 记一笔表单补全 · 估级 S · **部分完成**
+已接 4 个：`accounts`（types=Expense/Revenue account）、`categories`、`tags`、`transactions`（描述历史）。
+`Combobox` 防抖 200ms + 自由文本；标签只补全最后一个逗号后 token。其余 13 个端点与命令面板深化待后续。
 
 ### 3.2 transactions 编辑/删除/详情 — 审阅闭环刚需 · 估级 M
 `GET/PUT/DELETE transactions/{id}`。**接入**：TransactionRow 行尾 hover 操作（编辑/删除/克隆），

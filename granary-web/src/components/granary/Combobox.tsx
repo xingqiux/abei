@@ -1,0 +1,235 @@
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+} from 'react'
+import gsap from 'gsap'
+import { prefersReducedMotion } from '../../motion/reducedMotion'
+
+export interface ComboboxItem {
+  id: string
+  label: string
+}
+
+const defaultExtractQuery = (v: string) => v.trim()
+const defaultApplySelection = (item: ComboboxItem, _currentValue: string) => item.label
+
+export interface ComboboxProps {
+  value: string
+  onChange: (value: string) => void
+  /**
+   * 防抖后的查询串回调（默认 200ms）。父级据此触发 useQuery，
+   * enabled 由 query 长度 ≥1 控制（参考 useSearchTransactions）。
+   */
+  onDebouncedQuery: (query: string) => void
+  items: ComboboxItem[]
+  isLoading?: boolean
+  placeholder?: string
+  hasError?: string
+  /** 从完整 value 提取 API 查询子串；默认整值。标签字段取最后一个逗号后 token。 */
+  extractQuery?: (value: string) => string
+  /** 选中候选项写回 value；默认整值替换为 label。 */
+  applySelection?: (item: ComboboxItem, currentValue: string) => string
+  debounceMs?: number
+  className?: string
+  style?: CSSProperties
+  'aria-label'?: string
+  id?: string
+}
+
+/**
+ * 自由文本 + 候选建议 Combobox（规范 §4.3 输入补全）。
+ * - 候选只是建议，不强制选中，可直接自由输入提交
+ * - 键盘：↑↓ 移动、Enter 选中、Esc 关闭
+ * - 高亮项 `--g-surface-2`；下拉 120ms 淡入（reduced-motion 直显）
+ * 皮肤自绘，不依赖组件库皮肤。
+ */
+export function Combobox({
+  value,
+  onChange,
+  onDebouncedQuery,
+  items,
+  isLoading = false,
+  placeholder,
+  hasError,
+  extractQuery = defaultExtractQuery,
+  applySelection = defaultApplySelection,
+  debounceMs = 200,
+  className = '',
+  style,
+  'aria-label': ariaLabel,
+  id: idProp,
+}: ComboboxProps) {
+  const autoId = useId()
+  const listboxId = `${idProp ?? autoId}-listbox`
+  const inputId = idProp ?? autoId
+
+  const [open, setOpen] = useState(false)
+  const [highlight, setHighlight] = useState(0)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLUListElement>(null)
+  const ignoreBlurRef = useRef(false)
+
+  // 防抖：value 变化 → extractQuery → onDebouncedQuery
+  useEffect(() => {
+    const q = extractQuery(value)
+    const t = window.setTimeout(() => onDebouncedQuery(q), debounceMs)
+    return () => window.clearTimeout(t)
+  }, [value, extractQuery, onDebouncedQuery, debounceMs])
+
+  // 有候选且输入框聚焦时展示列表
+  const showList = open && (items.length > 0 || isLoading)
+
+  useEffect(() => {
+    if (!showList) return
+    setHighlight(0)
+  }, [items, showList])
+
+  // 下拉 120ms 淡入（规范 §6 时长档）
+  useLayoutEffect(() => {
+    const el = listRef.current
+    if (!showList || !el || prefersReducedMotion()) return
+    gsap.fromTo(el, { opacity: 0 }, { opacity: 1, duration: 0.12, ease: 'power1.out' })
+  }, [showList])
+
+  // 点击外部关闭
+  useEffect(() => {
+    if (!open) return
+    function onPointerDown(e: PointerEvent) {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open])
+
+  function selectItem(item: ComboboxItem) {
+    onChange(applySelection(item, value))
+    setOpen(false)
+  }
+
+  function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Escape') {
+      if (open) {
+        e.preventDefault()
+        e.stopPropagation()
+        setOpen(false)
+      }
+      return
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      if (!open) {
+        setOpen(true)
+        return
+      }
+      if (items.length === 0) return
+      setHighlight((h) => (h + 1) % items.length)
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      if (!open || items.length === 0) return
+      setHighlight((h) => (h - 1 + items.length) % items.length)
+      return
+    }
+    if (e.key === 'Enter') {
+      if (open && items[highlight]) {
+        e.preventDefault()
+        selectItem(items[highlight])
+      }
+    }
+  }
+
+  const inputStyle: CSSProperties = {
+    background: 'var(--g-surface-2)',
+    color: 'var(--g-ink)',
+    border: `1px solid ${hasError ? 'var(--g-danger)' : 'var(--g-border)'}`,
+    ...style,
+  }
+
+  return (
+    <div ref={rootRef} className={`relative ${className}`}>
+      <input
+        id={inputId}
+        role="combobox"
+        aria-expanded={showList}
+        aria-controls={listboxId}
+        aria-autocomplete="list"
+        aria-activedescendant={showList && items[highlight] ? `${listboxId}-opt-${highlight}` : undefined}
+        aria-label={ariaLabel}
+        value={value}
+        placeholder={placeholder}
+        autoComplete="off"
+        onChange={(e) => {
+          onChange(e.target.value)
+          setOpen(true)
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => {
+          // 列表 mousedown 会先触发 blur；延后关闭以允许点击选中
+          if (ignoreBlurRef.current) return
+          window.setTimeout(() => setOpen(false), 120)
+        }}
+        onKeyDown={onKeyDown}
+        className="w-full rounded-[6px] px-2.5 py-1.5 text-[12.5px] outline-none"
+        style={inputStyle}
+      />
+
+      {showList && (
+        <ul
+          ref={listRef}
+          id={listboxId}
+          role="listbox"
+          className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-[6px] py-0.5"
+          style={{
+            background: 'var(--g-surface)',
+            border: '1px solid var(--g-border)',
+            boxShadow: 'var(--g-shadow)',
+          }}
+        >
+          {isLoading && items.length === 0 && (
+            <li
+              className="px-2.5 py-1.5 text-[12px]"
+              style={{ color: 'var(--g-ink-2)' }}
+              role="presentation"
+            >
+              搜索中…
+            </li>
+          )}
+          {items.map((item, i) => {
+            const active = i === highlight
+            return (
+              <li
+                key={item.id}
+                id={`${listboxId}-opt-${i}`}
+                role="option"
+                aria-selected={active}
+                className="cursor-pointer px-2.5 py-1.5 text-[12.5px]"
+                style={{
+                  background: active ? 'var(--g-surface-2)' : 'transparent',
+                  color: 'var(--g-ink)',
+                }}
+                onMouseEnter={() => setHighlight(i)}
+                onMouseDown={(e) => {
+                  // 阻止 input blur 抢先关列表
+                  e.preventDefault()
+                  ignoreBlurRef.current = true
+                }}
+                onClick={() => {
+                  selectItem(item)
+                  ignoreBlurRef.current = false
+                }}
+              >
+                {item.label}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}

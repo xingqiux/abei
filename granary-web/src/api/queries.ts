@@ -1,5 +1,9 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  autocompleteAccounts,
+  autocompleteCategories,
+  autocompleteTags,
+  autocompleteTransactions,
   createTransaction,
   getAbout,
   getAccountsByType,
@@ -273,5 +277,48 @@ export function useAbout() {
     queryKey: ['about'],
     queryFn: () => getAbout(),
     staleTime: 5 * 60_000,
+  })
+}
+
+/**
+ * autocomplete 系列：调用方负责防抖与 enabled（query 长度 ≥1，见 Combobox + RecordTransactionModal）。
+ * 与 useSearchTransactions 同一模式。
+ */
+export function useAutocompleteAccounts(
+  query: string,
+  opts: { types?: string; enabled: boolean; limit?: number },
+) {
+  return useQuery({
+    queryKey: ['autocomplete-accounts', query, opts.types ?? '', opts.limit ?? 10],
+    queryFn: () => autocompleteAccounts(query, { types: opts.types, limit: opts.limit }),
+    enabled: opts.enabled,
+    staleTime: 30_000,
+  })
+}
+
+export function useAutocompleteCategories(query: string, opts: { enabled: boolean; limit?: number }) {
+  return useQuery({
+    queryKey: ['autocomplete-categories', query, opts.limit ?? 10],
+    queryFn: () => autocompleteCategories(query, { limit: opts.limit }),
+    enabled: opts.enabled,
+    staleTime: 30_000,
+  })
+}
+
+export function useAutocompleteTags(query: string, opts: { enabled: boolean; limit?: number }) {
+  return useQuery({
+    queryKey: ['autocomplete-tags', query, opts.limit ?? 10],
+    queryFn: () => autocompleteTags(query, { limit: opts.limit }),
+    enabled: opts.enabled,
+    staleTime: 30_000,
+  })
+}
+
+export function useAutocompleteTransactions(query: string, opts: { enabled: boolean; limit?: number }) {
+  return useQuery({
+    queryKey: ['autocomplete-transactions', query, opts.limit ?? 10],
+    queryFn: () => autocompleteTransactions(query, { limit: opts.limit }),
+    enabled: opts.enabled,
+    staleTime: 30_000,
   })
 }

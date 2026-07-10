@@ -1,8 +1,34 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import gsap from 'gsap'
 import { Modal } from '../../components/granary/Modal'
-import { useAssetAccounts, useCreateTransaction } from '../../api/queries'
+import { Combobox, type ComboboxItem } from '../../components/granary/Combobox'
+
+/** 标签多值：只对最后一个逗号后的 token 做补全查询 */
+function extractLastTagToken(value: string): string {
+  const parts = value.split(',')
+  return (parts[parts.length - 1] ?? '').trim()
+}
+
+/** 标签多值：选中后替换最后一个 token，保留前面已有标签 */
+function applyTagSelection(item: ComboboxItem, currentValue: string): string {
+  const parts = currentValue.split(',')
+  const prefix = parts
+    .slice(0, -1)
+    .map((p) => p.trim())
+    .filter(Boolean)
+  const next = [...prefix, item.label]
+  // 末尾加逗号空格，方便继续输下一个标签
+  return `${next.join(', ')}, `
+}
+import {
+  useAssetAccounts,
+  useAutocompleteAccounts,
+  useAutocompleteCategories,
+  useAutocompleteTags,
+  useAutocompleteTransactions,
+  useCreateTransaction,
+} from '../../api/queries'
 import { FireflyApiError } from '../../api/client'
 import type { CreateTransactionType } from '../../api/firefly'
 import { showToast } from '../../store/toastStore'
@@ -51,6 +77,7 @@ function inputStyle(hasError?: string) {
 /**
  * 「记一笔」交易创建表单（规范 §4.3）：金额优先 5 字段首屏 + 折叠更多选项。
  * 顶栏「+ 记一笔」按钮和全局快捷键 n 共用 useRecordTxStore 开关。
+ * 账户/分类/标签/描述走 autocomplete 补全（候选为建议，可自由文本）。
  */
 export function RecordTransactionModal() {
   const open = useRecordTxStore((s) => s.open)
@@ -76,8 +103,61 @@ export function RecordTransactionModal() {
   const [errors, setErrors] = useState<FieldErrors>({})
   const [savingContinue, setSavingContinue] = useState(false)
 
+  // autocomplete 防抖查询串（由 Combobox onDebouncedQuery 写入）
+  const [descQuery, setDescQuery] = useState('')
+  const [sourceAcQuery, setSourceAcQuery] = useState('')
+  const [destAcQuery, setDestAcQuery] = useState('')
+  const [categoryQuery, setCategoryQuery] = useState('')
+  const [tagQuery, setTagQuery] = useState('')
+
   const amountRef = useRef<HTMLInputElement>(null)
   const fieldsRef = useRef<HTMLDivElement>(null)
+
+  const onDescQuery = useCallback((q: string) => setDescQuery(q), [])
+  const onSourceAcQuery = useCallback((q: string) => setSourceAcQuery(q), [])
+  const onDestAcQuery = useCallback((q: string) => setDestAcQuery(q), [])
+  const onCategoryQuery = useCallback((q: string) => setCategoryQuery(q), [])
+  const onTagQuery = useCallback((q: string) => setTagQuery(q), [])
+
+  // 支出目标：Expense account；收入来源：Revenue account（实测 types= 文案）
+  const expenseAccountsQ = useAutocompleteAccounts(destAcQuery, {
+    types: 'Expense account',
+    enabled: type === 'withdrawal' && destAcQuery.length >= 1,
+  })
+  const revenueAccountsQ = useAutocompleteAccounts(sourceAcQuery, {
+    types: 'Revenue account',
+    enabled: type === 'deposit' && sourceAcQuery.length >= 1,
+  })
+  const categoriesQ = useAutocompleteCategories(categoryQuery, {
+    enabled: categoryQuery.length >= 1,
+  })
+  const tagsQ = useAutocompleteTags(tagQuery, {
+    enabled: tagQuery.length >= 1,
+  })
+  const transactionsQ = useAutocompleteTransactions(descQuery, {
+    enabled: descQuery.length >= 1,
+  })
+
+  const expenseItems: ComboboxItem[] = (expenseAccountsQ.data ?? []).map((a) => ({
+    id: a.id,
+    label: a.name,
+  }))
+  const revenueItems: ComboboxItem[] = (revenueAccountsQ.data ?? []).map((a) => ({
+    id: a.id,
+    label: a.name,
+  }))
+  const categoryItems: ComboboxItem[] = (categoriesQ.data ?? []).map((c) => ({
+    id: c.id,
+    label: c.name,
+  }))
+  const tagItems: ComboboxItem[] = (tagsQ.data ?? []).map((t) => ({
+    id: t.id,
+    label: t.tag ?? t.name,
+  }))
+  const descItems: ComboboxItem[] = (transactionsQ.data ?? []).map((t) => ({
+    id: t.id,
+    label: t.description ?? t.name,
+  }))
 
   // 全局快捷键 n：不在输入框/文本域聚焦时打开表单（规范要求）
   useLayoutEffect(() => {
@@ -115,6 +195,11 @@ export function RecordTransactionModal() {
     setNotes('')
     setMoreOpen(false)
     setErrors({})
+    setDescQuery('')
+    setSourceAcQuery('')
+    setDestAcQuery('')
+    setCategoryQuery('')
+    setTagQuery('')
   }
 
   function resetForContinue() {
@@ -268,18 +353,21 @@ export function RecordTransactionModal() {
             {errors.amount && <div style={errorStyle}>{errors.amount}</div>}
           </div>
 
-          {/* 描述 */}
+          {/* 描述：历史交易描述补全（autocomplete/transactions，可选加分项） */}
           <div className="flex flex-col gap-1">
             <label style={fieldLabelStyle}>描述</label>
-            <input
+            <Combobox
               value={description}
-              onChange={(e) => {
-                setDescription(e.target.value)
+              onChange={(v) => {
+                setDescription(v)
                 setErrors((prev) => ({ ...prev, description: undefined }))
               }}
+              onDebouncedQuery={onDescQuery}
+              items={descItems}
+              isLoading={transactionsQ.isFetching}
               placeholder="这笔钱花在了哪里…"
-              className="w-full rounded-[6px] px-2.5 py-1.5 text-[12.5px] outline-none"
-              style={inputStyle(errors.description)}
+              hasError={errors.description}
+              aria-label="描述"
             />
             {errors.description && <div style={errorStyle}>{errors.description}</div>}
           </div>
@@ -289,12 +377,14 @@ export function RecordTransactionModal() {
             <div className="flex flex-1 flex-col gap-1">
               <label style={fieldLabelStyle}>来源账户</label>
               {type === 'deposit' ? (
-                <input
+                <Combobox
                   value={sourceName}
-                  onChange={(e) => setSourceName(e.target.value)}
+                  onChange={setSourceName}
+                  onDebouncedQuery={onSourceAcQuery}
+                  items={revenueItems}
+                  isLoading={revenueAccountsQ.isFetching}
                   placeholder="收入来源（可留空）"
-                  className="w-full rounded-[6px] px-2.5 py-1.5 text-[12.5px] outline-none"
-                  style={inputStyle()}
+                  aria-label="来源账户"
                 />
               ) : (
                 <select
@@ -320,12 +410,14 @@ export function RecordTransactionModal() {
             <div className="flex flex-1 flex-col gap-1">
               <label style={fieldLabelStyle}>目标账户</label>
               {type === 'withdrawal' ? (
-                <input
+                <Combobox
                   value={destName}
-                  onChange={(e) => setDestName(e.target.value)}
+                  onChange={setDestName}
+                  onDebouncedQuery={onDestAcQuery}
+                  items={expenseItems}
+                  isLoading={expenseAccountsQ.isFetching}
                   placeholder="商家/用途（可留空）"
-                  className="w-full rounded-[6px] px-2.5 py-1.5 text-[12.5px] outline-none"
-                  style={inputStyle()}
+                  aria-label="目标账户"
                 />
               ) : (
                 <select
@@ -383,22 +475,28 @@ export function RecordTransactionModal() {
             <div className="mt-2.5 flex flex-col gap-3">
               <div className="flex flex-col gap-1">
                 <label style={fieldLabelStyle}>分类</label>
-                <input
+                <Combobox
                   value={category}
-                  onChange={(e) => setCategory(e.target.value)}
+                  onChange={setCategory}
+                  onDebouncedQuery={onCategoryQuery}
+                  items={categoryItems}
+                  isLoading={categoriesQ.isFetching}
                   placeholder="如：餐饮"
-                  className="w-full rounded-[6px] px-2.5 py-1.5 text-[12.5px] outline-none"
-                  style={inputStyle()}
+                  aria-label="分类"
                 />
               </div>
               <div className="flex flex-col gap-1">
                 <label style={fieldLabelStyle}>标签（逗号分隔）</label>
-                <input
+                <Combobox
                   value={tagsRaw}
-                  onChange={(e) => setTagsRaw(e.target.value)}
+                  onChange={setTagsRaw}
+                  onDebouncedQuery={onTagQuery}
+                  extractQuery={extractLastTagToken}
+                  applySelection={applyTagSelection}
+                  items={tagItems}
+                  isLoading={tagsQ.isFetching}
                   placeholder="如：报销, 出差"
-                  className="w-full rounded-[6px] px-2.5 py-1.5 text-[12.5px] outline-none"
-                  style={inputStyle()}
+                  aria-label="标签"
                 />
               </div>
               <div className="flex flex-col gap-1">

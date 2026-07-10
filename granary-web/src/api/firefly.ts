@@ -2,6 +2,10 @@ import { fireflyFetch, fireflyPost } from './client'
 import {
   accountsResponseSchema,
   aboutResponseSchema,
+  autocompleteAccountsSchema,
+  autocompleteCategoriesSchema,
+  autocompleteTagsSchema,
+  autocompleteTransactionsSchema,
   billImportResponseSchema,
   billInboxSummarySchema,
   billStatementRowsResponseSchema,
@@ -19,6 +23,10 @@ import {
   transactionCreateResponseSchema,
   type Account,
   type AboutResponse,
+  type AutocompleteAccount,
+  type AutocompleteCategory,
+  type AutocompleteTag,
+  type AutocompleteTransaction,
   type BillImportResponse,
   type BillInboxSummary,
   type BillStatementRowsResponse,
@@ -306,4 +314,68 @@ export async function getCurrencies(): Promise<CurrenciesResponse> {
 export async function getAbout(): Promise<AboutResponse> {
   const raw = await fireflyFetch('/api/v1/about', {})
   return aboutResponseSchema.parse(raw)
+}
+
+/**
+ * GET /api/v1/autocomplete/accounts?query=&limit=&types=
+ * 实测：纯数组 [{id, name, name_with_balance, type, active, currency_*...}]。
+ * types 传 Firefly 账户类型文案（如 "Expense account" / "Revenue account"），可逗号多值。
+ * 记一笔：支出目标用 Expense account，收入来源用 Revenue account。
+ */
+export async function autocompleteAccounts(
+  query: string,
+  opts: { types?: string; limit?: number } = {},
+): Promise<AutocompleteAccount[]> {
+  const raw = await fireflyFetch('/api/v1/autocomplete/accounts', {
+    query,
+    limit: opts.limit ?? 10,
+    types: opts.types,
+  })
+  return autocompleteAccountsSchema.parse(raw)
+}
+
+/**
+ * GET /api/v1/autocomplete/categories?query=&limit=
+ * 实测：纯数组 [{id, name}]。
+ */
+export async function autocompleteCategories(
+  query: string,
+  opts: { limit?: number } = {},
+): Promise<AutocompleteCategory[]> {
+  const raw = await fireflyFetch('/api/v1/autocomplete/categories', {
+    query,
+    limit: opts.limit ?? 10,
+  })
+  return autocompleteCategoriesSchema.parse(raw)
+}
+
+/**
+ * GET /api/v1/autocomplete/tags?query=&limit=
+ * 实测：纯数组 [{id, name, tag}]（name 与 tag 通常同值）。
+ */
+export async function autocompleteTags(
+  query: string,
+  opts: { limit?: number } = {},
+): Promise<AutocompleteTag[]> {
+  const raw = await fireflyFetch('/api/v1/autocomplete/tags', {
+    query,
+    limit: opts.limit ?? 10,
+  })
+  return autocompleteTagsSchema.parse(raw)
+}
+
+/**
+ * GET /api/v1/autocomplete/transactions?query=&limit=
+ * 实测：纯数组 [{id, transaction_group_id, name, description}]。
+ * 用于描述字段的历史描述建议（可选加分项）。
+ */
+export async function autocompleteTransactions(
+  query: string,
+  opts: { limit?: number } = {},
+): Promise<AutocompleteTransaction[]> {
+  const raw = await fireflyFetch('/api/v1/autocomplete/transactions', {
+    query,
+    limit: opts.limit ?? 10,
+  })
+  return autocompleteTransactionsSchema.parse(raw)
 }

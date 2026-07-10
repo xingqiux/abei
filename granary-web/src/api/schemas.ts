@@ -588,3 +588,61 @@ export const aboutResponseSchema = z.object({ data: aboutDataSchema }).passthrou
 
 export type AboutData = z.infer<typeof aboutDataSchema>
 export type AboutResponse = z.infer<typeof aboutResponseSchema>
+
+/**
+ * autocomplete 系列（GET /api/v1/autocomplete/*）实测均为**纯 JSON 数组**，
+ * 不是 JSON:API `{data:[...]}` 包裹——与列表端点形状不同，勿混用。
+ */
+
+/** GET /api/v1/autocomplete/accounts?query=&limit=&types= 实测字段 */
+export const autocompleteAccountSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    name_with_balance: z.string().optional(),
+    type: z.string().optional(),
+    active: z.boolean().optional(),
+  })
+  .passthrough()
+
+export const autocompleteAccountsSchema = z.array(autocompleteAccountSchema)
+export type AutocompleteAccount = z.infer<typeof autocompleteAccountSchema>
+
+/** GET /api/v1/autocomplete/categories?query=&limit= 实测 [{id, name}] */
+export const autocompleteCategorySchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+  })
+  .passthrough()
+
+export const autocompleteCategoriesSchema = z.array(autocompleteCategorySchema)
+export type AutocompleteCategory = z.infer<typeof autocompleteCategorySchema>
+
+/** GET /api/v1/autocomplete/tags?query=&limit= 实测 [{id, name, tag}]（name 与 tag 同值） */
+export const autocompleteTagSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    tag: z.string().optional(),
+  })
+  .passthrough()
+
+export const autocompleteTagsSchema = z.array(autocompleteTagSchema)
+export type AutocompleteTag = z.infer<typeof autocompleteTagSchema>
+
+/**
+ * GET /api/v1/autocomplete/transactions?query=&limit=
+ * 实测 [{id, transaction_group_id, name, description}]——描述历史补全用 name/description。
+ */
+export const autocompleteTransactionSchema = z
+  .object({
+    id: z.string(),
+    transaction_group_id: z.string().optional(),
+    name: z.string(),
+    description: z.string().optional(),
+  })
+  .passthrough()
+
+export const autocompleteTransactionsSchema = z.array(autocompleteTransactionSchema)
+export type AutocompleteTransaction = z.infer<typeof autocompleteTransactionSchema>
