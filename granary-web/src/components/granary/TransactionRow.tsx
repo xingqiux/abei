@@ -38,6 +38,21 @@ export function TransactionRow({
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [menuOpen])
 
+  // reconciliation：按 source/destination 账户类型推断增减，避免「A→A ¥0.01」无正负号
+  const isRecon = tx.type === 'reconciliation'
+  const srcType = String((tx as { source_type?: string }).source_type ?? '')
+  const destType = String((tx as { destination_type?: string }).destination_type ?? '')
+  const reconIsDecrease =
+    isRecon &&
+    (destType.toLowerCase().includes('reconciliation') ||
+      (!srcType.toLowerCase().includes('reconciliation') && destType !== ''))
+  const moneyKind = isRecon ? (reconIsDecrease ? 'withdrawal' : 'deposit') : tx.type
+  const flowLabel = isRecon
+    ? reconIsDecrease
+      ? `${tx.source_name ?? '?'} → 对账账户`
+      : `对账账户 → ${tx.destination_name ?? '?'}`
+    : `${tx.source_name ?? '?'} → ${tx.destination_name ?? '?'}`
+
   const actionsDesktop = actionable && (
     <div className="flex w-[56px] shrink-0 items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
       {onEdit && (
@@ -152,11 +167,11 @@ export function TransactionRow({
           className="hidden shrink-0 truncate text-[11.5px] sm:block"
           style={{ color: 'var(--g-ink-2)', maxWidth: 200 }}
         >
-          {tx.source_name ?? '?'} → {tx.destination_name ?? '?'}
+          {flowLabel}
         </div>
 
         <div className="w-[110px] shrink-0 text-right">
-          <MoneyText value={tx.amount} kind={tx.type} symbol={tx.currency_symbol} />
+          <MoneyText value={tx.amount} kind={moneyKind} symbol={tx.currency_symbol} />
         </div>
         {actionsDesktop}
       </div>
@@ -171,14 +186,14 @@ export function TransactionRow({
             {tx.description}
           </span>
           <div className="flex shrink-0 items-center gap-1">
-            <MoneyText value={tx.amount} kind={tx.type} symbol={tx.currency_symbol} />
+            <MoneyText value={tx.amount} kind={moneyKind} symbol={tx.currency_symbol} />
             {actionsMobile}
           </div>
         </div>
         <div className="flex min-w-0 items-center justify-between gap-2">
           {tx.category_name ? <CategoryChip label={tx.category_name} /> : <span />}
           <span className="min-w-0 truncate text-[11px]" style={{ color: 'var(--g-ink-2)' }}>
-            {tx.source_name ?? '?'} → {tx.destination_name ?? '?'}
+            {flowLabel}
           </span>
         </div>
       </div>

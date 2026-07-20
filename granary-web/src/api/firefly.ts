@@ -338,19 +338,23 @@ export interface AccountSummary {
 
 /**
  * 记一笔/编辑表单的来源与转账账户下拉。
- * 合并 type=asset 与 type=liabilities（花呗等 Debt 可作支出来源），只保留启用账户。
- * 并发两请求后按 id 去重；负债账户排在资产后面。
+ * 默认合并 type=asset 与 type=liabilities（花呗等 Debt 可作支出来源）。
+ * includeLiabilities:false 时仅资产（对账调整用，避免负债混入）。
  */
-export async function getAssetAccounts(): Promise<AccountSummary[]> {
-  const [assetRaw, liabRaw] = await Promise.all([
-    fireflyFetch('/api/v1/accounts', { type: 'asset', limit: 200 }),
-    fireflyFetch('/api/v1/accounts', { type: 'liabilities', limit: 200 }),
-  ])
+export async function getAssetAccounts(
+  opts: { includeLiabilities?: boolean } = {},
+): Promise<AccountSummary[]> {
+  const includeLiabilities = opts.includeLiabilities ?? true
+  const assetRaw = await fireflyFetch('/api/v1/accounts', { type: 'asset', limit: 200 })
   const assets = accountsResponseSchema.parse(assetRaw).data
-  const liabilities = accountsResponseSchema.parse(liabRaw).data
+  let list = assets as Account[]
+  if (includeLiabilities) {
+    const liabRaw = await fireflyFetch('/api/v1/accounts', { type: 'liabilities', limit: 200 })
+    list = [...assets, ...accountsResponseSchema.parse(liabRaw).data] as Account[]
+  }
   const seen = new Set<string>()
   const out: AccountSummary[] = []
-  for (const a of [...assets, ...liabilities] as Account[]) {
+  for (const a of list) {
     if (a.attributes.active === false) continue
     if (seen.has(a.id)) continue
     seen.add(a.id)
@@ -516,16 +520,43 @@ export async function markDayTransactionsReconciled(date: string): Promise<{ tot
   return { total: list.data.length, updated }
 }
 
+/** 按名称查找资产对应的 Reconciliation 账户（与资产同名）。 */
+async function findReconciliationAccountId(assetName: string): Promise<string | null> {
+  const raw = await fireflyFetch('/api/v1/accounts', { type: 'reconciliation', limit: 200 })
+  const list = accountsResponseSchema.parse(raw).data
+  const hit = list.find((a) => a.attributes.name === assetName && a.attributes.active !== false)
+  return hit?.id ?? null
+}
+
 /**
  * 生成对账调整交易（type=reconciliation）。
- * 实测 source_id=资产账户时后端自动挂 Reconciliation 账户为对方。
+ * - decrease：source=destination=资产 id（实测后端把 dest 改写成对账账户，余额减少）
+ * - increase：source=对账账户、destination=资产（需已存在同名 reconciliation 账户）
  */
 export async function createReconciliationAdjustment(input: {
   date: string
   amount: string
-  source_id: string
+  account_id: string
+  direction: 'decrease' | 'increase'
   description?: string
 }): Promise<TransactionDetailResponse> {
+  const asset = await getAccount(input.account_id)
+  const assetName = asset.data.attributes.name
+  let source_id = input.account_id
+  let destination_id = input.account_id
+
+  if (input.direction === 'increase') {
+    const reconId = await findReconciliationAccountId(assetName)
+    if (!reconId) {
+      throw new FireflyApiError(
+        422,
+        `未找到「${assetName}」的对账账户。请先做一笔「减少余额」调整以初始化，或在旧版 Firefly 对该账户完成过对账。`,
+      )
+    }
+    source_id = reconId
+    destination_id = input.account_id
+  }
+
   const raw = await fireflyPost('/api/v1/transactions', {
     error_if_duplicate_hash: false,
     transactions: [
@@ -533,9 +564,11 @@ export async function createReconciliationAdjustment(input: {
         type: 'reconciliation',
         date: `${input.date}T12:00:00+08:00`,
         amount: input.amount,
-        description: input.description ?? `对账调整 ${input.date}`,
-        source_id: input.source_id,
-        destination_id: input.source_id,
+        description:
+          input.description ??
+          `对账调整 ${input.date}（${input.direction === 'decrease' ? '减少' : '增加'}）`,
+        source_id,
+        destination_id,
         reconciled: true,
       },
     ],

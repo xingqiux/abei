@@ -279,11 +279,12 @@ export function useRetryBillTask() {
   })
 }
 
-/** 记一笔表单的资产账户下拉；变动很少，缓存 5 分钟 */
-export function useAssetAccounts() {
+/** 记一笔表单的资产(+负债)账户下拉；对账调整传 includeLiabilities:false */
+export function useAssetAccounts(opts: { includeLiabilities?: boolean } = {}) {
+  const includeLiabilities = opts.includeLiabilities ?? true
   return useQuery({
-    queryKey: ['accounts', 'asset'],
-    queryFn: () => getAssetAccounts(),
+    queryKey: ['accounts', 'asset', includeLiabilities ? 'with-liab' : 'pure'],
+    queryFn: () => getAssetAccounts({ includeLiabilities }),
     staleTime: 5 * 60_000,
   })
 }
@@ -485,8 +486,13 @@ export function useMarkDayReconciled() {
 export function useCreateReconciliationAdjustment() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (input: { date: string; amount: string; source_id: string; description?: string }) =>
-      createReconciliationAdjustment(input),
+    mutationFn: (input: {
+      date: string
+      amount: string
+      account_id: string
+      direction: 'decrease' | 'increase'
+      description?: string
+    }) => createReconciliationAdjustment(input),
     onSuccess: () => invalidateTransactionCaches(queryClient),
   })
 }

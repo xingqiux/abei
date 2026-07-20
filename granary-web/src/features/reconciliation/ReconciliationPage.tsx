@@ -43,7 +43,9 @@ export function ReconciliationPage() {
 
   const markDay = useMarkDayReconciled()
   const createAdj = useCreateReconciliationAdjustment()
-  const accountsQuery = useAssetAccounts()
+  // 对账调整只列纯资产，不混入花呗/助学贷款等负债
+  const accountsQuery = useAssetAccounts({ includeLiabilities: false })
+  const [adjDirection, setAdjDirection] = useState<'decrease' | 'increase'>('decrease')
 
   const chronoDays = useMemo(() => {
     const days = summaryQuery.data?.days ?? []
@@ -101,6 +103,7 @@ export function ReconciliationPage() {
     if (!adjOpen) return
     if (selectedDay?.diff_amount) setAdjAmount(String(Math.abs(Number(selectedDay.diff_amount))))
     else setAdjAmount('')
+    setAdjDirection('decrease')
     const first = accountsQuery.data?.[0]?.id ?? ''
     setAdjAccountId(first)
   }, [adjOpen, selectedDay, accountsQuery.data])
@@ -132,11 +135,15 @@ export function ReconciliationPage() {
       await createAdj.mutateAsync({
         date: selectedDay.date,
         amount: n.toFixed(2),
-        source_id: adjAccountId,
-        description: `对账调整 ${selectedDay.date}`,
+        account_id: adjAccountId,
+        direction: adjDirection,
+        description: `对账调整 ${selectedDay.date}（${adjDirection === 'decrease' ? '减少' : '增加'}）`,
       })
       setAdjOpen(false)
-      showToast({ message: '已生成调整交易', kind: 'success' })
+      showToast({
+        message: adjDirection === 'decrease' ? '已生成调整交易（减少余额）' : '已生成调整交易（增加余额）',
+        kind: 'success',
+      })
     } catch (err) {
       const message = err instanceof FireflyApiError ? err.message : '创建失败，请重试'
       showToast({ message, kind: 'error', duration: 6000 })
@@ -279,9 +286,36 @@ export function ReconciliationPage() {
       >
         <div className="flex flex-col gap-3 text-[12.5px]">
           <p style={{ color: 'var(--g-ink-2)' }}>
-            将写入 type=reconciliation 的调整交易，并自动标记 reconciled（方案 b）。对方账户由 Firefly
-            挂到该资产的对账账户。
+            type=reconciliation，自动标记 reconciled。减少=资产作来源；增加=资产作目标；对侧由后端挂对账账户。
           </p>
+          <div className="flex flex-col gap-1.5">
+            <span style={{ color: 'var(--g-ink-2)' }}>方向</span>
+            <div className="flex gap-1">
+              {(
+                [
+                  { id: 'decrease' as const, label: '减少余额' },
+                  { id: 'increase' as const, label: '增加余额' },
+                ] as const
+              ).map((opt) => {
+                const active = adjDirection === opt.id
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setAdjDirection(opt.id)}
+                    className="rounded-[4px] px-2.5 py-1 text-[12px]"
+                    style={{
+                      background: active ? 'var(--g-accent)' : 'var(--g-surface-2)',
+                      color: active ? 'var(--g-accent-ink)' : 'var(--g-ink)',
+                      fontWeight: active ? 'var(--g-weight-demibold)' : undefined,
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
           <label className="flex flex-col gap-1">
             <span style={{ color: 'var(--g-ink-2)' }}>金额</span>
             <input
