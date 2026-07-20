@@ -445,13 +445,30 @@ export const budgetSpentEntrySchema = z
   })
   .passthrough()
 
+/**
+ * BudgetTransformer：无自有币种时 currency_* 全为 null（object_has_currency_setting=false）。
+ * 必须 .nullable()，否则 z.string().optional() 会拒收 null，POST/列表 parse 全挂。
+ */
 export const budgetAttributesSchema = z
   .object({
     name: z.string(),
     active: z.boolean().optional(),
     order: z.number().nullable().optional(),
-    currency_symbol: z.string().optional(),
+    notes: z.string().nullable().optional(),
+    auto_budget_type: z.string().nullable().optional(),
+    auto_budget_period: z.string().nullable().optional(),
     auto_budget_amount: z.string().nullable().optional(),
+    object_has_currency_setting: z.boolean().optional(),
+    currency_id: z.string().nullable().optional(),
+    currency_code: z.string().nullable().optional(),
+    currency_name: z.string().nullable().optional(),
+    currency_symbol: z.string().nullable().optional(),
+    currency_decimal_places: z.number().nullable().optional(),
+    primary_currency_id: z.string().nullable().optional(),
+    primary_currency_code: z.string().nullable().optional(),
+    primary_currency_name: z.string().nullable().optional(),
+    primary_currency_symbol: z.string().nullable().optional(),
+    primary_currency_decimal_places: z.number().nullable().optional(),
     spent: z.array(budgetSpentEntrySchema).nullable().optional(),
   })
   .passthrough()
@@ -479,7 +496,17 @@ export const budgetLimitAttributesSchema = z
     start: z.string(),
     end: z.string(),
     amount: z.string(),
-    currency_symbol: z.string().optional(),
+    object_has_currency_setting: z.boolean().optional(),
+    currency_id: z.string().nullable().optional(),
+    currency_code: z.string().nullable().optional(),
+    currency_name: z.string().nullable().optional(),
+    currency_symbol: z.string().nullable().optional(),
+    currency_decimal_places: z.number().nullable().optional(),
+    primary_currency_id: z.string().nullable().optional(),
+    primary_currency_code: z.string().nullable().optional(),
+    primary_currency_name: z.string().nullable().optional(),
+    primary_currency_symbol: z.string().nullable().optional(),
+    primary_currency_decimal_places: z.number().nullable().optional(),
     spent: z.union([z.string(), z.number()]).nullable().optional(),
   })
   .passthrough()

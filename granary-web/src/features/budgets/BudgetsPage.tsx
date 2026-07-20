@@ -104,6 +104,21 @@ function BudgetsTabContent() {
       </div>
       {budgetsQuery.isLoading ? (
         <ListSkeleton />
+      ) : budgetsQuery.isError ? (
+        <div className="px-2 py-8 text-center text-[12.5px]" style={{ color: 'var(--g-danger)' }}>
+          预算加载失败
+          <div className="mt-1 text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>
+            {budgetsQuery.error instanceof Error ? budgetsQuery.error.message : '请检查 API 或刷新重试'}
+          </div>
+          <button
+            type="button"
+            onClick={() => void budgetsQuery.refetch()}
+            className="mt-3 rounded-[6px] px-3 py-1.5 text-[12px]"
+            style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)' }}
+          >
+            重试
+          </button>
+        </div>
       ) : budgets.length === 0 ? (
         <EmptyState message="还没有预算——点右上角新建，或在 CLI 里创建" />
       ) : (
