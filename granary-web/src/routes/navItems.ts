@@ -1,11 +1,7 @@
 import {
   LayoutDashboard,
   ArrowLeftRight,
-  Inbox,
-  CalendarCheck,
-  PiggyBank,
   Wallet,
-  BarChart3,
   Settings,
   type LucideIcon,
 } from 'lucide-react'
@@ -14,11 +10,7 @@ import {
 export type NavPath =
   | '/'
   | '/transactions'
-  | '/bill-inbox'
-  | '/reconciliation'
-  | '/budgets'
   | '/accounts'
-  | '/reports'
   | '/settings'
 
 export interface NavItemDef {
@@ -34,10 +26,6 @@ export interface NavItemDef {
 export const NAV_ITEMS: NavItemDef[] = [
   { label: '总览', to: '/', icon: LayoutDashboard },
   { label: '交易', to: '/transactions', icon: ArrowLeftRight },
-  { label: '账单收件箱', to: '/bill-inbox', icon: Inbox },
-  { label: '按天对账', to: '/reconciliation', icon: CalendarCheck },
-  { label: '预算与订阅', to: '/budgets', icon: PiggyBank },
   { label: '账户', to: '/accounts', icon: Wallet },
-  { label: '报表', to: '/reports', icon: BarChart3 },
   { label: '设置', to: '/settings', icon: Settings },
 ]

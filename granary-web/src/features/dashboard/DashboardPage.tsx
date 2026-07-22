@@ -8,7 +8,6 @@ import {
   useTransactions,
 } from '../../api/queries'
 import { KpiCard } from '../../components/granary/KpiCard'
-import { TodoCard } from '../../components/granary/TodoCard'
 import { CategoryBarChart, type CategoryBarDatum } from '../../components/granary/CategoryBarChart'
 import { BalanceAreaChart } from '../../components/granary/BalanceAreaChart'
 import { TransactionRow } from '../../components/granary/TransactionRow'
@@ -18,10 +17,9 @@ import { EmptyState } from '../../components/granary/EmptyState'
 import { formatMonthDay } from '../../lib/format'
 import { pickTopBalanceSeries } from '../../lib/chartSeries'
 import { useStaggerIn } from '../../motion/useStaggerIn'
-import { useRecordTxStore } from '../../store/recordTxStore'
 import { showToast } from '../../store/toastStore'
 import { FireflyApiError } from '../../api/client'
-import { buildEditPayload, isEditableTransactionGroup, isEditableTransactionType } from '../record-transaction/editPayload'
+import { isEditableTransactionType } from '../record-transaction/editPayload'
 import { flattenTransactionGroups, type TransactionSplitRow } from '../../lib/transactionGroup'
 import { cashflowAmounts, summaryAmounts } from '../../lib/summary'
 import { ErrorState } from '../../components/granary/ErrorState'
@@ -52,7 +50,6 @@ export function DashboardPage() {
   const recentQuery = useTransactions(range, { limit: 12, page: 1, type: 'all' })
   // 资产账户余额面积线（最多 4 条）；preselected=assets，避免 frontpageAccounts 失效返回 []
   const chartQuery = useAccountOverviewChart(range, { preselected: 'assets' })
-  const openEdit = useRecordTxStore((s) => s.openEdit)
   const deleteMutation = useDeleteTransaction()
   const [pendingDelete, setPendingDelete] = useState<RecentRow | null>(null)
 
@@ -86,10 +83,10 @@ export function DashboardPage() {
     if (!pendingDelete) return
     try {
       await deleteMutation.mutateAsync(pendingDelete.groupId)
-      showToast({ kind: 'success', message: '已删除交易' })
+      showToast({ kind: 'success', message: '交易已移入回收站' })
       setPendingDelete(null)
     } catch (err) {
-      const message = err instanceof FireflyApiError ? err.message : '删除失败，请重试'
+      const message = err instanceof FireflyApiError ? err.message : '移入回收站失败，请重试'
       showToast({ kind: 'error', message, duration: 6000 })
     }
   }
@@ -137,8 +134,6 @@ export function DashboardPage() {
         )}
       </div>
 
-      <TodoCard />
-
       <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-[1.08fr_0.92fr]">
         <Card title="分类支出 TOP">
           {categoryQuery.isLoading ? (
@@ -171,23 +166,17 @@ export function DashboardPage() {
             <div ref={recentListRef} className="flex flex-col">
               {recentRows.map((row) => {
                 // Opening balance / Reconciliation 等不可行操作（避免误改初始余额）
-                const editable = row.splitIndex === 0 && isEditableTransactionGroup(row.tx.type, row.hasReconciledSplit)
                 const deletable = row.splitIndex === 0 && isEditableTransactionType(row.tx.type)
                 return (
                   <TransactionRow
                     key={`${row.groupId}-${row.tx.transaction_journal_id ?? row.splitIndex}`}
                     tx={row.tx}
                     ids={
-                      editable || deletable
+                      deletable
                         ? {
                             groupId: row.groupId,
                             journalId: String(row.tx.transaction_journal_id ?? row.groupId),
                           }
-                        : undefined
-                    }
-                    onEdit={
-                      editable
-                        ? () => openEdit(buildEditPayload(row.groupId, row.tx, row.splitCount))
                         : undefined
                     }
                     onDelete={deletable ? () => setPendingDelete(row) : undefined}

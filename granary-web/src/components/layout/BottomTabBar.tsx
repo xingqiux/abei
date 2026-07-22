@@ -1,12 +1,7 @@
 import { Link, useRouterState } from '@tanstack/react-router'
-import { LayoutDashboard, ArrowLeftRight, Plus, Inbox, User } from 'lucide-react'
+import { LayoutDashboard, ArrowLeftRight, Plus, Wallet, Settings } from 'lucide-react'
 import { useRecordTxStore } from '../../store/recordTxStore'
-import { useMoreSheetStore } from '../../store/moreSheetStore'
-import { useNavBadges } from '../../routes/useNavBadges'
 import type { NavPath } from '../../routes/navItems'
-
-/** 「我的」sheet 覆盖的剩余导航路径，用于判断底部 tab「我的」的高亮态（规范 §3 移动端断点）。 */
-const MORE_PATHS: NavPath[] = ['/reconciliation', '/budgets', '/accounts', '/reports', '/settings']
 
 /**
  * 移动端（<768px）底部 5 tab：总览 / 交易 / 记一笔（中间凸起）/ 收件箱（徽标点）/ 我的（弹出 sheet）。
@@ -15,11 +10,6 @@ const MORE_PATHS: NavPath[] = ['/reconciliation', '/budgets', '/accounts', '/rep
 export function BottomTabBar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const openRecordForm = useRecordTxStore((s) => s.openForm)
-  const openMoreSheet = useMoreSheetStore((s) => s.openSheet)
-  const badges = useNavBadges()
-
-  const isMoreActive = MORE_PATHS.some((p) => pathname.startsWith(p))
-  const inboxBadge = badges['/bill-inbox']
 
   return (
     <nav
@@ -46,17 +36,8 @@ export function BottomTabBar() {
         </button>
       </div>
 
-      <TabLink to="/bill-inbox" label="收件箱" icon={Inbox} active={pathname.startsWith('/bill-inbox')} showDot={!!inboxBadge} dotKind={inboxBadge?.kind} />
-
-      <button
-        type="button"
-        onClick={openMoreSheet}
-        className="flex flex-1 flex-col items-center justify-center gap-0.5 text-[10px]"
-        style={{ color: isMoreActive ? 'var(--g-accent)' : 'var(--g-ink-2)' }}
-      >
-        <User aria-hidden size={18} strokeWidth={2} color="currentColor" />
-        我的
-      </button>
+      <TabLink to="/accounts" label="账户" icon={Wallet} active={pathname.startsWith('/accounts')} />
+      <TabLink to="/settings" label="设置" icon={Settings} active={pathname.startsWith('/settings')} />
     </nav>
   )
 }
@@ -66,15 +47,11 @@ function TabLink({
   label,
   icon: Icon,
   active,
-  showDot,
-  dotKind,
 }: {
   to: NavPath
   label: string
   icon: typeof LayoutDashboard
   active: boolean
-  showDot?: boolean
-  dotKind?: 'warn' | 'danger'
 }) {
   return (
     <Link
@@ -82,15 +59,7 @@ function TabLink({
       className="relative flex flex-1 flex-col items-center justify-center gap-0.5 text-[10px]"
       style={{ color: active ? 'var(--g-accent)' : 'var(--g-ink-2)' }}
     >
-      <span className="relative">
-        <Icon aria-hidden size={18} strokeWidth={2} color="currentColor" />
-        {showDot && (
-          <span
-            className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full"
-            style={{ background: dotKind === 'danger' ? 'var(--g-danger)' : 'var(--g-warn)' }}
-          />
-        )}
-      </span>
+      <Icon aria-hidden size={18} strokeWidth={2} color="currentColor" />
       {label}
     </Link>
   )

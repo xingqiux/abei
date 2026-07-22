@@ -3,13 +3,12 @@ import { createPortal } from 'react-dom'
 import { Link } from '@tanstack/react-router'
 import gsap from 'gsap'
 import { useMoreSheetStore } from '../../store/moreSheetStore'
-import { useNavBadges } from '../../routes/useNavBadges'
 import { NAV_ITEMS, type NavPath } from '../../routes/navItems'
 import { prefersReducedMotion } from '../../motion/reducedMotion'
 import { useDialogBehavior } from '../granary/useDialogBehavior'
 
 /** 「我的」sheet 里列出的剩余导航项（总览/交易/收件箱已在底部 tab 常驻，此处不重复）。 */
-const MORE_PATHS: NavPath[] = ['/reconciliation', '/budgets', '/accounts', '/reports', '/settings']
+const MORE_PATHS: NavPath[] = ['/accounts', '/settings']
 
 /**
  * 移动端底部弹出 sheet：列出侧栏剩余五个导航项，240ms 上滑入场（规范 §3/§6）。
@@ -18,7 +17,6 @@ const MORE_PATHS: NavPath[] = ['/reconciliation', '/budgets', '/accounts', '/rep
 export function MoreSheet() {
   const open = useMoreSheetStore((s) => s.open)
   const close = useMoreSheetStore((s) => s.close)
-  const badges = useNavBadges()
   const panelRef = useRef<HTMLDivElement>(null)
   useDialogBehavior(open, panelRef, close)
 
@@ -49,7 +47,6 @@ export function MoreSheet() {
         <div className="flex flex-col gap-0.5 px-3 py-3">
           {items.map((item) => {
             const Icon = item.icon
-            const badge = badges[item.to]
             return (
               <Link
                 key={item.to}
@@ -62,17 +59,6 @@ export function MoreSheet() {
                   <Icon aria-hidden size={18} strokeWidth={2} color="var(--g-ink-2)" />
                   {item.label}
                 </span>
-                {badge && (
-                  <span
-                    className="font-num rounded-[4px] px-1.5 text-[10px] leading-[16px]"
-                    style={{
-                      background: badge.kind === 'warn' ? 'var(--g-warn)' : 'var(--g-danger)',
-                      color: badge.kind === 'warn' ? 'var(--g-accent-ink)' : '#fff',
-                    }}
-                  >
-                    {badge.text}
-                  </span>
-                )}
               </Link>
             )
           })}

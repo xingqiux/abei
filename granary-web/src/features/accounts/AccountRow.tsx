@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Pencil, Trash2 } from 'lucide-react'
+import { Archive, Pencil } from 'lucide-react'
 import type { Account } from '../../api/schemas'
 import { formatAmount } from '../../lib/format'
 
@@ -21,7 +21,7 @@ export function AccountRow({ account, balanceColorVar, onEdit, onDelete }: { acc
       </Link>
       <div className="ml-1 flex w-[48px] justify-end opacity-0 group-hover:opacity-100 focus-within:opacity-100">
         <button type="button" title="编辑账户" aria-label={`编辑 ${a.name}`} onClick={onEdit} className="rounded p-1" style={{ color: 'var(--g-ink-2)' }}><Pencil size={13} /></button>
-        <button type="button" title="删除账户" aria-label={`删除 ${a.name}`} onClick={onDelete} className="rounded p-1" style={{ color: 'var(--g-danger)' }}><Trash2 size={13} /></button>
+        <button type="button" title="归档账户" aria-label={`归档 ${a.name}`} onClick={onDelete} className="rounded p-1" style={{ color: 'var(--g-danger)' }}><Archive size={13} /></button>
       </div>
     </div>
   )

@@ -4,7 +4,7 @@ import { toTransactionGroupView } from '../../lib/transactionGroup'
 import { formatAmount } from '../../lib/format'
 
 /**
- * 删除交易确认框（规范 §5）：正文展示描述+金额，确认按钮 `--g-danger` 底色。
+ * 移入回收站确认框：正文展示描述和金额。
  */
 export function DeleteTransactionDialog({
   open,
@@ -45,20 +45,20 @@ export function DeleteTransactionDialog({
           fontWeight: 'var(--g-weight-demibold)',
         }}
       >
-        {pending ? '删除中…' : '确认删除'}
+        {pending ? '移动中…' : '移入回收站'}
       </button>
     </>
   )
 
   return (
-    <Modal open={open} onClose={onClose} title="删除交易" width={400} footer={footer}>
+    <Modal open={open} onClose={onClose} title="移入回收站" width={400} footer={footer}>
       <p className="m-0 leading-relaxed" style={{ color: 'var(--g-ink)' }}>
-        确定删除整组交易「
+        确定将整组交易「
         <span style={{ fontWeight: 'var(--g-weight-demibold)' }}>{first.description}</span>
-        」吗？
+        」移入回收站吗？
         {splits.length > 1 && <span>该组包含 {splits.length} 条拆分，</span>}
         合计 {group.totals.map((total) => `${total.currencySymbol || total.currencyCode || ''}${formatAmount(total.amount)}`).join('、')}。
-        此操作不可撤销。
+        后续可在回收站中恢复。
       </p>
     </Modal>
   )

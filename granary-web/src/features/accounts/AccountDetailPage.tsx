@@ -16,10 +16,9 @@ import { EmptyState } from '../../components/granary/EmptyState'
 import { formatAmount, formatMonthDay } from '../../lib/format'
 import { toBalanceSeries } from '../../lib/chartSeries'
 import { useStaggerIn } from '../../motion/useStaggerIn'
-import { useRecordTxStore } from '../../store/recordTxStore'
 import { showToast } from '../../store/toastStore'
 import { FireflyApiError } from '../../api/client'
-import { buildEditPayload, isEditableTransactionGroup, isEditableTransactionType } from '../record-transaction/editPayload'
+import { isEditableTransactionType } from '../record-transaction/editPayload'
 import { flattenTransactionGroups, type TransactionSplitRow } from '../../lib/transactionGroup'
 import { compareDecimalStrings } from '../../lib/decimal'
 import { ErrorState } from '../../components/granary/ErrorState'
@@ -80,7 +79,6 @@ export function AccountDetailPage() {
   const [pendingDelete, setPendingDelete] = useState<LoadedRow | null>(null)
 
   const txQuery = useInfiniteAccountTransactions(accountId, range, { limit: PAGE_SIZE })
-  const openEdit = useRecordTxStore((s) => s.openEdit)
   const deleteMutation = useDeleteTransaction()
 
   const rows: LoadedRow[] = useMemo(() => {
@@ -117,10 +115,10 @@ export function AccountDetailPage() {
     if (!pendingDelete) return
     try {
       await deleteMutation.mutateAsync(pendingDelete.groupId)
-      showToast({ kind: 'success', message: '已删除交易' })
+      showToast({ kind: 'success', message: '交易已移入回收站' })
       setPendingDelete(null)
     } catch (err) {
-      const message = err instanceof FireflyApiError ? err.message : '删除失败，请重试'
+      const message = err instanceof FireflyApiError ? err.message : '移入回收站失败，请重试'
       showToast({ kind: 'error', message, duration: 6000 })
     }
   }
@@ -259,23 +257,17 @@ export function AccountDetailPage() {
           <>
             <div ref={listRef} className="flex flex-col">
               {rows.map((row) => {
-                const editable = row.splitIndex === 0 && isEditableTransactionGroup(row.tx.type, row.hasReconciledSplit)
                 const deletable = row.splitIndex === 0 && isEditableTransactionType(row.tx.type)
                 return (
                   <TransactionRow
                     key={`${row.groupId}-${row.tx.transaction_journal_id ?? row.splitIndex}`}
                     tx={row.tx}
                     ids={
-                      editable || deletable
+                      deletable
                         ? {
                             groupId: row.groupId,
                             journalId: String(row.tx.transaction_journal_id ?? row.groupId),
                           }
-                        : undefined
-                    }
-                    onEdit={
-                      editable
-                        ? () => openEdit(buildEditPayload(row.groupId, row.tx, row.splitCount))
                         : undefined
                     }
                     onDelete={deletable ? () => setPendingDelete(row) : undefined}

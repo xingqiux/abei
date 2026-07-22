@@ -50,6 +50,7 @@ interface FieldErrors {
   description?: string
   source?: string
   destination?: string
+  category?: string
 }
 
 /** 金额输入过滤：只留数字和最多一个小数点 */
@@ -107,7 +108,6 @@ export function RecordTransactionModal() {
   const [notes, setNotes] = useState('')
   const [moreOpen, setMoreOpen] = useState(false)
   const [errors, setErrors] = useState<FieldErrors>({})
-  const [savingContinue, setSavingContinue] = useState(false)
   const [multiSplitDirty, setMultiSplitDirty] = useState(false)
   const [createMode, setCreateMode] = useState<'single' | 'split'>('single')
 
@@ -235,13 +235,6 @@ export function RecordTransactionModal() {
     gsap.fromTo(el, { opacity: 0.4 }, { opacity: 1, duration: 0.12, ease: 'power1.out' })
   }, [type, showMultiSplitEditor])
 
-  function resetForContinue() {
-    setAmount('')
-    setDescription('')
-    setErrors({})
-    requestAnimationFrame(() => amountRef.current?.focus())
-  }
-
   function isDirty(): boolean {
     if (isEdit && edit) {
       // 对比打开编辑时的初值；未改动不弹确认
@@ -301,13 +294,15 @@ export function RecordTransactionModal() {
       if (!destId) errs.destination = '请选择目标账户'
       if (sourceId && destId && sourceId === destId) errs.destination = '来源与目标账户不能相同'
     }
+    if (type !== 'transfer' && !category.trim()) errs.category = '请选择已创建的分类'
     return errs
   }
 
-  async function handleSave(continueAfter: boolean) {
+  async function handleSave() {
     if (showMultiSplitEditor) return
     const errs = validate()
     setErrors(errs)
+    if (errs.category) setMoreOpen(true)
     if (Object.keys(errs).length > 0) return
 
     const tags = tagsRaw
@@ -319,7 +314,6 @@ export function RecordTransactionModal() {
     const amountAccount = accounts.find((account) => account.id === amountAccountId)
     const amountSymbol = amountAccount?.currencySymbol || amountAccount?.currencyCode || ''
 
-    setSavingContinue(continueAfter)
     try {
       if (isEdit && edit) {
         await updateMutation.mutateAsync({
@@ -357,18 +351,12 @@ export function RecordTransactionModal() {
           notes: notes.trim() || undefined,
         })
         showToast({ kind: 'success', message: `已入账 ${amountSymbol}${formatAmount(amountStr)} · ${description.trim()}` })
-        if (continueAfter) {
-          resetForContinue()
-        } else {
-          resetAll()
-          close()
-        }
+        resetAll()
+        close()
       }
     } catch (err) {
       const message = err instanceof FireflyApiError ? err.message : isEdit ? '更新失败，请重试' : '保存失败，请重试'
       showToast({ kind: 'error', message, duration: 6000 })
-    } finally {
-      setSavingContinue(false)
     }
   }
 
@@ -385,25 +373,14 @@ export function RecordTransactionModal() {
     </button>
   ) : (
     <>
-      {!isEdit && (
-        <button
-          type="button"
-          disabled={mutationPending}
-          onClick={() => handleSave(true)}
-          className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
-          style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)' }}
-        >
-          {mutationPending && savingContinue ? '保存中…' : '保存并继续'}
-        </button>
-      )}
       <button
         type="button"
         disabled={mutationPending}
-        onClick={() => handleSave(false)}
+        onClick={() => handleSave()}
         className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
         style={{ background: 'var(--g-accent)', color: 'var(--g-accent-ink)', fontWeight: 'var(--g-weight-demibold)' }}
       >
-        {mutationPending && !savingContinue ? '保存中…' : isEdit ? '保存修改' : '保存'}
+        {mutationPending ? '保存中…' : isEdit ? '保存修改' : '保存'}
       </button>
     </>
   )
@@ -602,8 +579,10 @@ export function RecordTransactionModal() {
                     items={categoryItems}
                     isLoading={categoriesQ.isFetching}
                     placeholder="如：餐饮"
+                    hasError={errors.category}
                     aria-label="分类"
                   />
+                  {errors.category && <div style={errorStyle}>{errors.category}</div>}
                 </div>
                 <div className="flex flex-col gap-1">
                   <label style={fieldLabelStyle}>标签（逗号分隔）</label>

@@ -147,15 +147,9 @@ export function useInfiniteTransactions(
   const type = opts.type ?? 'all'
   return useInfiniteQuery({
     queryKey: ['transactions', 'infinite', range.start, range.end, limit, type],
-    queryFn: ({ pageParam }) => getTransactions(range, { limit, page: pageParam, type }),
-    initialPageParam: 1,
-    getNextPageParam: (lastPage) => {
-      const pagination = lastPage.meta?.pagination
-      if (!pagination) return undefined
-      const current = pagination.current_page ?? 1
-      const total = pagination.total_pages ?? 1
-      return current < total ? current + 1 : undefined
-    },
+    queryFn: ({ pageParam }) => getTransactions(range, { limit, beforeId: pageParam, type }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.next_before_id ?? undefined,
     enabled: ready,
   })
 }
@@ -543,17 +537,11 @@ export function useInfiniteAccountTransactions(
     queryFn: ({ pageParam }) =>
       getAccountTransactions(accountId as string, range, {
         limit,
-        page: pageParam,
+        beforeId: pageParam,
         type: opts.type,
       }),
-    initialPageParam: 1,
-    getNextPageParam: (lastPage) => {
-      const p = lastPage.meta?.pagination
-      if (!p) return undefined
-      const current = p.current_page ?? 1
-      const totalPages = p.total_pages ?? 1
-      return current < totalPages ? current + 1 : undefined
-    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.next_before_id ?? undefined,
     enabled: ready,
   })
 }

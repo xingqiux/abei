@@ -1,11 +1,13 @@
-import { Search, Plus } from 'lucide-react'
+import { Search, Plus, LogOut } from 'lucide-react'
 import { useRecordTxStore } from '../../store/recordTxStore'
 import { useCommandPaletteStore } from '../../store/commandPaletteStore'
 import { DateRangePicker } from '../granary/DateRangePicker'
+import { useGranarySession } from '../GranarySession'
 
 export function Topbar() {
   const openRecordForm = useRecordTxStore((s) => s.openForm)
   const openCommandPalette = useCommandPaletteStore((s) => s.openPalette)
+  const { books, activeBook, selectBook, signOut } = useGranarySession()
 
   return (
     <header
@@ -53,6 +55,16 @@ export function Topbar() {
 
         <DateRangePicker />
 
+        <select
+          aria-label="当前账本"
+          value={activeBook.id}
+          onChange={(event) => void selectBook(Number(event.target.value))}
+          className="max-w-[180px] rounded-[6px] px-2 py-1.5 text-[12px] outline-none"
+          style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }}
+        >
+          {books.map((book) => <option key={book.id} value={book.id}>{book.name}</option>)}
+        </select>
+
         <button
           type="button"
           onClick={openRecordForm}
@@ -66,6 +78,7 @@ export function Topbar() {
           <Plus aria-hidden size={14} color="var(--g-accent-ink)" />
           记一笔
         </button>
+        <button type="button" title="退出登录" aria-label="退出登录" onClick={() => void signOut()} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px]" style={{ color: 'var(--g-ink-2)' }}><LogOut size={15} aria-hidden /></button>
       </div>
     </header>
   )

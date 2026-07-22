@@ -86,7 +86,9 @@ export const transactionGroupSchema = z
   })
   .passthrough()
 
-export const transactionsResponseSchema = paginatedCollectionSchema(transactionGroupSchema)
+export const transactionsResponseSchema = paginatedCollectionSchema(transactionGroupSchema).extend({
+  next_before_id: z.string().nullable().optional(),
+})
 
 export type TransactionSplit = z.infer<typeof transactionSplitSchema>
 export type TransactionsResponse = z.infer<typeof transactionsResponseSchema>

@@ -1,19 +1,13 @@
 import type { ReactNode } from 'react'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, LogOut } from 'lucide-react'
 import {
   useAbout,
-  useCategories,
   useCurrencies,
-  useTags,
 } from '../../api/queries'
-import { CategoryChip } from '../../components/granary/CategoryChip'
 import { Skeleton } from '../../components/granary/Skeleton'
-import { requestTokenReset } from '../../components/tokenEvents'
 import pkg from '../../../package.json'
-import { AutomationPanel } from './AutomationPanel'
-import { ExportPanel } from './ExportPanel'
-
-const CHIP_LIMIT = 12
+import { ReferenceDataPanel } from './ReferenceDataPanel'
+import { useGranarySession } from '../../components/GranarySession'
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -37,56 +31,10 @@ function Empty() {
   )
 }
 
-function SubGroup({ label, count, isLoading, isError, children }: { label: string; count?: number; isLoading: boolean; isError: boolean; children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-baseline gap-1.5 text-[12.5px]" style={{ color: 'var(--g-ink)' }}>
-        <span style={{ fontWeight: 'var(--g-weight-demibold)' }}>{label}</span>
-        {typeof count === 'number' && (
-          <span className="font-num" style={{ color: 'var(--g-ink-2)' }}>
-            共 {count} 个
-          </span>
-        )}
-      </div>
-      {isLoading ? (
-        <Skeleton className="h-6" />
-      ) : isError ? (
-        <div className="text-[12.5px]" style={{ color: 'var(--g-ink-2)' }}>
-          加载失败
-        </div>
-      ) : (
-        children
-      )}
-    </div>
-  )
-}
-
-/** 名字 chip 列表：只展示前 CHIP_LIMIT 个，多的合并成一个 "+N" chip（设置页「分类与标签」「币种」共用）。 */
-function NameChips({ names, total }: { names: string[]; total: number }) {
-  if (total === 0) return <Empty />
-  const shown = names.slice(0, CHIP_LIMIT)
-  const rest = total - shown.length
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {shown.map((name, i) => (
-        <CategoryChip key={`${name}-${i}`} label={name} />
-      ))}
-      {rest > 0 && <CategoryChip label={`+${rest}`} />}
-    </div>
-  )
-}
-
 export function SettingsPage() {
-  const categoriesQuery = useCategories()
-  const tagsQuery = useTags()
   const currenciesQuery = useCurrencies()
   const aboutQuery = useAbout()
-
-  const categories = categoriesQuery.data?.data ?? []
-  const categoriesTotal = categoriesQuery.data?.meta?.pagination?.total ?? categories.length
-
-  const tags = tagsQuery.data?.data ?? []
-  const tagsTotal = tagsQuery.data?.meta?.pagination?.total ?? tags.length
+  const { user, books, activeBook, selectBook, signOut } = useGranarySession()
 
   const currencies = [...(currenciesQuery.data?.data ?? [])].sort((a, b) => {
     const enabledDiff = Number(b.attributes.enabled ?? false) - Number(a.attributes.enabled ?? false)
@@ -100,22 +48,22 @@ export function SettingsPage() {
         设置
       </h1>
 
-      <Card title="分类与标签">
-        <div className="flex flex-col gap-4">
-          <SubGroup label="分类" count={categoriesTotal} isLoading={categoriesQuery.isLoading} isError={categoriesQuery.isError}>
-            <NameChips names={categories.map((c) => c.attributes.name)} total={categoriesTotal} />
-          </SubGroup>
-          <SubGroup label="标签" count={tagsTotal} isLoading={tagsQuery.isLoading} isError={tagsQuery.isError}>
-            <NameChips names={tags.map((t) => t.attributes.tag)} total={tagsTotal} />
-          </SubGroup>
-        </div>
-      </Card>
+      <div className="md:hidden">
+        <Card title="当前会话">
+          <div className="flex flex-col gap-3">
+            <div className="text-[12px]" style={{ color: 'var(--g-ink-2)' }}>{user.display_name} · {user.email}</div>
+            <label className="flex flex-col gap-1 text-[12px]" style={{ color: 'var(--g-ink-2)' }}>
+              <span>当前账本</span>
+              <select aria-label="当前账本" value={activeBook.id} onChange={(event) => void selectBook(Number(event.target.value))} className="rounded-[6px] px-2.5 py-2" style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }}>
+                {books.map((book) => <option key={book.id} value={book.id}>{book.name}</option>)}
+              </select>
+            </label>
+            <button type="button" onClick={() => void signOut()} className="flex items-center justify-center gap-1.5 rounded-[6px] px-3 py-2 text-[12.5px]" style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)' }}><LogOut size={14} aria-hidden />退出登录</button>
+          </div>
+        </Card>
+      </div>
 
-      <Card title="自动化">
-        <AutomationPanel />
-      </Card>
-
-      <Card title="CSV 导出"><ExportPanel /></Card>
+      <Card title="基础资料"><ReferenceDataPanel /></Card>
 
       <Card title="币种">
         {currenciesQuery.isLoading ? (
@@ -150,7 +98,7 @@ export function SettingsPage() {
         <div className="flex flex-col gap-2.5 text-[12.5px]" style={{ color: 'var(--g-ink)' }}>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <span>
-              Firefly III 版本：
+              Granary Server 版本：
               <span className="font-num" style={{ color: 'var(--g-ink-2)' }}>
                 {aboutQuery.isLoading ? '…' : aboutQuery.isError ? '获取失败' : (aboutQuery.data?.data.version ?? '暂无')}
               </span>
@@ -171,15 +119,6 @@ export function SettingsPage() {
             <ExternalLink aria-hidden size={13} color="currentColor" />
             旧版界面（过渡期兜底）
           </a>
-
-          <button
-            type="button"
-            onClick={requestTokenReset}
-            className="w-fit rounded-[6px] px-2.5 py-1.5 text-[11.5px]"
-            style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', fontWeight: 'var(--g-weight-demibold)' }}
-          >
-            更换 API 令牌
-          </button>
         </div>
       </Card>
     </div>

@@ -1,16 +1,9 @@
 import { Link, useRouterState } from '@tanstack/react-router'
 import { NAV_ITEMS, type NavItemDef } from '../../routes/navItems'
-import { useNavBadges, type NavBadge } from '../../routes/useNavBadges'
-
-interface NavItem extends NavItemDef {
-  badge?: NavBadge
-}
 
 export function Sidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const badges = useNavBadges()
-
-  const navItems: NavItem[] = NAV_ITEMS.map((item) => ({ ...item, badge: badges[item.to] }))
+  const navItems: NavItemDef[] = NAV_ITEMS
 
   return (
     <aside
@@ -51,17 +44,6 @@ export function Sidebar() {
                 <Icon aria-hidden size={16} strokeWidth={2} color="currentColor" />
                 {item.label}
               </span>
-              {item.badge && (
-                <span
-                  className="font-num rounded-[4px] px-1.5 text-[10px] leading-[16px]"
-                  style={{
-                    background: item.badge.kind === 'warn' ? 'var(--g-warn)' : 'var(--g-danger)',
-                    color: item.badge.kind === 'warn' ? 'var(--g-accent-ink)' : '#fff',
-                  }}
-                >
-                  {item.badge.text}
-                </span>
-              )}
             </Link>
           )
         })}

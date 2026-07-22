@@ -141,7 +141,7 @@ export function TransactionRow({
               }}
             >
               <Trash2 size={13} strokeWidth={1.75} />
-              删除
+              移入回收站
             </button>
           )}
         </div>

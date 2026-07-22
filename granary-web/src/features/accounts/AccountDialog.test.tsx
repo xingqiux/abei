@@ -32,51 +32,49 @@ describe('AccountDialog', () => {
     mocks.close.mockReset()
   })
 
-  it('requires the complete monthly-full credit card contract before saving', async () => {
+  it('validates the Granary account name before saving', async () => {
     render(<AccountDialog open type="asset" account={null} onClose={mocks.close} />)
 
-    fireEvent.change(screen.getByLabelText('名称'), { target: { value: 'Credit card' } })
-    fireEvent.change(screen.getByLabelText('账户角色'), { target: { value: 'ccAsset' } })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
-    expect(mocks.toast).toHaveBeenLastCalledWith({ kind: 'error', message: '请选择信用卡还款方式' })
-
-    fireEvent.change(screen.getByLabelText('信用卡还款方式'), { target: { value: 'monthlyFull' } })
-    fireEvent.click(screen.getByRole('button', { name: '保存' }))
-    expect(mocks.toast).toHaveBeenLastCalledWith({ kind: 'error', message: '请选择每月还款日' })
+    expect(mocks.toast).toHaveBeenLastCalledWith({ kind: 'error', message: '账户名称不能为空' })
     expect(mocks.create).not.toHaveBeenCalled()
 
-    fireEvent.change(screen.getByLabelText('每月还款日'), { target: { value: '2026-07-25' } })
+    fireEvent.change(screen.getByLabelText('名称'), { target: { value: 'Checking' } })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
     await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'Credit card',
+      name: 'Checking',
       currency_code: 'CNY',
-      account_role: 'ccAsset',
-      credit_card_type: 'monthlyFull',
-      monthly_payment_date: '2026-07-25',
+      account_role: 'bank',
     })))
   })
 
-  it('explicitly clears an existing opening balance', async () => {
+  it('updates only fields supported by Granary accounts', async () => {
     const account = {
       id: '7',
       attributes: {
         name: 'Checking',
         type: 'asset',
         currency_code: 'CNY',
-        opening_balance: '100.00',
-        opening_balance_date: '2026-01-01T00:00:00+08:00',
+        account_role: 'bank',
+        version: 3,
       },
     } as Account
     render(<AccountDialog open type="asset" account={account} onClose={mocks.close} />)
 
-    fireEvent.change(screen.getByLabelText('期初余额'), { target: { value: '' } })
-    fireEvent.change(screen.getByLabelText('期初日期'), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText('名称'), { target: { value: 'Daily checking' } })
+    fireEvent.change(screen.getByLabelText('账户角色'), { target: { value: 'other' } })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith({
       accountId: '7',
-      input: expect.objectContaining({ opening_balance: '', opening_balance_date: '' }),
+      input: {
+        name: 'Daily checking',
+        type: 'asset',
+        currency_code: 'CNY',
+        account_role: 'other',
+        version: 3,
+      },
     }))
   })
 })

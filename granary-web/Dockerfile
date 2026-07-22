@@ -2,7 +2,7 @@
 # 不在构建期注入任何 VITE_FIREFLY_TOKEN —— 运行时令牌方案见 src/api/client.ts + TokenGate。
 FROM node:22-alpine AS build
 
-# 仅影响设置页「旧版界面」链接（非敏感），生产构建可传 --build-arg VITE_LEGACY_URL=https://firefly.example.com
+# 仅影响设置页「旧版界面」链接（非敏感），迁移完成后可删除。
 ARG VITE_LEGACY_URL
 ENV VITE_LEGACY_URL=${VITE_LEGACY_URL}
 

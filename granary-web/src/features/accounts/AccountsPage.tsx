@@ -19,8 +19,6 @@ const LIMIT_STEP = 40
 const TABS: { key: AccountType; label: string; emptyMessage: string; balanceColorVar: string }[] = [
   { key: 'asset', label: '资产', emptyMessage: '还没有资产账户', balanceColorVar: 'var(--g-ink)' },
   { key: 'cash', label: '现金', emptyMessage: '还没有现金账户', balanceColorVar: 'var(--g-ink)' },
-  { key: 'expense', label: '支出', emptyMessage: '还没有支出账户', balanceColorVar: 'var(--g-ink)' },
-  { key: 'revenue', label: '收入', emptyMessage: '还没有收入账户', balanceColorVar: 'var(--g-ink)' },
   { key: 'liabilities', label: '负债', emptyMessage: '还没有负债账户', balanceColorVar: 'var(--g-expense)' },
 ]
 
@@ -35,10 +33,10 @@ export function AccountsPage() {
     if (!deleting) return
     try {
       await deleteMutation.mutateAsync(deleting.id)
-      showToast({ kind: 'success', message: '账户已删除' })
+      showToast({ kind: 'success', message: '账户已归档' })
       setDeleting(null)
     } catch (error) {
-      showToast({ kind: 'error', message: error instanceof FireflyApiError ? error.message : '账户删除失败', duration: 6000 })
+      showToast({ kind: 'error', message: error instanceof FireflyApiError ? error.message : '账户归档失败', duration: 6000 })
     }
   }
 
@@ -148,10 +146,10 @@ export function AccountsPage() {
       </div>
 
       <AccountDialog open={dialogOpen} type={activeTab} account={editing} onClose={() => setDialogOpen(false)} />
-      <Modal open={!!deleting} onClose={() => setDeleting(null)} title="删除账户" width={420} footer={<>
+      <Modal open={!!deleting} onClose={() => setDeleting(null)} title="归档账户" width={420} footer={<>
         <button type="button" onClick={() => setDeleting(null)} className="rounded-[6px] px-3 py-1.5 text-[12.5px]" style={{ color: 'var(--g-ink-2)' }}>取消</button>
-        <button type="button" disabled={deleteMutation.isPending} onClick={() => void confirmDelete()} className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50" style={{ background: 'var(--g-danger)', color: 'white' }}>{deleteMutation.isPending ? '删除中…' : '删除'}</button>
-      </>}><p className="text-[12.5px]" style={{ color: 'var(--g-ink)' }}>确认删除“{deleting?.attributes.name}”？有关联数据时后端会拒绝该操作。</p></Modal>
+        <button type="button" disabled={deleteMutation.isPending} onClick={() => void confirmDelete()} className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50" style={{ background: 'var(--g-danger)', color: 'white' }}>{deleteMutation.isPending ? '归档中…' : '归档'}</button>
+      </>}><p className="text-[12.5px]" style={{ color: 'var(--g-ink)' }}>确认归档“{deleting?.attributes.name}”？归档后不再出现在日常账户列表中。</p></Modal>
     </div>
   )
 }
