@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useBillInboxSummary, useBillTasksByStatuses, useSyncBillInbox } from '../../api/queries'
+import { ArchiveX, Play, Settings } from 'lucide-react'
+import {
+  useBillInboxSummary,
+  useBillTasksByStatuses,
+  useCleanupBillInbox,
+  useProcessBillInbox,
+  useSyncBillInbox,
+} from '../../api/queries'
 import { EmptyState } from '../../components/granary/EmptyState'
 import { Skeleton } from '../../components/granary/Skeleton'
+import { ErrorState } from '../../components/granary/ErrorState'
 import { useStaggerIn } from '../../motion/useStaggerIn'
 import { ChannelCard } from './ChannelCard'
 import { TaskRow } from './TaskRow'
@@ -9,18 +17,38 @@ import { TaskDetailPanel } from './TaskDetailPanel'
 import { SOURCE_FALLBACK_LABELS, TAB_CONFIG, type InboxTab } from './billInboxHelpers'
 import { showToast } from '../../store/toastStore'
 import { FireflyApiError } from '../../api/client'
-
-const LIMIT_STEP = 30
+import { BillInboxSettingsDialog } from './BillInboxSettingsDialog'
 
 export function BillInboxPage() {
   const summaryQuery = useBillInboxSummary()
   const syncMutation = useSyncBillInbox()
+  const processMutation = useProcessBillInbox()
+  const cleanupMutation = useCleanupBillInbox()
   /** 防止用户连点触发多次真实邮箱同步（红线） */
   const syncOnceGuard = useRef(false)
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<InboxTab>('parsed')
-  const [limit, setLimit] = useState(LIMIT_STEP)
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+
+  async function handleProcess() {
+    try {
+      const result = await processMutation.mutateAsync(100)
+      const attrs = result.data.attributes
+      showToast({ kind: attrs.failed > 0 ? 'error' : 'success', message: `已处理 ${attrs.processed} 个任务，失败 ${attrs.failed} 个` })
+    } catch (error) {
+      showToast({ kind: 'error', message: error instanceof FireflyApiError ? error.message : '任务处理失败', duration: 6000 })
+    }
+  }
+
+  async function handleCleanup() {
+    try {
+      const result = await cleanupMutation.mutateAsync()
+      showToast({ kind: 'success', message: `已清理 ${result.data.attributes.archived} 个过期任务` })
+    } catch (error) {
+      showToast({ kind: 'error', message: error instanceof FireflyApiError ? error.message : '清理失败', duration: 6000 })
+    }
+  }
 
   async function handleSync() {
     if (syncMutation.isPending || syncOnceGuard.current) return
@@ -44,30 +72,22 @@ export function BillInboxPage() {
   }
 
   useEffect(() => {
-    setLimit(LIMIT_STEP)
     setExpandedTaskId(null)
   }, [activeTab, selectedChannel])
 
   const tabConfig = TAB_CONFIG.find((t) => t.key === activeTab)!
   const results = useBillTasksByStatuses(tabConfig.statuses, {
     source: selectedChannel ?? undefined,
-    limit,
   })
 
   const isLoading = results.some((r) => r.isLoading)
-  const isFetching = results.some((r) => r.isFetching)
+  const isError = results.some((r) => r.isError)
 
   const tasks = useMemo(() => {
     const all = results.flatMap((r) => r.data?.data ?? [])
     return [...all].sort((a, b) => (b.attributes.received_at ?? '').localeCompare(a.attributes.received_at ?? ''))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [results.map((r) => r.dataUpdatedAt).join(',')])
-
-  const hasMore = results.some((r) => {
-    const total = r.data?.meta?.pagination?.total ?? 0
-    const count = r.data?.data.length ?? 0
-    return total > count
-  })
 
   const channelNameByKey = useMemo(() => {
     const map = new Map<string, string>()
@@ -81,16 +101,28 @@ export function BillInboxPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-[18px]" style={{ fontWeight: 'var(--g-weight-demibold)', color: 'var(--g-ink)' }}>
           账单收件箱
         </h1>
-        {summaryQuery.data && (
-          <div className="text-[12.5px]" style={{ color: 'var(--g-ink-2)' }}>
-            共 <span className="font-num">{summaryQuery.data.pending_total}</span> 条待处理
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {summaryQuery.data && (
+            <div className="mr-2 text-[12.5px]" style={{ color: 'var(--g-ink-2)' }}>
+              共 <span className="font-num">{summaryQuery.data.pending_total}</span> 条待处理
+            </div>
+          )}
+          <button type="button" title="处理待处理任务" aria-label="处理待处理任务" disabled={processMutation.isPending} onClick={() => void handleProcess()} className="rounded p-1.5 disabled:opacity-50" style={{ color: 'var(--g-accent)' }}><Play size={15} /></button>
+          <button type="button" title="清理过期任务" aria-label="清理过期任务" disabled={cleanupMutation.isPending} onClick={() => void handleCleanup()} className="rounded p-1.5 disabled:opacity-50" style={{ color: 'var(--g-ink-2)' }}><ArchiveX size={15} /></button>
+          <button type="button" title="邮箱设置" aria-label="邮箱设置" onClick={() => setSettingsOpen(true)} className="rounded p-1.5" style={{ color: 'var(--g-ink-2)' }}><Settings size={15} /></button>
+        </div>
       </div>
+
+      {summaryQuery.isError && (
+        <div className="flex items-center justify-between rounded-[6px] px-3 py-2 text-[12px]" style={{ background: 'var(--g-surface)', color: 'var(--g-danger)' }}>
+          <span>收件箱汇总加载失败</span>
+          <button type="button" onClick={() => void summaryQuery.refetch()} style={{ color: 'var(--g-accent)' }}>重试</button>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {summaryQuery.isLoading
@@ -135,6 +167,8 @@ export function BillInboxPage() {
               <Skeleton key={i} className="h-8" />
             ))}
           </div>
+        ) : isError ? (
+          <ErrorState message="账单任务加载失败" onRetry={() => results.forEach((result) => void result.refetch())} />
         ) : tasks.length === 0 ? (
           <EmptyState lottie="inbox" message={`当前没有「${activeTabLabel}」的任务`} />
         ) : (
@@ -157,20 +191,9 @@ export function BillInboxPage() {
           </div>
         )}
 
-        {hasMore && (
-          <div className="flex justify-center p-3">
-            <button
-              type="button"
-              disabled={isFetching}
-              onClick={() => setLimit((l) => l + LIMIT_STEP)}
-              className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-60"
-              style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)' }}
-            >
-              {isFetching ? '加载中…' : '加载更多'}
-            </button>
-          </div>
-        )}
       </div>
+
+      <BillInboxSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }

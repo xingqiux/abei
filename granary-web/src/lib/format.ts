@@ -5,6 +5,14 @@ const numberFormatter = new Intl.NumberFormat('zh-CN', {
 
 /** 格式化金额主体（不含符号/正负号）：1234.5 -> "1,234.50" */
 export function formatAmount(value: number | string): string {
+  if (typeof value === 'string') {
+    const match = /^[+-]?(\d+)(?:\.(\d+))?$/.exec(value.trim())
+    if (match) {
+      const whole = match[1].replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+      const fraction = (match[2] ?? '').padEnd(2, '0')
+      return `${whole}.${fraction || '00'}`
+    }
+  }
   const n = typeof value === 'string' ? Number(value) : value
   return numberFormatter.format(Math.abs(n))
 }
@@ -13,8 +21,7 @@ export type TransactionKind = 'withdrawal' | 'deposit' | 'transfer' | (string & 
 
 /** 按谷仓规范格式化带符号金额：支出 -¥1,234.56 / 收入 +¥1,234.56 / 转账 ¥1,234.56 */
 export function formatSignedAmount(value: number | string, kind: TransactionKind, symbol = '¥'): string {
-  const n = typeof value === 'string' ? Number(value) : value
-  const body = `${symbol}${formatAmount(n)}`
+  const body = `${symbol}${formatAmount(value)}`
   if (kind === 'withdrawal') return `-${body}`
   if (kind === 'deposit') return `+${body}`
   return body

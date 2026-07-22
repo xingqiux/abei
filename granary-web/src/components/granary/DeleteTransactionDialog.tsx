@@ -1,24 +1,27 @@
 import { Modal } from './Modal'
-import { MoneyText } from './MoneyText'
 import type { TransactionSplit } from '../../api/schemas'
+import { toTransactionGroupView } from '../../lib/transactionGroup'
+import { formatAmount } from '../../lib/format'
 
 /**
  * 删除交易确认框（规范 §5）：正文展示描述+金额，确认按钮 `--g-danger` 底色。
  */
 export function DeleteTransactionDialog({
   open,
-  tx,
+  splits,
   pending,
   onClose,
   onConfirm,
 }: {
   open: boolean
-  tx: TransactionSplit | null
+  splits: TransactionSplit[]
   pending?: boolean
   onClose: () => void
   onConfirm: () => void
 }) {
-  if (!tx) return null
+  const group = toTransactionGroupView({ id: 'pending-delete', attributes: { transactions: splits } })
+  if (!group) return null
+  const first = splits[0]
 
   const footer = (
     <>
@@ -50,13 +53,12 @@ export function DeleteTransactionDialog({
   return (
     <Modal open={open} onClose={onClose} title="删除交易" width={400} footer={footer}>
       <p className="m-0 leading-relaxed" style={{ color: 'var(--g-ink)' }}>
-        确定删除「
-        <span style={{ fontWeight: 'var(--g-weight-demibold)' }}>{tx.description}</span>
-        」
-        <span className="mx-1 inline-block align-middle">
-          <MoneyText value={tx.amount} kind={tx.type} symbol={tx.currency_symbol} />
-        </span>
-        吗？此操作不可撤销。
+        确定删除整组交易「
+        <span style={{ fontWeight: 'var(--g-weight-demibold)' }}>{first.description}</span>
+        」吗？
+        {splits.length > 1 && <span>该组包含 {splits.length} 条拆分，</span>}
+        合计 {group.totals.map((total) => `${total.currencySymbol || total.currencyCode || ''}${formatAmount(total.amount)}`).join('、')}。
+        此操作不可撤销。
       </p>
     </Modal>
   )

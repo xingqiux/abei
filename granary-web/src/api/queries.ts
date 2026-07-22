@@ -10,22 +10,36 @@ import {
   autocompleteCategories,
   autocompleteTags,
   autocompleteTransactions,
+  createAccount,
+  createTransactionAttachment,
   createTransaction,
+  createTransactionSplits,
+  cleanupBillInbox,
+  countTransactions,
   deleteTransaction,
+  deleteAccount,
+  deleteAttachment,
+  deleteBudget,
   getAbout,
+  getAllTransactions,
   getAccount,
   getAccountOverviewChart,
   getAccountsByType,
   getAccountTransactions,
   getAssetAccounts,
   getBillInboxSummary,
+  getBillInboxSettings,
+  getBillTaskArtifacts,
+  getBillTaskEvents,
+  getBillTaskReview,
+  getAllBillTasks,
   getPreferenceByName,
   setPreference,
   getBillTaskRows,
-  getBillTasks,
   getBills,
   createBudget,
   createBudgetLimit,
+  createBudgetWithLimit,
   createReconciliationAdjustment,
   getBudgetLimits,
   getBudgets,
@@ -33,33 +47,54 @@ import {
   markDayTransactionsReconciled,
   getCurrencies,
   getExpenseByAsset,
+  getExpenseByBudget,
   getExpenseByCategory,
+  getExpenseByTag,
+  getExpenseWithoutBudget,
+  getExpenseWithoutCategory,
   getIncomeByRevenue,
+  getFinancialReport,
   getPiggyBanks,
   getReconciliationSummary,
   getRecurrences,
   getRules,
+  getRuleGroups,
   getSummaryBasic,
   getTags,
   getTransaction,
   getTransactions,
+  getTransactionAttachments,
   ignoreBillTask,
   importBillTaskRows,
+  processBillInbox,
   retryBillTask,
   searchTransactions,
+  searchAccounts,
   submitBillTaskSecret,
   syncBillInbox,
+  splitBillStatementRow,
+  updateBillInboxSettings,
   updateBillStatementRow,
   updateBudget,
   updateBudgetLimit,
   updateTransaction,
+  updateTransactionSplits,
+  testRule,
+  testRuleGroup,
+  triggerRule,
+  triggerRuleGroup,
+  triggerRecurrence,
+  updateAccount,
+  updateAttachment,
   type AccountChartPreselected,
   type AccountOverviewChartOpts,
+  type AccountInput,
   type AccountType,
   type CreateTransactionInput,
   type DateRange,
   type TransactionTypeFilter,
   type UpdateBillStatementRowInput,
+  type BillInboxSettingsInput,
   type UpdateTransactionInput,
 } from './firefly'
 import { useDateRangeStore } from '../store/dateRangeStore'
@@ -91,11 +126,63 @@ export function useTransactions(
   })
 }
 
+export function useAllTransactions(
+  range: DateRange,
+  opts: { limit?: number; type?: TransactionTypeFilter; enabled?: boolean } = {},
+) {
+  const ready = useDateRangeReady(opts.enabled ?? true)
+  return useQuery({
+    queryKey: ['transactions', 'all-pages', range.start, range.end, opts.limit, opts.type],
+    queryFn: () => getAllTransactions(range, opts),
+    enabled: ready,
+  })
+}
+
+export function useInfiniteTransactions(
+  range: DateRange,
+  opts: { limit?: number; type?: TransactionTypeFilter; enabled?: boolean } = {},
+) {
+  const ready = useDateRangeReady(opts.enabled ?? true)
+  const limit = opts.limit ?? 80
+  const type = opts.type ?? 'all'
+  return useInfiniteQuery({
+    queryKey: ['transactions', 'infinite', range.start, range.end, limit, type],
+    queryFn: ({ pageParam }) => getTransactions(range, { limit, page: pageParam, type }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => {
+      const pagination = lastPage.meta?.pagination
+      if (!pagination) return undefined
+      const current = pagination.current_page ?? 1
+      const total = pagination.total_pages ?? 1
+      return current < total ? current + 1 : undefined
+    },
+    enabled: ready,
+  })
+}
+
 /** 命令面板「搜索交易」区：调用方负责按查询长度/防抖决定 enabled（见 CommandPalette）。 */
 export function useSearchTransactions(query: string, opts: { enabled: boolean }) {
   return useQuery({
     queryKey: ['search-transactions', query],
     queryFn: () => searchTransactions(query, 10),
+    enabled: opts.enabled,
+    staleTime: 30_000,
+  })
+}
+
+export function useSearchTransactionCount(query: string, opts: { enabled: boolean }) {
+  return useQuery({
+    queryKey: ['search-transaction-count', query],
+    queryFn: () => countTransactions(query),
+    enabled: opts.enabled,
+    staleTime: 30_000,
+  })
+}
+
+export function useSearchAccounts(query: string, opts: { enabled: boolean }) {
+  return useQuery({
+    queryKey: ['search-accounts', query],
+    queryFn: () => searchAccounts(query),
     enabled: opts.enabled,
     staleTime: 30_000,
   })
@@ -126,6 +213,36 @@ export function useExpenseByAsset(range: DateRange, opts: { enabled?: boolean } 
   return useQuery({
     queryKey: ['expense-by-asset', range.start, range.end],
     queryFn: () => getExpenseByAsset(range),
+    enabled: ready,
+  })
+}
+
+function useInsightRanking(key: string, range: DateRange, queryFn: () => ReturnType<typeof getExpenseByTag>, enabled = true) {
+  const ready = useDateRangeReady(enabled)
+  return useQuery({ queryKey: [key, range.start, range.end], queryFn, enabled: ready })
+}
+
+export function useExpenseByTag(range: DateRange, opts: { enabled?: boolean } = {}) {
+  return useInsightRanking('expense-by-tag', range, () => getExpenseByTag(range), opts.enabled ?? true)
+}
+
+export function useExpenseByBudget(range: DateRange, opts: { enabled?: boolean } = {}) {
+  return useInsightRanking('expense-by-budget', range, () => getExpenseByBudget(range), opts.enabled ?? true)
+}
+
+export function useExpenseWithoutCategory(range: DateRange, opts: { enabled?: boolean } = {}) {
+  return useInsightRanking('expense-without-category', range, () => getExpenseWithoutCategory(range), opts.enabled ?? true)
+}
+
+export function useExpenseWithoutBudget(range: DateRange, opts: { enabled?: boolean } = {}) {
+  return useInsightRanking('expense-without-budget', range, () => getExpenseWithoutBudget(range), opts.enabled ?? true)
+}
+
+export function useFinancialReport(range: DateRange, opts: { enabled?: boolean } = {}) {
+  const ready = useDateRangeReady(opts.enabled ?? true)
+  return useQuery({
+    queryKey: ['financial-report', range.start, range.end],
+    queryFn: () => getFinancialReport(range),
     enabled: ready,
   })
 }
@@ -165,6 +282,47 @@ export function useBillInboxSummary() {
   })
 }
 
+export function useBillInboxSettings(opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: ['bill-inbox-settings'],
+    queryFn: () => getBillInboxSettings(),
+    enabled: opts.enabled ?? true,
+  })
+}
+
+function invalidateBillInbox(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] })
+  queryClient.invalidateQueries({ queryKey: ['bill-tasks'] })
+  queryClient.invalidateQueries({ queryKey: ['bill-task-rows'] })
+  queryClient.invalidateQueries({ queryKey: ['bill-task-review'] })
+  queryClient.invalidateQueries({ queryKey: ['bill-task-events'] })
+  queryClient.invalidateQueries({ queryKey: ['bill-task-artifacts'] })
+}
+
+export function useUpdateBillInboxSettings() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: BillInboxSettingsInput) => updateBillInboxSettings(input),
+    onSuccess: (data) => queryClient.setQueryData(['bill-inbox-settings'], data),
+  })
+}
+
+export function useProcessBillInbox() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (limit?: number) => processBillInbox(limit),
+    onSuccess: () => invalidateBillInbox(queryClient),
+  })
+}
+
+export function useCleanupBillInbox() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => cleanupBillInbox(),
+    onSuccess: () => invalidateBillInbox(queryClient),
+  })
+}
+
 export function useReconciliationSummary(days = 30) {
   return useQuery({
     queryKey: ['reconciliation-summary', days],
@@ -175,18 +333,17 @@ export function useReconciliationSummary(days = 30) {
 
 /**
  * 任务列表接口每次只接受单个 status 值（数组/逗号写法后端会 500），
- * 「需处理」这类合并了多个 status 的 tab 用 useQueries 并发拉取每个 status 再在
- * 调用方合并排序。用增大 limit（而非翻页）实现"加载更多"：接口本身分页良好，
- * 但合并多个 status 的结果后按页合并较复杂，直接整体多取更简单可靠。
+ * 「需处理」这类合并了多个 status 的 tab 用 useQueries 并发读取每个 status 的
+ * 全部分页，再由调用方合并排序。
  */
 export function useBillTasksByStatuses(
   statuses: string[],
-  opts: { source?: string; limit: number },
+  opts: { source?: string },
 ) {
   return useQueries({
     queries: statuses.map((status) => ({
-      queryKey: ['bill-tasks', opts.source ?? 'all', status, opts.limit],
-      queryFn: () => getBillTasks({ source: opts.source, status, limit: opts.limit, page: 1 }),
+      queryKey: ['bill-tasks', 'all-pages', opts.source ?? 'all', status],
+      queryFn: () => getAllBillTasks({ source: opts.source, status }),
       staleTime: 15_000,
     })),
   })
@@ -201,6 +358,30 @@ export function useBillTaskRows(taskId: string | null, status?: string) {
   })
 }
 
+export function useBillTaskArtifacts(taskId: string | null) {
+  return useQuery({
+    queryKey: ['bill-task-artifacts', taskId],
+    queryFn: () => getBillTaskArtifacts(taskId as string),
+    enabled: !!taskId,
+  })
+}
+
+export function useBillTaskEvents(taskId: string | null) {
+  return useQuery({
+    queryKey: ['bill-task-events', taskId],
+    queryFn: () => getBillTaskEvents(taskId as string),
+    enabled: !!taskId,
+  })
+}
+
+export function useBillTaskReview(taskId: string | null) {
+  return useQuery({
+    queryKey: ['bill-task-review', taskId],
+    queryFn: () => getBillTaskReview(taskId as string),
+    enabled: !!taskId,
+  })
+}
+
 /** PATCH bill-statement-rows/{id}：成功后刷新该任务行列表 */
 export function useUpdateBillStatementRow() {
   const queryClient = useQueryClient()
@@ -210,6 +391,27 @@ export function useUpdateBillStatementRow() {
     onSuccess: (res) => {
       const taskId = String(res.data.attributes.bill_task_id)
       queryClient.invalidateQueries({ queryKey: ['bill-task-rows', taskId] })
+      queryClient.invalidateQueries({ queryKey: ['bill-task-review', taskId] })
+      queryClient.invalidateQueries({ queryKey: ['bill-tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] })
+    },
+  })
+}
+
+export function useSplitBillStatementRow() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      rowId,
+      splits,
+    }: {
+      rowId: string
+      splits: Array<{ payment_method?: string; source_name?: string; amount: string; description: string; category_name?: string }>
+    }) => splitBillStatementRow(rowId, splits),
+    onSuccess: (response) => {
+      const taskId = String(response.parent.attributes.bill_task_id)
+      queryClient.invalidateQueries({ queryKey: ['bill-task-rows', taskId] })
+      queryClient.invalidateQueries({ queryKey: ['bill-task-review', taskId] })
       queryClient.invalidateQueries({ queryKey: ['bill-tasks'] })
       queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] })
     },
@@ -228,6 +430,9 @@ export function useImportBillTaskRows() {
       queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] })
       queryClient.invalidateQueries({ queryKey: ['bill-tasks'] })
       queryClient.invalidateQueries({ queryKey: ['bill-task-rows', variables.taskId] })
+      queryClient.invalidateQueries({ queryKey: ['bill-task-review', variables.taskId] })
+      queryClient.invalidateQueries({ queryKey: ['bill-task-events', variables.taskId] })
+      invalidateTransactionCaches(queryClient)
     },
   })
 }
@@ -236,10 +441,7 @@ export function useIgnoreBillTask() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (taskId: string) => ignoreBillTask(taskId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] })
-      queryClient.invalidateQueries({ queryKey: ['bill-tasks'] })
-    },
+    onSuccess: () => invalidateBillInbox(queryClient),
   })
 }
 
@@ -248,10 +450,7 @@ export function useSyncBillInbox() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (opts?: { limit?: number }) => syncBillInbox(opts ?? {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] })
-      queryClient.invalidateQueries({ queryKey: ['bill-tasks'] })
-    },
+    onSuccess: () => invalidateBillInbox(queryClient),
   })
 }
 
@@ -264,6 +463,9 @@ export function useSubmitBillTaskSecret() {
       queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] })
       queryClient.invalidateQueries({ queryKey: ['bill-tasks'] })
       queryClient.invalidateQueries({ queryKey: ['bill-task-rows', variables.taskId] })
+      queryClient.invalidateQueries({ queryKey: ['bill-task-review', variables.taskId] })
+      queryClient.invalidateQueries({ queryKey: ['bill-task-events', variables.taskId] })
+      queryClient.invalidateQueries({ queryKey: ['bill-task-artifacts', variables.taskId] })
     },
   })
 }
@@ -272,10 +474,7 @@ export function useRetryBillTask() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (taskId: string) => retryBillTask(taskId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] })
-      queryClient.invalidateQueries({ queryKey: ['bill-tasks'] })
-    },
+    onSuccess: () => invalidateBillInbox(queryClient),
   })
 }
 
@@ -296,6 +495,34 @@ export function useAccount(accountId: string | null) {
     queryFn: () => getAccount(accountId as string),
     enabled: !!accountId,
     staleTime: 60_000,
+  })
+}
+
+function invalidateAccountCaches(queryClient: ReturnType<typeof useQueryClient>) {
+  invalidateTransactionCaches(queryClient)
+}
+
+export function useCreateAccount() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: AccountInput) => createAccount(input),
+    onSuccess: () => invalidateAccountCaches(queryClient),
+  })
+}
+
+export function useUpdateAccount() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ accountId, input }: { accountId: string; input: AccountInput }) => updateAccount(accountId, input),
+    onSuccess: () => invalidateAccountCaches(queryClient),
+  })
+}
+
+export function useDeleteAccount() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (accountId: string) => deleteAccount(accountId),
+    onSuccess: () => invalidateAccountCaches(queryClient),
   })
 }
 
@@ -334,9 +561,25 @@ export function useInfiniteAccountTransactions(
 /** 交易写操作成功后统一失效的 queryKey 范围 */
 function invalidateTransactionCaches(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({ queryKey: ['transactions'] })
+  queryClient.invalidateQueries({ queryKey: ['transaction'] })
   queryClient.invalidateQueries({ queryKey: ['summary-basic'] })
   queryClient.invalidateQueries({ queryKey: ['expense-by-category'] })
+  queryClient.invalidateQueries({ queryKey: ['income-by-revenue'] })
+  queryClient.invalidateQueries({ queryKey: ['expense-by-asset'] })
+  queryClient.invalidateQueries({ queryKey: ['expense-by-tag'] })
+  queryClient.invalidateQueries({ queryKey: ['expense-by-budget'] })
+  queryClient.invalidateQueries({ queryKey: ['expense-without-category'] })
+  queryClient.invalidateQueries({ queryKey: ['expense-without-budget'] })
+  queryClient.invalidateQueries({ queryKey: ['financial-report'] })
   queryClient.invalidateQueries({ queryKey: ['search-transactions'] })
+  queryClient.invalidateQueries({ queryKey: ['search-transaction-count'] })
+  queryClient.invalidateQueries({ queryKey: ['search-accounts'] })
+  queryClient.invalidateQueries({ queryKey: ['autocomplete-transactions'] })
+  queryClient.invalidateQueries({ queryKey: ['autocomplete-accounts'] })
+  queryClient.invalidateQueries({ queryKey: ['autocomplete-categories'] })
+  queryClient.invalidateQueries({ queryKey: ['autocomplete-tags'] })
+  queryClient.invalidateQueries({ queryKey: ['categories'] })
+  queryClient.invalidateQueries({ queryKey: ['tags'] })
   queryClient.invalidateQueries({ queryKey: ['chart-account-overview'] })
   queryClient.invalidateQueries({ queryKey: ['account-transactions'] })
   queryClient.invalidateQueries({ queryKey: ['account'] })
@@ -355,6 +598,15 @@ export function useCreateTransaction() {
   })
 }
 
+export function useCreateTransactionSplits() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ inputs, groupTitle }: { inputs: CreateTransactionInput[]; groupTitle?: string }) =>
+      createTransactionSplits(inputs, groupTitle),
+    onSuccess: () => invalidateTransactionCaches(queryClient),
+  })
+}
+
 /** GET /api/v1/transactions/{groupId}，编辑前可选拉详情 */
 export function useTransaction(groupId: string | null) {
   return useQuery({
@@ -364,15 +616,53 @@ export function useTransaction(groupId: string | null) {
   })
 }
 
+export function useTransactionAttachments(groupId: string | null) {
+  return useQuery({
+    queryKey: ['transaction-attachments', groupId],
+    queryFn: () => getTransactionAttachments(groupId as string),
+    enabled: !!groupId,
+  })
+}
+
+export function useCreateTransactionAttachment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: createTransactionAttachment,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['transaction-attachments'] }),
+  })
+}
+
+export function useUpdateAttachment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ attachmentId, input }: { attachmentId: string; input: { filename?: string; title?: string; notes?: string } }) => updateAttachment(attachmentId, input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['transaction-attachments'] }),
+  })
+}
+
+export function useDeleteAttachment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: deleteAttachment,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['transaction-attachments'] }),
+  })
+}
+
 export function useUpdateTransaction() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ groupId, input }: { groupId: string; input: UpdateTransactionInput }) =>
       updateTransaction(groupId, input),
-    onSuccess: (_data, variables) => {
-      invalidateTransactionCaches(queryClient)
-      queryClient.invalidateQueries({ queryKey: ['transaction', variables.groupId] })
-    },
+    onSuccess: () => invalidateTransactionCaches(queryClient),
+  })
+}
+
+export function useUpdateTransactionSplits() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ groupId, inputs, groupTitle }: { groupId: string; inputs: UpdateTransactionInput[]; groupTitle?: string }) =>
+      updateTransactionSplits(groupId, inputs, groupTitle),
+    onSuccess: () => invalidateTransactionCaches(queryClient),
   })
 }
 
@@ -384,11 +674,19 @@ export function useDeleteTransaction() {
   })
 }
 
-/** 账户页四个 tab；用增大 limit（而非翻页）实现「加载更多」，与账单收件箱任务列表同一惯例 */
-export function useAccountsByType(type: AccountType, opts: { limit: number }) {
-  return useQuery({
-    queryKey: ['accounts', type, opts.limit],
-    queryFn: () => getAccountsByType(type, { limit: opts.limit, page: 1 }),
+export function useInfiniteAccountsByType(type: AccountType, opts: { limit?: number } = {}) {
+  const limit = opts.limit ?? 40
+  return useInfiniteQuery({
+    queryKey: ['accounts', 'infinite', type, limit],
+    queryFn: ({ pageParam }) => getAccountsByType(type, { limit, page: pageParam }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => {
+      const pagination = lastPage.meta?.pagination
+      if (!pagination) return undefined
+      const current = pagination.current_page ?? 1
+      const total = pagination.total_pages ?? 1
+      return current < total ? current + 1 : undefined
+    },
     staleTime: 30_000,
   })
 }
@@ -422,12 +720,23 @@ export function useBudgetLimits(budgetIds: string[], range: DateRange) {
 function invalidateBudgetCaches(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({ queryKey: ['budgets'] })
   queryClient.invalidateQueries({ queryKey: ['budget-limits'] })
+  queryClient.invalidateQueries({ queryKey: ['expense-by-budget'] })
+  queryClient.invalidateQueries({ queryKey: ['expense-without-budget'] })
+  queryClient.invalidateQueries({ queryKey: ['financial-report'] })
 }
 
 export function useCreateBudget() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (input: { name: string; active?: boolean }) => createBudget(input),
+    onSuccess: () => invalidateBudgetCaches(queryClient),
+  })
+}
+
+export function useCreateBudgetWithLimit() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: createBudgetWithLimit,
     onSuccess: () => invalidateBudgetCaches(queryClient),
   })
 }
@@ -441,6 +750,14 @@ export function useUpdateBudget() {
   })
 }
 
+export function useDeleteBudget() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: deleteBudget,
+    onSuccess: () => invalidateBudgetCaches(queryClient),
+  })
+}
+
 export function useCreateBudgetLimit() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -449,7 +766,7 @@ export function useCreateBudgetLimit() {
       input,
     }: {
       budgetId: string
-      input: { start: string; end: string; amount: string }
+      input: { start: string; end: string; amount: string; currency_code?: string }
     }) => createBudgetLimit(budgetId, input),
     onSuccess: () => invalidateBudgetCaches(queryClient),
   })
@@ -538,6 +855,49 @@ export function useRules() {
     queryKey: ['rules'],
     queryFn: () => getRules(),
     staleTime: 60_000,
+  })
+}
+
+export function useRuleGroups() {
+  return useQuery({
+    queryKey: ['rule-groups'],
+    queryFn: () => getRuleGroups(),
+    staleTime: 60_000,
+  })
+}
+
+function useAutomationMutation<TVariables, TResult>(mutationFn: (variables: TVariables) => Promise<TResult>) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn,
+    onSuccess: () => invalidateTransactionCaches(queryClient),
+  })
+}
+
+export function useTestRule() {
+  return useMutation({ mutationFn: ({ id, range }: { id: string; range: DateRange }) => testRule(id, range) })
+}
+
+export function useTriggerRule() {
+  return useAutomationMutation(({ id, range }: { id: string; range: DateRange }) => triggerRule(id, range))
+}
+
+export function useTestRuleGroup() {
+  return useMutation({ mutationFn: ({ id, range }: { id: string; range: DateRange }) => testRuleGroup(id, range) })
+}
+
+export function useTriggerRuleGroup() {
+  return useAutomationMutation(({ id, range }: { id: string; range: DateRange }) => triggerRuleGroup(id, range))
+}
+
+export function useTriggerRecurrence() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, date }: { id: string; date: string }) => triggerRecurrence(id, date),
+    onSuccess: () => {
+      invalidateTransactionCaches(queryClient)
+      queryClient.invalidateQueries({ queryKey: ['recurrences'] })
+    },
   })
 }
 

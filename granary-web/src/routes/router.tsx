@@ -1,18 +1,32 @@
-import { createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
+import { createRootRoute, createRoute, createRouter, lazyRouteComponent } from '@tanstack/react-router'
 import { AppShell } from '../components/layout/AppShell'
-import { DashboardPage } from '../features/dashboard/DashboardPage'
-import { TransactionsPage } from '../features/transactions/TransactionsPage'
-import { ReconciliationPage } from '../features/reconciliation/ReconciliationPage'
-import { BillInboxPage } from '../features/bill-inbox/BillInboxPage'
-import { BudgetsPage } from '../features/budgets/BudgetsPage'
-import { AccountsPage } from '../features/accounts/AccountsPage'
-import { AccountDetailPage } from '../features/accounts/AccountDetailPage'
-import { ReportsPage } from '../features/reports/ReportsPage'
-import { SettingsPage } from '../features/settings/SettingsPage'
+
+const DashboardPage = lazyRouteComponent(() => import('../features/dashboard/DashboardPage'), 'DashboardPage')
+const TransactionsPage = lazyRouteComponent(() => import('../features/transactions/TransactionsPage'), 'TransactionsPage')
+const ReconciliationPage = lazyRouteComponent(() => import('../features/reconciliation/ReconciliationPage'), 'ReconciliationPage')
+const BillInboxPage = lazyRouteComponent(() => import('../features/bill-inbox/BillInboxPage'), 'BillInboxPage')
+const BudgetsPage = lazyRouteComponent(() => import('../features/budgets/BudgetsPage'), 'BudgetsPage')
+const AccountsPage = lazyRouteComponent(() => import('../features/accounts/AccountsPage'), 'AccountsPage')
+const AccountDetailPage = lazyRouteComponent(() => import('../features/accounts/AccountDetailPage'), 'AccountDetailPage')
+const ReportsPage = lazyRouteComponent(() => import('../features/reports/ReportsPage'), 'ReportsPage')
+const SettingsPage = lazyRouteComponent(() => import('../features/settings/SettingsPage'), 'SettingsPage')
 
 const rootRoute = createRootRoute({
   component: AppShell,
 })
+
+export function validateTransactionSearch(search: Record<string, unknown>) {
+  const rawId = search.transaction
+  const transaction = typeof rawId === 'number'
+    ? rawId
+    : typeof rawId === 'string' && /^\d+$/.test(rawId)
+      ? Number(rawId)
+      : Number.NaN
+
+  return {
+    transaction: Number.isSafeInteger(transaction) && transaction > 0 ? transaction : undefined,
+  }
+}
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -23,6 +37,7 @@ const indexRoute = createRoute({
 const transactionsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/transactions',
+  validateSearch: validateTransactionSearch,
   component: TransactionsPage,
 })
 

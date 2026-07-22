@@ -1,16 +1,18 @@
 import type { PiggyBank } from '../../api/schemas'
 import { ProgressBar } from '../../components/granary/ProgressBar'
 import { formatAmount } from '../../lib/format'
+import { compareDecimalStrings, decimalPercentage, subtractDecimalStrings } from '../../lib/decimal'
 
 /** 储蓄罐一行：名称、当前/目标金额进度条（琥珀填充）、剩余金额 */
 export function PiggyRow({ piggyBank }: { piggyBank: PiggyBank }) {
   const a = piggyBank.attributes
-  const symbol = a.currency_symbol ?? '¥'
-  const current = Number(a.current_amount ?? 0)
-  const target = a.target_amount ? Number(a.target_amount) : 0
-  const hasTarget = target > 0
-  const pct = hasTarget ? (current / target) * 100 : 0
-  const left = a.left_to_save !== undefined && a.left_to_save !== null ? Number(a.left_to_save) : Math.max(target - current, 0)
+  const symbol = a.currency_symbol ?? a.currency_code ?? ''
+  const current = a.current_amount ?? '0'
+  const target = a.target_amount ?? '0'
+  const hasTarget = compareDecimalStrings(target, '0') > 0
+  const pct = hasTarget ? decimalPercentage(current, target) : 0
+  const calculatedLeft = subtractDecimalStrings(target, current)
+  const left = a.left_to_save ?? (compareDecimalStrings(calculatedLeft, '0') > 0 ? calculatedLeft : '0')
 
   return (
     <div className="flex h-8 items-center gap-3 rounded-[4px] px-2 text-[12.5px]">

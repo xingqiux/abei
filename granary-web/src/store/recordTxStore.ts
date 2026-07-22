@@ -5,7 +5,7 @@ import type { CreateTransactionType } from '../api/firefly'
 export interface RecordTxEditPayload {
   groupId: string
   journalId: string
-  /** group 内拆分数量；>1 时 v1 只展示提示，不开放编辑 */
+  /** group 内拆分数量；>1 时打开完整多拆分编辑器。 */
   splitCount: number
   type: CreateTransactionType
   amount: string

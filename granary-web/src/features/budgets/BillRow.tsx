@@ -6,7 +6,7 @@ import { REPEAT_FREQ_LABELS, dateOnly } from './budgetsHelpers'
 /** 订阅一行：名称、金额范围、周期、下次预计日期、active 状态 chip */
 export function BillRow({ bill }: { bill: Bill }) {
   const a = bill.attributes
-  const symbol = a.currency_symbol ?? '¥'
+  const symbol = a.currency_symbol ?? a.currency_code ?? ''
   const amountRange =
     a.amount_min && a.amount_max
       ? a.amount_min === a.amount_max

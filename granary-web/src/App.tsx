@@ -20,8 +20,9 @@ const queryClient = new QueryClient({
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-      <TokenGate />
+      <TokenGate>
+        <RouterProvider router={router} />
+      </TokenGate>
     </QueryClientProvider>
   )
 }

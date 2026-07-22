@@ -1,5 +1,29 @@
 import { z } from 'zod'
 
+export const paginationSchema = z
+  .object({
+    total: z.number(),
+    count: z.number(),
+    per_page: z.number(),
+    current_page: z.number(),
+    total_pages: z.number(),
+  })
+  .partial()
+  .passthrough()
+
+export const paginationMetaSchema = z
+  .object({ pagination: paginationSchema.optional() })
+  .passthrough()
+
+function paginatedCollectionSchema<T extends z.ZodType>(itemSchema: T) {
+  return z
+    .object({
+      data: z.array(itemSchema),
+      meta: paginationMetaSchema.optional(),
+    })
+    .passthrough()
+}
+
 /** GET /api/v1/summary/basic 单项条目（宽松校验，其余字段 passthrough） */
 export const summaryEntrySchema = z
   .object({
@@ -9,6 +33,7 @@ export const summaryEntrySchema = z
     value_parsed: z.string(),
     currency_symbol: z.string().optional(),
     currency_code: z.string().optional(),
+    currency_decimal_places: z.number().optional(),
     sub_title: z.string().optional(),
   })
   .passthrough()
@@ -23,12 +48,22 @@ export const transactionSplitSchema = z
   .object({
     description: z.string(),
     amount: z.string(),
+    currency_code: z.string().nullable().optional(),
     currency_symbol: z.string(),
     type: z.enum(['withdrawal', 'deposit', 'transfer', 'reconciliation', 'opening balance']),
     date: z.string(),
     source_name: z.string().nullable(),
     destination_name: z.string().nullable(),
     category_name: z.string().nullable(),
+    currency_id: z.union([z.string(), z.number()]).nullable().optional(),
+    foreign_currency_id: z.union([z.string(), z.number()]).nullable().optional(),
+    foreign_currency_code: z.string().nullable().optional(),
+    foreign_amount: z.string().nullable().optional(),
+    budget_id: z.union([z.string(), z.number()]).nullable().optional(),
+    budget_name: z.string().nullable().optional(),
+    category_id: z.union([z.string(), z.number()]).nullable().optional(),
+    bill_id: z.union([z.string(), z.number()]).nullable().optional(),
+    bill_name: z.string().nullable().optional(),
     /** 拆分 journal id；PUT 时必带（实测 string） */
     transaction_journal_id: z.union([z.string(), z.number()]).optional(),
     source_id: z.union([z.string(), z.number()]).nullable().optional(),
@@ -44,35 +79,20 @@ export const transactionGroupSchema = z
     id: z.string(),
     attributes: z
       .object({
+        group_title: z.string().nullable().optional(),
         transactions: z.array(transactionSplitSchema),
       })
       .passthrough(),
   })
   .passthrough()
 
-export const transactionsResponseSchema = z
-  .object({
-    data: z.array(transactionGroupSchema),
-    meta: z
-      .object({
-        pagination: z
-          .object({
-            total: z.number(),
-            count: z.number(),
-            per_page: z.number(),
-            current_page: z.number(),
-            total_pages: z.number(),
-          })
-          .partial()
-          .optional(),
-      })
-      .passthrough()
-      .optional(),
-  })
-  .passthrough()
+export const transactionsResponseSchema = paginatedCollectionSchema(transactionGroupSchema)
 
 export type TransactionSplit = z.infer<typeof transactionSplitSchema>
 export type TransactionsResponse = z.infer<typeof transactionsResponseSchema>
+
+export const transactionSearchCountSchema = z.object({ count: z.number() })
+export type TransactionSearchCount = z.infer<typeof transactionSearchCountSchema>
 
 /**
  * GET /api/v1/accounts?type=asset|expense|revenue|liabilities
@@ -91,9 +111,14 @@ export const accountAttributesSchema = z
     iban: z.string().nullable().optional(),
     last_activity: z.string().nullable().optional(),
     liability_type: z.string().nullable().optional(),
+    liability_direction: z.enum(['credit', 'debit']).nullable().optional(),
+    interest: z.string().nullable().optional(),
+    interest_period: z.enum(['daily', 'weekly', 'monthly', 'quarterly', 'half-year', 'yearly']).nullable().optional(),
     opening_balance: z.string().nullable().optional(),
     opening_balance_date: z.string().nullable().optional(),
     account_role: z.string().nullable().optional(),
+    credit_card_type: z.string().nullable().optional(),
+    monthly_payment_date: z.string().nullable().optional(),
     notes: z.string().nullable().optional(),
     include_net_worth: z.boolean().optional(),
   })
@@ -106,26 +131,7 @@ export const accountSchema = z
   })
   .passthrough()
 
-export const accountsResponseSchema = z
-  .object({
-    data: z.array(accountSchema),
-    meta: z
-      .object({
-        pagination: z
-          .object({
-            total: z.number(),
-            count: z.number(),
-            per_page: z.number(),
-            current_page: z.number(),
-            total_pages: z.number(),
-          })
-          .partial()
-          .optional(),
-      })
-      .passthrough()
-      .optional(),
-  })
-  .passthrough()
+export const accountsResponseSchema = paginatedCollectionSchema(accountSchema)
 
 export type Account = z.infer<typeof accountSchema>
 export type AccountsResponse = z.infer<typeof accountsResponseSchema>
@@ -138,6 +144,8 @@ export const accountDetailResponseSchema = z
   .passthrough()
 
 export type AccountDetailResponse = z.infer<typeof accountDetailResponseSchema>
+
+export const accountItemResponseSchema = accountDetailResponseSchema
 
 /**
  * POST/PUT /api/v1/transactions 与 GET /api/v1/transactions/{id} 响应：
@@ -162,9 +170,10 @@ export type TransactionDetailResponse = TransactionCreateResponse
 export const insightCategoryEntrySchema = z
   .object({
     id: z.string().nullable().optional(),
-    name: z.string(),
-    difference_float: z.number(),
-    currency_code: z.string().optional(),
+    name: z.string().optional().default('未分类'),
+    difference: z.string(),
+    difference_float: z.number().optional(),
+    currency_code: z.string(),
   })
   .passthrough()
 
@@ -172,7 +181,35 @@ export const insightCategoryResponseSchema = z.array(insightCategoryEntrySchema)
 
 export type InsightCategoryEntry = z.infer<typeof insightCategoryEntrySchema>
 
-/** GET /api/v1/bill-inbox/summary（自建端点，见 docs/design/granary-web-plan.md §3） */
+export const financialReportResponseSchema = z.object({
+  data: z.object({
+    top_expenses: z.array(z.object({
+      group_id: z.string(),
+      title: z.string(),
+      date: z.string(),
+      amount: z.string(),
+      currency_id: z.string(),
+      currency_code: z.string(),
+      currency_symbol: z.string(),
+      split_count: z.number(),
+    })),
+    transfer_flows: z.array(z.object({
+      source_account_id: z.string(),
+      source_account_name: z.string(),
+      destination_account_id: z.string(),
+      destination_account_name: z.string(),
+      amount: z.string(),
+      currency_id: z.string(),
+      currency_code: z.string(),
+      currency_symbol: z.string(),
+      transaction_count: z.number(),
+    })),
+  }),
+})
+
+export type FinancialReportResponse = z.infer<typeof financialReportResponseSchema>
+
+/** GET /api/v1/bill-inbox/summary（本项目账单收件箱汇总端点）。 */
 export const billInboxChannelSchema = z
   .object({
     key: z.string(),
@@ -199,16 +236,66 @@ export const billInboxSummarySchema = z
 
 export type BillInboxSummary = z.infer<typeof billInboxSummarySchema>
 
+export const billInboxSettingsSchema = z.object({
+  data: z.object({
+    type: z.string(),
+    attributes: z.object({
+      enabled: z.boolean(),
+      provider: z.enum(['gmail', 'imap']),
+      email: z.string(),
+      host: z.string(),
+      port: z.number(),
+      encryption: z.enum(['none', 'ssl', 'tls', 'starttls']),
+      username: z.string(),
+      folder: z.string(),
+      has_password: z.boolean(),
+      built_in_channels: z.array(z.unknown()).optional(),
+    }),
+  }),
+})
+
+export const billInboxProcessResultSchema = z.object({
+  data: z.object({
+    attributes: z.object({ processed: z.number(), failed: z.number() }),
+  }),
+})
+
+export const billInboxCleanupResultSchema = z.object({
+  data: z.object({ attributes: z.object({ archived: z.number() }) }),
+})
+
+export type BillInboxSettings = z.infer<typeof billInboxSettingsSchema>
+export type BillInboxProcessResult = z.infer<typeof billInboxProcessResultSchema>
+export type BillInboxCleanupResult = z.infer<typeof billInboxCleanupResultSchema>
+
 /** GET /api/v1/daily-reconciliation/summary（自建端点） */
+export const reconciliationCurrencyTotalSchema = z.object({
+  currency_id: z.number().nullable().optional(),
+  currency_code: z.string(),
+  currency_symbol: z.string(),
+  income: z.string(),
+  expense: z.string(),
+  net: z.string(),
+})
+
+export const reconciliationDifferenceTotalSchema = z.object({
+  currency_id: z.number().nullable().optional(),
+  currency_code: z.string(),
+  currency_symbol: z.string(),
+  amount: z.string(),
+})
+
 export const reconciliationDaySchema = z
   .object({
     date: z.string(),
     status: z.enum(['reconciled', 'diff', 'none', 'pending']),
-    income: z.string(),
-    expense: z.string(),
-    net: z.string(),
+    income: z.string().nullable(),
+    expense: z.string().nullable(),
+    net: z.string().nullable(),
     tx_count: z.number(),
     diff_amount: z.string().nullable().optional(),
+    currency_totals: z.array(reconciliationCurrencyTotalSchema).default([]),
+    diff_totals: z.array(reconciliationDifferenceTotalSchema).default([]),
   })
   .passthrough()
 
@@ -222,6 +309,16 @@ export const reconciliationSummarySchema = z
 
 export type ReconciliationDay = z.infer<typeof reconciliationDaySchema>
 export type ReconciliationSummary = z.infer<typeof reconciliationSummarySchema>
+
+export const reconciliationActionResultSchema = z.object({
+  date: z.string(),
+  total: z.number(),
+  updated: z.number(),
+  already_reconciled: z.number(),
+  transactions_updated: z.number(),
+})
+
+export type ReconciliationActionResult = z.infer<typeof reconciliationActionResultSchema>
 
 /** GET /api/v1/bill-tasks（自建端点）任务状态枚举 */
 export const billTaskStatusSchema = z.enum([
@@ -258,7 +355,7 @@ export const billTaskAttributesSchema = z
     current_secret_challenge_id: z.union([z.string(), z.number()]).nullable().optional(),
     error_code: z.string().nullable().optional(),
     error_message: z.string().nullable().optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
     row_counts: billTaskRowCountsSchema,
     created_at: z.string().optional(),
     updated_at: z.string().optional(),
@@ -272,26 +369,7 @@ export const billTaskSchema = z
   })
   .passthrough()
 
-export const billTasksResponseSchema = z
-  .object({
-    data: z.array(billTaskSchema),
-    meta: z
-      .object({
-        pagination: z
-          .object({
-            total: z.number(),
-            count: z.number(),
-            per_page: z.number(),
-            current_page: z.number(),
-            total_pages: z.number(),
-          })
-          .partial()
-          .optional(),
-      })
-      .passthrough()
-      .optional(),
-  })
-  .passthrough()
+export const billTasksResponseSchema = paginatedCollectionSchema(billTaskSchema)
 
 export type BillTask = z.infer<typeof billTaskSchema>
 export type BillTasksResponse = z.infer<typeof billTasksResponseSchema>
@@ -307,10 +385,12 @@ export const billStatementRowAttributesSchema = z
   .object({
     bill_task_id: z.union([z.string(), z.number()]),
     status: billRowStatusSchema,
-    occurred_at: z.string(),
+    occurred_at: z.string().nullable(),
     counterparty: z.string().nullable().optional(),
     direction: z.string().nullable().optional(),
-    amount: z.string(),
+    amount: z.string().nullable(),
+    currency_code: z.string().nullable().optional(),
+    currency_symbol: z.string().nullable().optional(),
     duplicate_state: billRowDuplicateStateSchema,
     duplicate_of_row_id: z.union([z.string(), z.number()]).nullable().optional(),
     firefly_type: z.enum(['withdrawal', 'deposit', 'transfer']).nullable().optional(),
@@ -321,7 +401,7 @@ export const billStatementRowAttributesSchema = z
     destination_name: z.string().nullable().optional(),
     category_name: z.string().nullable().optional(),
     notes: z.string().nullable().optional(),
-    tags: z.array(z.string()).optional(),
+    tags: z.array(z.string()).nullable().optional(),
     transaction_group_id: z.union([z.string(), z.number()]).nullable().optional(),
     error_message: z.string().nullable().optional(),
   })
@@ -358,11 +438,14 @@ export const billImportRowResultSchema = z
     row_id: z.string(),
     row_number: z.number().optional(),
     status: z.string(),
+    action: z.enum(['would_import', 'skip', 'imported', 'failed']).optional(),
     occurred_at: z.string().optional(),
     direction: z.string().nullable().optional(),
     amount: z.string().optional(),
     firefly_type: z.string().nullable().optional(),
     firefly_amount: z.string().nullable().optional(),
+    currency_code: z.string().nullable().optional(),
+    currency_symbol: z.string().nullable().optional(),
     counterparty: z.string().nullable().optional(),
     description_preview: z.string().nullable().optional(),
     source_name: z.string().nullable().optional(),
@@ -431,6 +514,108 @@ export const billTaskItemResponseSchema = z
 
 export type BillTaskItemResponse = z.infer<typeof billTaskItemResponseSchema>
 
+export const billRowSplitResponseSchema = z.object({
+  parent: billStatementRowSchema,
+  data: z.array(billStatementRowSchema),
+})
+
+export type BillRowSplitResponse = z.infer<typeof billRowSplitResponseSchema>
+
+export const billArtifactSchema = z.object({
+  id: z.string(),
+  attributes: z.object({
+    bill_task_id: z.string(),
+    kind: z.string(),
+    filename: z.string().nullable().optional(),
+    encrypted: z.boolean().optional(),
+    mime_type: z.string(),
+    size: z.number().nullable(),
+    generation_stage: z.enum(['received', 'downloaded', 'extracted', 'derived']),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+    download_url: z.string(),
+    created_at: z.string().nullable().optional(),
+  }).passthrough(),
+}).passthrough()
+
+export const billArtifactsResponseSchema = z.object({ data: z.array(billArtifactSchema) })
+export type BillArtifact = z.infer<typeof billArtifactSchema>
+export type BillArtifactsResponse = z.infer<typeof billArtifactsResponseSchema>
+
+export const billTaskEventSchema = z.object({
+  id: z.string(),
+  attributes: z.object({
+    bill_task_id: z.string(),
+    event_type: z.string(),
+    message: z.string().nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+    created_at: z.string().nullable().optional(),
+  }).passthrough(),
+}).passthrough()
+
+export const billTaskEventsResponseSchema = z.object({ data: z.array(billTaskEventSchema) })
+export type BillTaskEvent = z.infer<typeof billTaskEventSchema>
+export type BillTaskEventsResponse = z.infer<typeof billTaskEventsResponseSchema>
+
+const billReviewCandidateSchema = z.object({
+  row_id: z.string(),
+  reason: z.string().optional(),
+  row_number: z.number().optional(),
+  status: z.string().optional(),
+  occurred_at: z.string().nullable().optional(),
+  direction: z.string().nullable().optional(),
+  amount: z.string().nullable().optional(),
+  firefly_amount: z.string().nullable().optional(),
+  currency_code: z.string().nullable().optional(),
+  currency_symbol: z.string().nullable().optional(),
+  counterparty: z.string().nullable().optional(),
+  description_preview: z.string().nullable().optional(),
+  source_name: z.string().nullable().optional(),
+  destination_name: z.string().nullable().optional(),
+  category_name: z.string().nullable().optional(),
+}).passthrough()
+
+export const billTaskReviewSchema = z.object({
+  summary: z.record(z.string(), z.unknown()),
+  new_candidates: z.array(billReviewCandidateSchema),
+  existing_candidates: z.array(billReviewCandidateSchema),
+  cross_source_candidates: z.array(billReviewCandidateSchema),
+  duplicate_candidates: z.array(billReviewCandidateSchema),
+  conflict_candidates: z.array(billReviewCandidateSchema),
+  preserved_user_edits: z.array(billReviewCandidateSchema),
+  skip_candidates: z.array(billReviewCandidateSchema),
+  transfer_candidates: z.array(billReviewCandidateSchema),
+  refund_pairs: z.array(z.unknown()),
+  needs_user_note: z.array(billReviewCandidateSchema),
+  balance_chain: z.unknown(),
+}).passthrough()
+
+export type BillTaskReview = z.infer<typeof billTaskReviewSchema>
+
+export const attachmentAttributesSchema = z.object({
+  created_at: z.string().optional(),
+  updated_at: z.string().optional(),
+  attachable_id: z.string(),
+  attachable_type: z.string(),
+  filename: z.string(),
+  download_url: z.string(),
+  upload_url: z.string(),
+  title: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  mime: z.string().nullable().optional(),
+  size: z.number(),
+}).passthrough()
+
+export const attachmentSchema = z.object({
+  id: z.string(),
+  attributes: attachmentAttributesSchema,
+}).passthrough()
+
+export const attachmentItemResponseSchema = z.object({ data: attachmentSchema }).passthrough()
+export const attachmentsResponseSchema = paginatedCollectionSchema(attachmentSchema)
+export type Attachment = z.infer<typeof attachmentSchema>
+export type AttachmentItemResponse = z.infer<typeof attachmentItemResponseSchema>
+export type AttachmentsResponse = z.infer<typeof attachmentsResponseSchema>
+
 /**
  * GET /api/v1/budgets（预算与订阅页「预算」tab）。
  * 字段核对自 firefly-iii/app/Transformers/BudgetTransformer.php：spent 是按 start/end 查询参数
@@ -480,11 +665,7 @@ export const budgetSchema = z
   })
   .passthrough()
 
-export const budgetsResponseSchema = z
-  .object({
-    data: z.array(budgetSchema),
-  })
-  .passthrough()
+export const budgetsResponseSchema = paginatedCollectionSchema(budgetSchema)
 
 export type Budget = z.infer<typeof budgetSchema>
 export type BudgetsResponse = z.infer<typeof budgetsResponseSchema>
@@ -507,7 +688,7 @@ export const budgetLimitAttributesSchema = z
     primary_currency_name: z.string().nullable().optional(),
     primary_currency_symbol: z.string().nullable().optional(),
     primary_currency_decimal_places: z.number().nullable().optional(),
-    spent: z.union([z.string(), z.number()]).nullable().optional(),
+    spent: z.array(budgetSpentEntrySchema).nullable().optional(),
   })
   .passthrough()
 
@@ -518,11 +699,7 @@ export const budgetLimitSchema = z
   })
   .passthrough()
 
-export const budgetLimitsResponseSchema = z
-  .object({
-    data: z.array(budgetLimitSchema),
-  })
-  .passthrough()
+export const budgetLimitsResponseSchema = paginatedCollectionSchema(budgetLimitSchema)
 
 export type BudgetLimit = z.infer<typeof budgetLimitSchema>
 export type BudgetLimitsResponse = z.infer<typeof budgetLimitsResponseSchema>
@@ -543,6 +720,13 @@ export const budgetLimitItemResponseSchema = z
 export type BudgetItemResponse = z.infer<typeof budgetItemResponseSchema>
 export type BudgetLimitItemResponse = z.infer<typeof budgetLimitItemResponseSchema>
 
+export const budgetWithLimitResponseSchema = z.object({
+  data: z.object({
+    attributes: z.object({ budget_id: z.string(), budget_limit_id: z.string() }),
+  }),
+})
+export type BudgetWithLimitResponse = z.infer<typeof budgetWithLimitResponseSchema>
+
 /**
  * GET /api/v1/bills（预算与订阅页「订阅」tab）。
  * 字段核对自 firefly-iii/app/Transformers/BillTransformer.php。当前测试环境无订阅数据。
@@ -552,6 +736,7 @@ export const billAttributesSchema = z
     name: z.string(),
     active: z.boolean().optional(),
     currency_symbol: z.string().optional(),
+    currency_code: z.string().optional(),
     amount_min: z.string().nullable().optional(),
     amount_max: z.string().nullable().optional(),
     repeat_freq: z.string().optional(),
@@ -566,11 +751,7 @@ export const billSchema = z
   })
   .passthrough()
 
-export const billsResponseSchema = z
-  .object({
-    data: z.array(billSchema),
-  })
-  .passthrough()
+export const billsResponseSchema = paginatedCollectionSchema(billSchema)
 
 export type Bill = z.infer<typeof billSchema>
 export type BillsResponse = z.infer<typeof billsResponseSchema>
@@ -584,6 +765,7 @@ export const piggyBankAttributesSchema = z
     name: z.string(),
     active: z.boolean().optional(),
     currency_symbol: z.string().optional(),
+    currency_code: z.string().optional(),
     percentage: z.number().nullable().optional(),
     target_amount: z.string().nullable().optional(),
     current_amount: z.string().nullable().optional(),
@@ -598,27 +780,15 @@ export const piggyBankSchema = z
   })
   .passthrough()
 
-export const piggyBanksResponseSchema = z
-  .object({
-    data: z.array(piggyBankSchema),
-  })
-  .passthrough()
+export const piggyBanksResponseSchema = paginatedCollectionSchema(piggyBankSchema)
 
 export type PiggyBank = z.infer<typeof piggyBankSchema>
 export type PiggyBanksResponse = z.infer<typeof piggyBanksResponseSchema>
 
-/** GET /api/v1/categories（设置页「分类与标签」组，实测 limit=200 时 data 直接返回全量+meta.pagination.total） */
+/** GET /api/v1/categories（设置页「分类与标签」组） */
 export const categoryAttributesSchema = z.object({ name: z.string() }).passthrough()
 export const categorySchema = z.object({ id: z.string(), attributes: categoryAttributesSchema }).passthrough()
-export const categoriesResponseSchema = z
-  .object({
-    data: z.array(categorySchema),
-    meta: z
-      .object({ pagination: z.object({ total: z.number() }).partial().optional() })
-      .passthrough()
-      .optional(),
-  })
-  .passthrough()
+export const categoriesResponseSchema = paginatedCollectionSchema(categorySchema)
 
 export type Category = z.infer<typeof categorySchema>
 export type CategoriesResponse = z.infer<typeof categoriesResponseSchema>
@@ -626,15 +796,7 @@ export type CategoriesResponse = z.infer<typeof categoriesResponseSchema>
 /** GET /api/v1/tags（设置页「分类与标签」组）：标签名字段是 attributes.tag，非 name（实测确认） */
 export const tagAttributesSchema = z.object({ tag: z.string() }).passthrough()
 export const tagSchema = z.object({ id: z.string(), attributes: tagAttributesSchema }).passthrough()
-export const tagsResponseSchema = z
-  .object({
-    data: z.array(tagSchema),
-    meta: z
-      .object({ pagination: z.object({ total: z.number() }).partial().optional() })
-      .passthrough()
-      .optional(),
-  })
-  .passthrough()
+export const tagsResponseSchema = paginatedCollectionSchema(tagSchema)
 
 export type Tag = z.infer<typeof tagSchema>
 export type TagsResponse = z.infer<typeof tagsResponseSchema>
@@ -646,30 +808,37 @@ export type TagsResponse = z.infer<typeof tagsResponseSchema>
  */
 export const ruleAttributesSchema = z.object({ title: z.string(), active: z.boolean().optional() }).passthrough()
 export const ruleSchema = z.object({ id: z.string(), attributes: ruleAttributesSchema }).passthrough()
-export const rulesResponseSchema = z
-  .object({
-    data: z.array(ruleSchema),
-    meta: z
-      .object({ pagination: z.object({ total: z.number() }).partial().optional() })
-      .passthrough()
-      .optional(),
-  })
-  .passthrough()
+export const rulesResponseSchema = paginatedCollectionSchema(ruleSchema)
 
 export type Rule = z.infer<typeof ruleSchema>
 export type RulesResponse = z.infer<typeof rulesResponseSchema>
 
-export const recurrenceAttributesSchema = z.object({ title: z.string(), active: z.boolean().optional() }).passthrough()
-export const recurrenceSchema = z.object({ id: z.string(), attributes: recurrenceAttributesSchema }).passthrough()
-export const recurrencesResponseSchema = z
+export const ruleGroupAttributesSchema = z.object({ title: z.string(), active: z.boolean().optional() }).passthrough()
+export const ruleGroupSchema = z.object({ id: z.string(), attributes: ruleGroupAttributesSchema }).passthrough()
+export const ruleGroupsResponseSchema = paginatedCollectionSchema(ruleGroupSchema)
+export type RuleGroup = z.infer<typeof ruleGroupSchema>
+export type RuleGroupsResponse = z.infer<typeof ruleGroupsResponseSchema>
+
+export const recurrenceRepetitionSchema = z
   .object({
-    data: z.array(recurrenceSchema),
-    meta: z
-      .object({ pagination: z.object({ total: z.number() }).partial().optional() })
-      .passthrough()
-      .optional(),
+    description: z.string().optional(),
+    occurrences: z.array(z.string()).optional().default([]),
   })
   .passthrough()
+
+export const recurrenceAttributesSchema = z
+  .object({
+    title: z.string(),
+    active: z.boolean().optional(),
+    first_date: z.string(),
+    latest_date: z.string().nullable().optional(),
+    repeat_until: z.string().nullable().optional(),
+    nr_of_repetitions: z.number().nullable().optional(),
+    repetitions: z.array(recurrenceRepetitionSchema).optional().default([]),
+  })
+  .passthrough()
+export const recurrenceSchema = z.object({ id: z.string(), attributes: recurrenceAttributesSchema }).passthrough()
+export const recurrencesResponseSchema = paginatedCollectionSchema(recurrenceSchema)
 
 export type Recurrence = z.infer<typeof recurrenceSchema>
 export type RecurrencesResponse = z.infer<typeof recurrencesResponseSchema>
@@ -685,7 +854,7 @@ export const currencyAttributesSchema = z
   })
   .passthrough()
 export const currencySchema = z.object({ id: z.string(), attributes: currencyAttributesSchema }).passthrough()
-export const currenciesResponseSchema = z.object({ data: z.array(currencySchema) }).passthrough()
+export const currenciesResponseSchema = paginatedCollectionSchema(currencySchema)
 
 export type Currency = z.infer<typeof currencySchema>
 export type CurrenciesResponse = z.infer<typeof currenciesResponseSchema>
@@ -698,6 +867,8 @@ export const aboutDataSchema = z
     php_version: z.string().optional(),
     os: z.string().optional(),
     driver: z.string().optional(),
+    attachment_upload_size: z.number().positive().optional(),
+    attachment_mime_types: z.array(z.string()).optional(),
   })
   .passthrough()
 export const aboutResponseSchema = z.object({ data: aboutDataSchema }).passthrough()

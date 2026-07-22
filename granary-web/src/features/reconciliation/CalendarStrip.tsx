@@ -1,6 +1,7 @@
 import type { ReconciliationDay } from '../../api/schemas'
 import { formatAmount } from '../../lib/format'
 import { useStaggerInView } from '../../motion/useStaggerInView'
+import { absoluteDecimalString, compareDecimalStrings } from '../../lib/decimal'
 
 const STATUS_LABEL: Record<ReconciliationDay['status'], string> = {
   reconciled: '已对账',
@@ -51,13 +52,23 @@ export function CalendarStrip({
       >
         {days.map((day) => {
           const isSelected = day.date === selected
-          const net = Number(day.net)
+          const totals = day.currency_totals.length > 0
+            ? day.currency_totals
+            : day.net !== null
+              ? [{ currency_code: '', currency_symbol: '', income: day.income ?? '0', expense: day.expense ?? '0', net: day.net }]
+              : []
+          const netLabel = totals.length === 0
+            ? '无金额'
+            : totals.map((total) => {
+              const comparison = compareDecimalStrings(total.net, '0')
+              return `${comparison > 0 ? '+' : comparison < 0 ? '-' : ''}${total.currency_symbol}${formatAmount(absoluteDecimalString(total.net))}${total.currency_code ? ` ${total.currency_code}` : ''}`
+            }).join(' / ')
           return (
             <button
               key={day.date}
               type="button"
               onClick={() => onSelect(day.date)}
-              title={`${day.date} · ${STATUS_LABEL[day.status]} · 净额 ${net >= 0 ? '+' : '-'}¥${formatAmount(net)}`}
+              title={`${day.date} · ${STATUS_LABEL[day.status]} · 净额 ${netLabel}`}
               aria-label={`${day.date} ${STATUS_LABEL[day.status]}`}
               aria-pressed={isSelected}
               className="transition-transform"

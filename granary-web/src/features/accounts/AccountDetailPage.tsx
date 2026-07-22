@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useParams } from '@tanstack/react-router'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, WalletCards } from 'lucide-react'
 import {
   useAccount,
   useAccountOverviewChart,
@@ -13,15 +13,16 @@ import { TransactionRow } from '../../components/granary/TransactionRow'
 import { DeleteTransactionDialog } from '../../components/granary/DeleteTransactionDialog'
 import { Skeleton } from '../../components/granary/Skeleton'
 import { EmptyState } from '../../components/granary/EmptyState'
-import emptyWalletUrl from '../../assets/lottie/empty-wallet.json?url'
 import { formatAmount, formatMonthDay } from '../../lib/format'
 import { toBalanceSeries } from '../../lib/chartSeries'
 import { useStaggerIn } from '../../motion/useStaggerIn'
 import { useRecordTxStore } from '../../store/recordTxStore'
 import { showToast } from '../../store/toastStore'
 import { FireflyApiError } from '../../api/client'
-import type { TransactionSplit } from '../../api/schemas'
-import { buildEditPayload, isEditableTransactionType } from '../record-transaction/editPayload'
+import { buildEditPayload, isEditableTransactionGroup, isEditableTransactionType } from '../record-transaction/editPayload'
+import { flattenTransactionGroups, type TransactionSplitRow } from '../../lib/transactionGroup'
+import { compareDecimalStrings } from '../../lib/decimal'
+import { ErrorState } from '../../components/granary/ErrorState'
 
 /** 账户流水每页条数；偏小以便「加载更多」在常见数据量下可用，并便于分页失效回归。 */
 const PAGE_SIZE = 20
@@ -63,11 +64,7 @@ function InfoRow({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-interface LoadedRow {
-  groupId: string
-  splitCount: number
-  tx: TransactionSplit
-}
+type LoadedRow = TransactionSplitRow
 
 export function AccountDetailPage() {
   const params = useParams({ strict: false })
@@ -88,20 +85,14 @@ export function AccountDetailPage() {
 
   const rows: LoadedRow[] = useMemo(() => {
     const pages = txQuery.data?.pages ?? []
-    return pages.flatMap((page) =>
-      page.data
-        .map((g) => {
-          const splits = g.attributes.transactions
-          const tx = splits[0]
-          if (!tx) return null
-          return { groupId: g.id, splitCount: splits.length, tx }
-        })
-        .filter((r): r is LoadedRow => r !== null),
-    )
+    return flattenTransactionGroups(pages.flatMap((page) => page.data))
   }, [txQuery.data])
 
   const totalTx = txQuery.data?.pages[0]?.meta?.pagination?.total
   const canLoadMore = !!txQuery.hasNextPage
+  const pendingDeleteSplits = pendingDelete
+    ? rows.filter((row) => row.groupId === pendingDelete.groupId).map((row) => row.tx)
+    : []
   const listRef = useStaggerIn<HTMLDivElement>([txQuery.isSuccess && (txQuery.data?.pages.length ?? 0) === 1])
 
   const balanceSeries = useMemo(() => {
@@ -113,8 +104,8 @@ export function AccountDetailPage() {
 
   const account = accountQuery.data?.data
   const attrs = account?.attributes
-  const symbol = attrs?.currency_symbol ?? '¥'
-  const balance = Number(attrs?.current_balance ?? 0)
+  const symbol = attrs?.currency_symbol ?? attrs?.currency_code ?? ''
+  const balance = attrs?.current_balance ?? '0'
   const typeLabel = attrs ? (TYPE_LABEL[attrs.type] ?? attrs.type) : ''
   const tail = attrs?.account_number
     ? attrs.account_number.slice(-4)
@@ -138,7 +129,7 @@ export function AccountDetailPage() {
     return (
       <div className="flex flex-col gap-4">
         <BackLink />
-        <EmptyState icon="🏦" message="账户加载失败或不存在" />
+        <ErrorState message="账户加载失败或不存在" onRetry={() => void accountQuery.refetch()} />
       </div>
     )
   }
@@ -181,7 +172,7 @@ export function AccountDetailPage() {
               style={{
                 fontSize: 20,
                 fontWeight: 600,
-                color: balance < 0 ? 'var(--g-expense)' : 'var(--g-ink)',
+                color: compareDecimalStrings(balance, '0') < 0 ? 'var(--g-expense)' : 'var(--g-ink)',
               }}
             >
               {symbol}
@@ -260,19 +251,22 @@ export function AccountDetailPage() {
               <Skeleton key={i} className="h-8" />
             ))}
           </div>
-        ) : rows.length === 0 ? (
-          <EmptyState lottieSrc={emptyWalletUrl} message="本期该账户暂无交易" />
+          ) : txQuery.isError ? (
+            <ErrorState message="账户流水加载失败" onRetry={() => void txQuery.refetch()} />
+          ) : rows.length === 0 ? (
+          <EmptyState icon={<WalletCards size={36} />} message="本期该账户暂无交易" />
         ) : (
           <>
             <div ref={listRef} className="flex flex-col">
               {rows.map((row) => {
-                const editable = isEditableTransactionType(row.tx.type)
+                const editable = row.splitIndex === 0 && isEditableTransactionGroup(row.tx.type, row.hasReconciledSplit)
+                const deletable = row.splitIndex === 0 && isEditableTransactionType(row.tx.type)
                 return (
                   <TransactionRow
-                    key={row.groupId}
+                    key={`${row.groupId}-${row.tx.transaction_journal_id ?? row.splitIndex}`}
                     tx={row.tx}
                     ids={
-                      editable
+                      editable || deletable
                         ? {
                             groupId: row.groupId,
                             journalId: String(row.tx.transaction_journal_id ?? row.groupId),
@@ -284,7 +278,7 @@ export function AccountDetailPage() {
                         ? () => openEdit(buildEditPayload(row.groupId, row.tx, row.splitCount))
                         : undefined
                     }
-                    onDelete={editable ? () => setPendingDelete(row) : undefined}
+                    onDelete={deletable ? () => setPendingDelete(row) : undefined}
                   />
                 )
               })}
@@ -308,7 +302,7 @@ export function AccountDetailPage() {
 
       <DeleteTransactionDialog
         open={!!pendingDelete}
-        tx={pendingDelete?.tx ?? null}
+        splits={pendingDeleteSplits}
         pending={deleteMutation.isPending}
         onClose={() => setPendingDelete(null)}
         onConfirm={confirmDelete}

@@ -21,8 +21,11 @@ import { useStaggerIn } from '../../motion/useStaggerIn'
 import { useRecordTxStore } from '../../store/recordTxStore'
 import { showToast } from '../../store/toastStore'
 import { FireflyApiError } from '../../api/client'
-import type { TransactionSplit } from '../../api/schemas'
-import { buildEditPayload, isEditableTransactionType } from '../record-transaction/editPayload'
+import { buildEditPayload, isEditableTransactionGroup, isEditableTransactionType } from '../record-transaction/editPayload'
+import { flattenTransactionGroups, type TransactionSplitRow } from '../../lib/transactionGroup'
+import { cashflowAmounts, summaryAmounts } from '../../lib/summary'
+import { ErrorState } from '../../components/granary/ErrorState'
+import { topNWithOther } from '../../lib/insight'
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -38,11 +41,7 @@ function Card({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-interface RecentRow {
-  groupId: string
-  splitCount: number
-  tx: TransactionSplit
-}
+type RecentRow = TransactionSplitRow
 
 export function DashboardPage() {
   const range = useDateRangeStore()
@@ -60,20 +59,16 @@ export function DashboardPage() {
   const kpis = useMemo(() => {
     const s = summaryQuery.data
     if (!s) return null
-    const spent = Number(s['spent-in-CNY']?.monetary_value ?? 0)
-    const earned = Number(s['earned-in-CNY']?.monetary_value ?? 0)
-    const netWorth = Number(s['net-worth-in-CNY']?.monetary_value ?? 0)
-    const netCashflow = earned + spent
-    return { spent, earned, netWorth, netCashflow }
+    return {
+      spent: summaryAmounts(s, 'spent'),
+      earned: summaryAmounts(s, 'earned'),
+      netWorth: summaryAmounts(s, 'net-worth'),
+      netCashflow: cashflowAmounts(s),
+    }
   }, [summaryQuery.data])
 
   const categoryData = useMemo<CategoryBarDatum[]>(() => {
-    const rows = categoryQuery.data ?? []
-    const sorted = [...rows].sort((a, b) => Math.abs(b.difference_float) - Math.abs(a.difference_float))
-    const top = sorted.slice(0, 6).map((r) => ({ name: r.name, value: Math.abs(r.difference_float) }))
-    const restSum = sorted.slice(6).reduce((acc, r) => acc + Math.abs(r.difference_float), 0)
-    if (restSum > 0) top.push({ name: '其他', value: restSum })
-    return top
+    return topNWithOther(categoryQuery.data ?? [], 6)
   }, [categoryQuery.data])
 
   const balanceSeries = useMemo(
@@ -81,15 +76,10 @@ export function DashboardPage() {
     [chartQuery.data],
   )
 
-  const recentRows: RecentRow[] =
-    recentQuery.data?.data
-      .map((g) => {
-        const splits = g.attributes.transactions
-        const tx = splits[0]
-        if (!tx) return null
-        return { groupId: g.id, splitCount: splits.length, tx }
-      })
-      .filter((r): r is RecentRow => r !== null) ?? []
+  const recentRows: RecentRow[] = flattenTransactionGroups(recentQuery.data?.data ?? [])
+  const pendingDeleteSplits = pendingDelete
+    ? recentRows.filter((row) => row.groupId === pendingDelete.groupId).map((row) => row.tx)
+    : []
   const recentListRef = useStaggerIn<HTMLDivElement>([recentQuery.isSuccess])
 
   async function confirmDelete() {
@@ -107,40 +97,40 @@ export function DashboardPage() {
   return (
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {summaryQuery.isLoading || !kpis ? (
+        {summaryQuery.isError ? (
+          <div className="col-span-full rounded-[10px]" style={{ background: 'var(--g-surface)' }}>
+            <ErrorState message="财务汇总加载失败" onRetry={() => void summaryQuery.refetch()} />
+          </div>
+        ) : summaryQuery.isLoading || !kpis ? (
           Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-[86px]" />)
         ) : (
           <>
             <KpiCard
               label="本期支出"
-              value={kpis.spent}
+              amounts={kpis.spent}
               colorVar="var(--g-expense)"
               sublabel={rangeLabel}
-              staggerIndex={0}
               signed
             />
             <KpiCard
               label="本期收入"
-              value={kpis.earned}
+              amounts={kpis.earned}
               colorVar="var(--g-income)"
               sublabel={rangeLabel}
-              staggerIndex={1}
               signed
             />
             <KpiCard
               label="净现金流"
-              value={kpis.netCashflow}
-              colorVar={kpis.netCashflow >= 0 ? 'var(--g-income)' : 'var(--g-ink)'}
+              amounts={kpis.netCashflow}
+              colorVar="var(--g-ink)"
               sublabel={rangeLabel}
-              staggerIndex={2}
               signed
             />
             <KpiCard
               label="总净资产"
-              value={kpis.netWorth}
+              amounts={kpis.netWorth}
               colorVar="var(--g-ink)"
               sublabel={rangeLabel}
-              staggerIndex={3}
               signed
             />
           </>
@@ -157,6 +147,8 @@ export function DashboardPage() {
                 <Skeleton key={i} className="h-4" />
               ))}
             </div>
+          ) : categoryQuery.isError ? (
+            <ErrorState message="分类支出加载失败" onRetry={() => void categoryQuery.refetch()} />
           ) : categoryData.length === 0 ? (
             <EmptyState icon="📊" message="本期暂无支出分类数据" />
           ) : (
@@ -171,19 +163,22 @@ export function DashboardPage() {
                 <Skeleton key={i} className="h-8" />
               ))}
             </div>
+          ) : recentQuery.isError ? (
+            <ErrorState message="近期交易加载失败" onRetry={() => void recentQuery.refetch()} />
           ) : recentRows.length === 0 ? (
             <EmptyState icon="🧾" message="本期暂无交易" />
           ) : (
             <div ref={recentListRef} className="flex flex-col">
               {recentRows.map((row) => {
                 // Opening balance / Reconciliation 等不可行操作（避免误改初始余额）
-                const editable = isEditableTransactionType(row.tx.type)
+                const editable = row.splitIndex === 0 && isEditableTransactionGroup(row.tx.type, row.hasReconciledSplit)
+                const deletable = row.splitIndex === 0 && isEditableTransactionType(row.tx.type)
                 return (
                   <TransactionRow
-                    key={row.groupId}
+                    key={`${row.groupId}-${row.tx.transaction_journal_id ?? row.splitIndex}`}
                     tx={row.tx}
                     ids={
-                      editable
+                      editable || deletable
                         ? {
                             groupId: row.groupId,
                             journalId: String(row.tx.transaction_journal_id ?? row.groupId),
@@ -195,7 +190,7 @@ export function DashboardPage() {
                         ? () => openEdit(buildEditPayload(row.groupId, row.tx, row.splitCount))
                         : undefined
                     }
-                    onDelete={editable ? () => setPendingDelete(row) : undefined}
+                    onDelete={deletable ? () => setPendingDelete(row) : undefined}
                   />
                 )
               })}
@@ -208,7 +203,7 @@ export function DashboardPage() {
         {chartQuery.isLoading ? (
           <Skeleton className="h-[220px]" />
         ) : chartQuery.isError ? (
-          <EmptyState icon="📉" message="余额趋势加载失败" />
+          <ErrorState message="余额趋势加载失败" onRetry={() => void chartQuery.refetch()} />
         ) : balanceSeries.length === 0 ? (
           <EmptyState icon="📉" message="本期暂无账户余额序列" />
         ) : (
@@ -218,7 +213,7 @@ export function DashboardPage() {
 
       <DeleteTransactionDialog
         open={!!pendingDelete}
-        tx={pendingDelete?.tx ?? null}
+        splits={pendingDeleteSplits}
         pending={deleteMutation.isPending}
         onClose={() => setPendingDelete(null)}
         onConfirm={confirmDelete}

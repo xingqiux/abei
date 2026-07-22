@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
-import { useBills, useCreateBudget, useCreateBudgetLimit, usePiggyBanks } from '../../api/queries'
+import { useBills, useCreateBudget, useCreateBudgetWithLimit, useCurrencies, usePiggyBanks } from '../../api/queries'
 import { useBudgetsData } from './useBudgetsData'
 import { EmptyState } from '../../components/granary/EmptyState'
 import { Skeleton } from '../../components/granary/Skeleton'
@@ -13,6 +13,8 @@ import { BUDGETS_TAB_CONFIG, type BudgetsTab } from './budgetsHelpers'
 import { showToast } from '../../store/toastStore'
 import { FireflyApiError } from '../../api/client'
 import { Modal } from '../../components/granary/Modal'
+import { ErrorState } from '../../components/granary/ErrorState'
+import { isPositiveDecimal, normalizeDecimalString } from '../../lib/decimal'
 
 function TabBar({ active, onChange }: { active: BudgetsTab; onChange: (tab: BudgetsTab) => void }) {
   return (
@@ -51,14 +53,26 @@ function ListSkeleton({ rows = 6 }: { rows?: number }) {
 
 function BudgetsTabContent() {
   const range = useDateRangeStore()
-  const { budgetsQuery, limitByBudget } = useBudgetsData(range)
+  const { budgetsQuery, limitsByBudget, limitStateByBudget } = useBudgetsData(range)
   const budgets = budgetsQuery.data?.data ?? []
   const listRef = useStaggerIn<HTMLDivElement>([budgetsQuery.isSuccess])
   const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState('')
   const [limitAmount, setLimitAmount] = useState('')
+  const [currencyCode, setCurrencyCode] = useState('')
   const createBudget = useCreateBudget()
-  const createLimit = useCreateBudgetLimit()
+  const createWithLimit = useCreateBudgetWithLimit()
+  const currenciesQuery = useCurrencies()
+
+  const openCreate = () => {
+    const currencies = currenciesQuery.data?.data ?? []
+    setCurrencyCode(
+      currencies.find((currency) => currency.attributes.default && currency.attributes.enabled !== false)?.attributes.code
+      ?? currencies.find((currency) => currency.attributes.enabled !== false)?.attributes.code
+      ?? '',
+    )
+    setCreateOpen(true)
+  }
 
   async function handleCreate() {
     const n = name.trim()
@@ -67,13 +81,28 @@ function BudgetsTabContent() {
       return
     }
     try {
-      const res = await createBudget.mutateAsync({ name: n, active: true })
-      const lim = Number(limitAmount)
-      if (limitAmount.trim() && Number.isFinite(lim) && lim > 0) {
-        await createLimit.mutateAsync({
-          budgetId: res.data.id,
-          input: { start: range.start, end: range.end, amount: lim.toFixed(2) },
+      let hasValidLimit = false
+      try {
+        hasValidLimit = limitAmount.trim() !== '' && isPositiveDecimal(limitAmount)
+      } catch {
+        hasValidLimit = false
+      }
+      if (limitAmount.trim() && !hasValidLimit) {
+        showToast({ message: '限额必须是大于 0 的有效金额', kind: 'error' })
+        return
+      }
+      if (hasValidLimit) {
+        if (!currencyCode) {
+          showToast({ message: '请选择限额币种', kind: 'error' })
+          return
+        }
+        await createWithLimit.mutateAsync({
+          name: n,
+          active: true,
+          limit: { start: range.start, end: range.end, amount: normalizeDecimalString(limitAmount), currency_code: currencyCode },
         })
+      } else {
+        await createBudget.mutateAsync({ name: n, active: true })
       }
       setCreateOpen(false)
       setName('')
@@ -90,7 +119,7 @@ function BudgetsTabContent() {
       <div className="mb-2 flex justify-end px-1">
         <button
           type="button"
-          onClick={() => setCreateOpen(true)}
+          onClick={openCreate}
           className="flex items-center gap-1 rounded-[6px] px-2.5 py-1 text-[12px]"
           style={{
             background: 'var(--g-accent)',
@@ -124,7 +153,7 @@ function BudgetsTabContent() {
       ) : (
         <div ref={listRef} className="flex flex-col">
           {budgets.map((b) => (
-            <BudgetRow key={b.id} budget={b} limitInfo={limitByBudget.get(b.id) ?? null} range={range} />
+            <BudgetRow key={b.id} budget={b} limits={limitsByBudget.get(b.id) ?? []} range={range} limitsLoading={limitStateByBudget.get(b.id)?.isLoading} limitsError={limitStateByBudget.get(b.id)?.isError} onRetryLimits={() => void limitStateByBudget.get(b.id)?.refetch?.()} />
           ))}
         </div>
       )}
@@ -146,7 +175,7 @@ function BudgetsTabContent() {
             </button>
             <button
               type="button"
-              disabled={createBudget.isPending || createLimit.isPending}
+              disabled={createBudget.isPending || createWithLimit.isPending}
               onClick={() => void handleCreate()}
               className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
               style={{
@@ -155,7 +184,7 @@ function BudgetsTabContent() {
                 fontWeight: 'var(--g-weight-demibold)',
               }}
             >
-              {createBudget.isPending || createLimit.isPending ? '创建中…' : '创建'}
+              {createBudget.isPending || createWithLimit.isPending ? '创建中…' : '创建'}
             </button>
           </>
         }
@@ -170,6 +199,13 @@ function BudgetsTabContent() {
               style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }}
               autoFocus
             />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span style={{ color: 'var(--g-ink-2)' }}>限额币种</span>
+            <select value={currencyCode} onChange={(event) => setCurrencyCode(event.target.value)} className="font-num rounded-[6px] px-2.5 py-1.5 outline-none" style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }}>
+              <option value="">选择币种…</option>
+              {(currenciesQuery.data?.data ?? []).filter((currency) => currency.attributes.enabled !== false).map((currency) => <option key={currency.id} value={currency.attributes.code}>{currency.attributes.code} · {currency.attributes.name}</option>)}
+            </select>
           </label>
           <label className="flex flex-col gap-1">
             <span style={{ color: 'var(--g-ink-2)' }}>
@@ -195,6 +231,7 @@ function BillsTabContent() {
   const listRef = useStaggerIn<HTMLDivElement>([billsQuery.isSuccess])
 
   if (billsQuery.isLoading) return <ListSkeleton />
+  if (billsQuery.isError) return <ErrorState message="订阅加载失败" onRetry={() => void billsQuery.refetch()} />
   if (bills.length === 0) {
     return <EmptyState message="还没有订阅——订阅账单主要由 CLI 或账单收件箱创建，这里先看" />
   }
@@ -213,6 +250,7 @@ function PiggyTabContent() {
   const listRef = useStaggerIn<HTMLDivElement>([piggyQuery.isSuccess])
 
   if (piggyQuery.isLoading) return <ListSkeleton />
+  if (piggyQuery.isError) return <ErrorState message="储蓄罐加载失败" onRetry={() => void piggyQuery.refetch()} />
   if (piggyBanks.length === 0) {
     return <EmptyState message="还没有储蓄罐——储蓄罐主要由 CLI 管理，这里先看" />
   }

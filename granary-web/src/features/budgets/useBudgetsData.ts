@@ -3,8 +3,12 @@ import type { DateRange } from '../../api/firefly'
 import { useBudgetLimits, useBudgets } from '../../api/queries'
 
 export interface BudgetLimitInfo {
-  amount: number
+  amount: string
   limitId: string
+  start: string
+  end: string
+  symbol?: string | null
+  code?: string | null
 }
 
 /**
@@ -16,18 +20,30 @@ export function useBudgetsData(range: DateRange) {
   const budgetIds = useMemo(() => (budgetsQuery.data?.data ?? []).map((b) => b.id), [budgetsQuery.data])
   const limitQueries = useBudgetLimits(budgetIds, range)
 
-  const limitByBudget = useMemo(() => {
-    const map = new Map<string, BudgetLimitInfo>()
+  const limitsByBudget = useMemo(() => {
+    const map = new Map<string, BudgetLimitInfo[]>()
     budgetIds.forEach((id, i) => {
       const limits = limitQueries[i]?.data?.data ?? []
-      if (limits.length === 0) return
-      const sum = limits.reduce((acc, l) => acc + Number(l.attributes.amount ?? 0), 0)
-      // 编辑取第一条（通常日期范围只命中 1 条）
-      map.set(id, { amount: sum, limitId: limits[0].id })
+      map.set(id, limits.map((limit) => ({
+        amount: limit.attributes.amount,
+        limitId: limit.id,
+        start: limit.attributes.start.slice(0, 10),
+        end: limit.attributes.end.slice(0, 10),
+        symbol: limit.attributes.currency_symbol,
+        code: limit.attributes.currency_code,
+      })))
     })
     return map
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [budgetIds, limitQueries.map((q) => q.dataUpdatedAt).join(',')])
 
-  return { budgetsQuery, limitByBudget }
+  const limitStateByBudget = new Map(
+    budgetIds.map((id, index) => [id, {
+      isLoading: limitQueries[index]?.isLoading ?? false,
+      isError: limitQueries[index]?.isError ?? false,
+      refetch: limitQueries[index]?.refetch,
+    }]),
+  )
+
+  return { budgetsQuery, limitsByBudget, limitStateByBudget }
 }

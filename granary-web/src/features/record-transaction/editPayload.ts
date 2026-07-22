@@ -1,12 +1,17 @@
 import type { TransactionSplit } from '../../api/schemas'
 import type { CreateTransactionType } from '../../api/firefly'
 import type { RecordTxEditPayload } from '../../store/recordTxStore'
+import { normalizeDecimalString } from '../../lib/decimal'
 
 /** 仅这三类允许行内编辑/删除；Opening balance / Reconciliation 等必须只读 */
 export function isEditableTransactionType(
   type: string,
 ): type is CreateTransactionType {
   return type === 'withdrawal' || type === 'deposit' || type === 'transfer'
+}
+
+export function isEditableTransactionGroup(type: string, hasReconciledSplit: boolean): boolean {
+  return isEditableTransactionType(type) && !hasReconciledSplit
 }
 
 function asId(v: string | number | null | undefined): string | undefined {
@@ -36,7 +41,7 @@ export function buildEditPayload(
     journalId,
     splitCount,
     type: asEditType(split.type),
-    amount: String(Number(split.amount)),
+    amount: normalizeDecimalString(split.amount),
     description: split.description,
     date: split.date.slice(0, 10),
     sourceId: asId(split.source_id),

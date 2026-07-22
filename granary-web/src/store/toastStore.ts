@@ -14,6 +14,7 @@ interface ToastState {
   toasts: ToastItem[]
   push: (toast: { message: string; kind?: ToastKind; duration?: number }) => number
   dismiss: (id: number) => void
+  clear: () => void
 }
 
 let nextId = 1
@@ -37,6 +38,7 @@ export const useToastStore = create<ToastState>((set, get) => ({
     return id
   },
   dismiss: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
+  clear: () => set({ toasts: [] }),
 }))
 
 /** 便捷方法：在事件回调中直接调用，无需 useToastStore() hook */

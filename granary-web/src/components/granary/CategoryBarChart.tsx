@@ -2,10 +2,12 @@ import { useEffect, useRef } from 'react'
 import gsap from 'gsap'
 import { formatAmount } from '../../lib/format'
 import { prefersReducedMotion } from '../../motion/reducedMotion'
+import { compareDecimalStrings, decimalPercentage } from '../../lib/decimal'
 
 export interface CategoryBarDatum {
   name: string
-  value: number // 正数，已取绝对值
+  value: string
+  currencyCode: string
 }
 
 const PALETTE = [
@@ -20,7 +22,11 @@ const OTHER_COLOR = 'var(--g-chart-other)'
 
 export function CategoryBarChart({ data }: { data: CategoryBarDatum[] }) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const max = data.length > 0 ? Math.max(...data.map((d) => d.value)) : 0
+  const maxByCurrency = new Map<string, string>()
+  for (const datum of data) {
+    const current = maxByCurrency.get(datum.currencyCode)
+    if (!current || compareDecimalStrings(datum.value, current) > 0) maxByCurrency.set(datum.currencyCode, datum.value)
+  }
 
   useEffect(() => {
     const container = containerRef.current
@@ -57,11 +63,12 @@ export function CategoryBarChart({ data }: { data: CategoryBarDatum[] }) {
   return (
     <div ref={containerRef} className="flex flex-col gap-2.5">
       {data.map((d, i) => {
-        const pct = max > 0 ? (d.value / max) * 100 : 0
+        const max = maxByCurrency.get(d.currencyCode) ?? '0'
+        const pct = decimalPercentage(d.value, max)
         const isOther = d.name === '其他'
         const color = isOther ? OTHER_COLOR : PALETTE[i % PALETTE.length]
         return (
-          <div key={d.name} className="flex items-center gap-2">
+          <div key={`${d.currencyCode}-${d.name}`} className="flex items-center gap-2">
             <div className="w-20 shrink-0 truncate text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>
               {d.name}
             </div>
@@ -74,7 +81,7 @@ export function CategoryBarChart({ data }: { data: CategoryBarDatum[] }) {
               />
             </div>
             <div className="font-num w-[84px] shrink-0 text-right text-[11.5px]" style={{ color: 'var(--g-ink)' }}>
-              ¥{formatAmount(d.value)}
+              {d.currencyCode} {formatAmount(d.value)}
             </div>
           </div>
         )

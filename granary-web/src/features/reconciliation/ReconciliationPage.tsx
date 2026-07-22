@@ -4,7 +4,7 @@ import {
   useCreateReconciliationAdjustment,
   useMarkDayReconciled,
   useReconciliationSummary,
-  useTransactions,
+  useAllTransactions,
 } from '../../api/queries'
 import { CalendarStrip } from './CalendarStrip'
 import { TransactionRow } from '../../components/granary/TransactionRow'
@@ -12,15 +12,19 @@ import { Skeleton } from '../../components/granary/Skeleton'
 import { EmptyState } from '../../components/granary/EmptyState'
 import { CelebrateOverlay } from '../../components/granary/CelebrateOverlay'
 import { Modal } from '../../components/granary/Modal'
-import emptyWalletUrl from '../../assets/lottie/empty-wallet.json?url'
+import { WalletCards } from 'lucide-react'
 import { formatAmount, formatMonthDay } from '../../lib/format'
 import { useStaggerIn } from '../../motion/useStaggerIn'
 import { showToast } from '../../store/toastStore'
 import { FireflyApiError } from '../../api/client'
+import { flattenTransactionGroups } from '../../lib/transactionGroup'
+import { absoluteDecimalString, compareDecimalStrings, isPositiveDecimal, normalizeDecimalString } from '../../lib/decimal'
+import { ErrorState } from '../../components/granary/ErrorState'
+import type { ReactNode } from 'react'
 
 const DAYS_WINDOW = 30
 
-function MiniKpi({ label, value, colorVar, mono = true }: { label: string; value: string; colorVar: string; mono?: boolean }) {
+function MiniKpi({ label, value, colorVar, mono = true }: { label: string; value: ReactNode; colorVar: string; mono?: boolean }) {
   return (
     <div className="rounded-[10px] p-3" style={{ background: 'var(--g-surface)', boxShadow: 'var(--g-shadow)' }}>
       <div className="text-[11px]" style={{ color: 'var(--g-ink-2)', letterSpacing: '.04em', textTransform: 'uppercase' }}>
@@ -82,31 +86,49 @@ export function ReconciliationPage() {
     [chronoDays, selected],
   )
 
-  const txQuery = useTransactions(
+  const txQuery = useAllTransactions(
     { start: selected ?? '', end: selected ?? '' },
-    { limit: 200, page: 1, type: 'all', enabled: !!selected },
+    { limit: 200, type: 'all', enabled: !!selected },
   )
-  const txList = txQuery.data?.data.map((g) => g.attributes.transactions[0]).filter(Boolean) ?? []
+  const txList = flattenTransactionGroups(txQuery.data?.data ?? [])
   const txListRef = useStaggerIn<HTMLDivElement>([txQuery.isSuccess, selected])
+
+  const selectedTotals = useMemo(() => selectedDay?.currency_totals.length
+    ? selectedDay.currency_totals
+    : selectedDay?.net !== null && selectedDay?.net !== undefined
+      ? [{ currency_id: null, currency_code: '', currency_symbol: '', income: selectedDay.income ?? '0', expense: selectedDay.expense ?? '0', net: selectedDay.net }]
+      : [], [selectedDay])
+  const selectedDiffTotals = useMemo(() => selectedDay?.diff_totals.length
+    ? selectedDay.diff_totals
+    : selectedDay?.diff_amount
+      ? [{ currency_id: null, currency_code: '', currency_symbol: '', amount: selectedDay.diff_amount }]
+      : [], [selectedDay])
+  const adjustmentAccounts = useMemo(() => {
+    const codes = selectedDiffTotals.map((item) => item.currency_code).filter(Boolean)
+    if (codes.length === 0) return accountsQuery.data ?? []
+    return (accountsQuery.data ?? []).filter((account) => codes.includes(account.currencyCode))
+  }, [accountsQuery.data, selectedDiffTotals])
 
   const lastReconciledLabel = summaryQuery.data?.last_reconciled_date
     ? `最近对账：${summaryQuery.data.last_reconciled_date}`
     : '最近对账：无记录'
   const daysUnreconciled = summaryQuery.data?.days_unreconciled ?? 0
 
-  const diffAmount = selectedDay?.diff_amount ? Number(selectedDay.diff_amount) : 0
-  const hasDiff = !!selectedDay?.diff_amount && diffAmount !== 0
+  const hasDiff = selectedDiffTotals.length > 0
   const canMark =
     !!selectedDay && selectedDay.tx_count > 0 && (selectedDay.status === 'pending' || selectedDay.status === 'diff')
 
   useEffect(() => {
-    if (!adjOpen) return
-    if (selectedDay?.diff_amount) setAdjAmount(String(Math.abs(Number(selectedDay.diff_amount))))
-    else setAdjAmount('')
+    if (!adjOpen || adjAccountId || adjustmentAccounts.length === 0) return
+    setAdjAccountId(adjustmentAccounts[0].id)
+  }, [adjAccountId, adjOpen, adjustmentAccounts])
+
+  function openAdjustmentDialog() {
     setAdjDirection('decrease')
-    const first = accountsQuery.data?.[0]?.id ?? ''
-    setAdjAccountId(first)
-  }, [adjOpen, selectedDay, accountsQuery.data])
+    setAdjAmount('')
+    setAdjAccountId(adjustmentAccounts[0]?.id ?? '')
+    setAdjOpen(true)
+  }
 
   async function handleMarkDay() {
     if (!selectedDay) return
@@ -122,8 +144,9 @@ export function ReconciliationPage() {
 
   async function handleCreateAdj() {
     if (!selectedDay) return
-    const n = Number(adjAmount)
-    if (!adjAmount.trim() || !Number.isFinite(n) || n <= 0) {
+    try {
+      if (!adjAmount.trim() || !isPositiveDecimal(adjAmount)) throw new Error('invalid amount')
+    } catch {
       showToast({ message: '请输入大于 0 的调整金额', kind: 'error' })
       return
     }
@@ -131,10 +154,15 @@ export function ReconciliationPage() {
       showToast({ message: '请选择资产账户', kind: 'error' })
       return
     }
+    const adjustmentAccount = adjustmentAccounts.find((account) => account.id === adjAccountId)
+    if (!adjustmentAccount) {
+      showToast({ message: '请选择有效的资产账户', kind: 'error' })
+      return
+    }
     try {
       await createAdj.mutateAsync({
         date: selectedDay.date,
-        amount: n.toFixed(2),
+        amount: normalizeDecimalString(adjAmount),
         account_id: adjAccountId,
         direction: adjDirection,
         description: `对账调整 ${selectedDay.date}（${adjDirection === 'decrease' ? '减少' : '增加'}）`,
@@ -164,6 +192,8 @@ export function ReconciliationPage() {
       <div className="rounded-[10px] p-3.5" style={{ background: 'var(--g-surface)', boxShadow: 'var(--g-shadow)' }}>
         {summaryQuery.isLoading ? (
           <Skeleton className="h-[80px]" />
+        ) : summaryQuery.isError ? (
+          <ErrorState message="对账汇总加载失败" onRetry={() => void summaryQuery.refetch()} />
         ) : (
           <CalendarStrip days={chronoDays} selected={selected} onSelect={setSelected} />
         )}
@@ -183,7 +213,7 @@ export function ReconciliationPage() {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => setAdjOpen(true)}
+                onClick={openAdjustmentDialog}
                 className="rounded-[6px] px-3 py-1.5 text-[12.5px]"
                 style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)' }}
               >
@@ -215,7 +245,7 @@ export function ReconciliationPage() {
               <span className="text-[12.5px]" style={{ color: 'var(--g-ink)' }}>
                 该日存在对账差异{' '}
                 <span className="font-num" style={{ color: 'var(--g-danger)' }}>
-                  ¥{formatAmount(diffAmount)}
+                  {selectedDiffTotals.map((total) => <span key={total.currency_code || total.currency_symbol} className="mr-2">{total.currency_symbol}{formatAmount(total.amount)}{total.currency_code ? ` ${total.currency_code}` : ''}</span>)}
                 </span>
                 （已有 Reconciliation 调整流水）
               </span>
@@ -223,12 +253,12 @@ export function ReconciliationPage() {
           )}
 
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <MiniKpi label="收入" value={`+¥${formatAmount(selectedDay.income)}`} colorVar="var(--g-income)" />
-            <MiniKpi label="支出" value={`-¥${formatAmount(selectedDay.expense)}`} colorVar="var(--g-expense)" />
+            <MiniKpi label="收入" value={<>{selectedTotals.map((total) => <div key={total.currency_code || total.currency_symbol}>+{total.currency_symbol}{formatAmount(total.income)} <small>{total.currency_code}</small></div>)}</>} colorVar="var(--g-income)" />
+            <MiniKpi label="支出" value={<>{selectedTotals.map((total) => <div key={total.currency_code || total.currency_symbol}>-{total.currency_symbol}{formatAmount(total.expense)} <small>{total.currency_code}</small></div>)}</>} colorVar="var(--g-expense)" />
             <MiniKpi
               label="净额"
-              value={`${Number(selectedDay.net) >= 0 ? '+' : '-'}¥${formatAmount(selectedDay.net)}`}
-              colorVar={Number(selectedDay.net) >= 0 ? 'var(--g-income)' : 'var(--g-expense)'}
+              value={<>{selectedTotals.map((total) => { const comparison = compareDecimalStrings(total.net, '0'); return <div key={total.currency_code || total.currency_symbol}>{comparison > 0 ? '+' : comparison < 0 ? '-' : ''}{total.currency_symbol}{formatAmount(absoluteDecimalString(total.net))} <small>{total.currency_code}</small></div> })}</>}
+              colorVar="var(--g-ink)"
             />
             <MiniKpi label="笔数" value={String(selectedDay.tx_count)} colorVar="var(--g-ink)" />
           </div>
@@ -240,12 +270,17 @@ export function ReconciliationPage() {
                   <Skeleton key={i} className="h-8" />
                 ))}
               </div>
+            ) : txQuery.isError ? (
+              <ErrorState message="当日交易加载失败" onRetry={() => void txQuery.refetch()} />
             ) : txList.length === 0 ? (
-              <EmptyState lottieSrc={emptyWalletUrl} message="当日暂无交易" />
+              <EmptyState icon={<WalletCards size={36} />} message="当日暂无交易" />
             ) : (
               <div ref={txListRef} className="flex flex-col">
-                {txList.map((tx, i) => (
-                  <TransactionRow key={i} tx={tx} />
+                {txList.map((row) => (
+                  <TransactionRow
+                    key={`${row.groupId}-${row.tx.transaction_journal_id ?? row.splitIndex}`}
+                    tx={row.tx}
+                  />
                 ))}
               </div>
             )}
@@ -270,7 +305,7 @@ export function ReconciliationPage() {
             </button>
             <button
               type="button"
-              disabled={createAdj.isPending}
+              disabled={createAdj.isPending || adjustmentAccounts.length === 0}
               onClick={() => void handleCreateAdj()}
               className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
               style={{
@@ -333,9 +368,10 @@ export function ReconciliationPage() {
               className="rounded-[6px] px-2.5 py-1.5 outline-none"
               style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }}
             >
-              {(accountsQuery.data ?? []).map((a) => (
+              {adjustmentAccounts.length === 0 && <option value="">{hasDiff ? '没有匹配差异币种的资产账户' : '没有可用的资产账户'}</option>}
+              {adjustmentAccounts.map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.name}
+                  {a.name}{a.currencyCode ? ` · ${a.currencyCode}` : ''}
                 </option>
               ))}
             </select>

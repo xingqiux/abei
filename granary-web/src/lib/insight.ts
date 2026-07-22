@@ -1,5 +1,6 @@
 import type { InsightCategoryEntry } from '../api/schemas'
 import type { CategoryBarDatum } from '../components/granary/CategoryBarChart'
+import { absoluteDecimalString, compareDecimalStrings, sumDecimalStrings } from './decimal'
 
 /**
  * 把 insight 系列端点（expense/category、income/revenue、expense/asset）的原始数组
@@ -7,9 +8,30 @@ import type { CategoryBarDatum } from '../components/granary/CategoryBarChart'
  * （规范 §4「Top 8+其他」），报表页三个排行区块共用。
  */
 export function topNWithOther(rows: InsightCategoryEntry[], n = 8): CategoryBarDatum[] {
-  const sorted = [...rows].sort((a, b) => Math.abs(b.difference_float) - Math.abs(a.difference_float))
-  const top = sorted.slice(0, n).map((r) => ({ name: r.name, value: Math.abs(r.difference_float) }))
-  const restSum = sorted.slice(n).reduce((acc, r) => acc + Math.abs(r.difference_float), 0)
-  if (restSum > 0) top.push({ name: '其他', value: restSum })
-  return top
+  const byCurrency = new Map<string, InsightCategoryEntry[]>()
+  for (const row of rows) {
+    const current = byCurrency.get(row.currency_code)
+    if (current) current.push(row)
+    else byCurrency.set(row.currency_code, [row])
+  }
+
+  return Array.from(byCurrency.entries()).flatMap(([currencyCode, currencyRows]) => {
+    const sorted = [...currencyRows].sort((a, b) =>
+      compareDecimalStrings(absoluteDecimalString(b.difference), absoluteDecimalString(a.difference)),
+    )
+    const top = sorted.slice(0, n).map((row) => ({
+      name: row.name,
+      value: absoluteDecimalString(row.difference),
+      currencyCode,
+    }))
+    const rest = sorted.slice(n)
+    if (rest.length > 0) {
+      top.push({
+        name: '其他',
+        value: sumDecimalStrings(rest.map((row) => absoluteDecimalString(row.difference))),
+        currencyCode,
+      })
+    }
+    return top
+  })
 }

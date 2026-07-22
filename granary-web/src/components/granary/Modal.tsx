@@ -1,7 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import gsap from 'gsap'
+import { X } from 'lucide-react'
 import { prefersReducedMotion } from '../../motion/reducedMotion'
+import { useDialogBehavior } from './useDialogBehavior'
 
 /**
  * 通用确认/信息弹层：surface 底、阴影+1px 描边、240ms 入场，Esc 关闭（规范 §5/§6）。
@@ -23,15 +25,7 @@ export function Modal({
   width?: number
 }) {
   const cardRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [open, onClose])
+  useDialogBehavior(open, cardRef, onClose)
 
   useLayoutEffect(() => {
     if (!open) return
@@ -58,6 +52,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         className="flex max-h-[86vh] w-full flex-col rounded-[10px]"
         style={{
@@ -75,10 +70,10 @@ export function Modal({
             type="button"
             onClick={onClose}
             aria-label="关闭"
-            className="text-[15px] leading-none"
+            className="rounded p-1 leading-none"
             style={{ color: 'var(--g-ink-2)' }}
           >
-            ×
+            <X size={15} />
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-[12.5px]" style={{ color: 'var(--g-ink)' }}>

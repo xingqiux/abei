@@ -1,51 +1,75 @@
-import { FireflyApiError, fireflyDelete, fireflyFetch, fireflyPatch, fireflyPost, fireflyPut } from './client'
+import { FireflyApiError, fireflyDelete, fireflyDownload, fireflyFetch, fireflyPatch, fireflyPost, fireflyPut, fireflyUpload } from './client'
 import {
   accountsResponseSchema,
   accountDetailResponseSchema,
+  accountItemResponseSchema,
   aboutResponseSchema,
   autocompleteAccountsSchema,
   autocompleteCategoriesSchema,
   autocompleteTagsSchema,
   autocompleteTransactionsSchema,
+  attachmentItemResponseSchema,
+  attachmentsResponseSchema,
   billImportResponseSchema,
   billInboxSummarySchema,
+  billInboxSettingsSchema,
+  billInboxProcessResultSchema,
+  billInboxCleanupResultSchema,
   billInboxSyncResultSchema,
   billStatementRowItemResponseSchema,
   billStatementRowsResponseSchema,
   billTaskItemResponseSchema,
+  billRowSplitResponseSchema,
+  billArtifactsResponseSchema,
+  billTaskEventsResponseSchema,
+  billTaskReviewSchema,
   billTasksResponseSchema,
   billsResponseSchema,
   budgetItemResponseSchema,
   budgetLimitItemResponseSchema,
   budgetLimitsResponseSchema,
+  budgetWithLimitResponseSchema,
   budgetsResponseSchema,
   categoriesResponseSchema,
   currenciesResponseSchema,
   piggyBanksResponseSchema,
   reconciliationSummarySchema,
+  reconciliationActionResultSchema,
   recurrencesResponseSchema,
   rulesResponseSchema,
+  ruleGroupsResponseSchema,
   tagsResponseSchema,
   transactionCreateResponseSchema,
   transactionDetailResponseSchema,
   type Account,
+  type AccountsResponse,
   type AccountDetailResponse,
   type AboutResponse,
   type AutocompleteAccount,
   type AutocompleteCategory,
   type AutocompleteTag,
   type AutocompleteTransaction,
+  type AttachmentItemResponse,
+  type AttachmentsResponse,
   type BillImportResponse,
   type BillInboxSummary,
+  type BillInboxSettings,
+  type BillInboxProcessResult,
+  type BillInboxCleanupResult,
   type BillInboxSyncResult,
   type BillStatementRowItemResponse,
   type BillStatementRowsResponse,
   type BillTaskItemResponse,
+  type BillRowSplitResponse,
+  type BillArtifactsResponse,
+  type BillTaskEventsResponse,
+  type BillTaskReview,
   type BillTasksResponse,
   type BillsResponse,
   type BudgetItemResponse,
   type BudgetLimitItemResponse,
   type BudgetLimitsResponse,
+  type BudgetWithLimitResponse,
   type BudgetsResponse,
   type CategoriesResponse,
   type CurrenciesResponse,
@@ -53,24 +77,70 @@ import {
   type ReconciliationSummary,
   type RecurrencesResponse,
   type RulesResponse,
+  type RuleGroupsResponse,
   type TagsResponse,
   type TransactionCreateResponse,
   type TransactionDetailResponse,
   accountChartOverviewSchema,
+  financialReportResponseSchema,
   insightCategoryResponseSchema,
   preferenceResponseSchema,
   summaryResponseSchema,
   transactionsResponseSchema,
+  transactionSearchCountSchema,
   type AccountChartOverview,
+  type FinancialReportResponse,
   type InsightCategoryEntry,
   type PreferenceResponse,
+  type ReconciliationActionResult,
   type SummaryResponse,
   type TransactionsResponse,
+  type TransactionSearchCount,
 } from './schemas'
 
 export interface DateRange {
   start: string // YYYY-MM-DD
   end: string // YYYY-MM-DD
+}
+
+type FireflyQueryParams = Record<string, string | number | readonly (string | number)[] | undefined>
+type PaginatedCollection = {
+  data: unknown[]
+  meta?: {
+    pagination?: {
+      total_pages?: number
+      total?: number
+      per_page?: number
+    }
+  }
+}
+
+async function getAllPages<T extends PaginatedCollection>(
+  path: string,
+  params: FireflyQueryParams,
+  schema: { parse(raw: unknown): T },
+  limit = 100,
+): Promise<T> {
+  const fetchPage = async (page: number): Promise<T> => {
+    const raw = await fireflyFetch(path, { ...params, limit, page })
+    return schema.parse(raw)
+  }
+
+  const first = await fetchPage(1)
+  const pagination = first.meta?.pagination
+  const totalPages = pagination?.total_pages
+    ?? (pagination?.total !== undefined && pagination.per_page
+      ? Math.ceil(pagination.total / pagination.per_page)
+      : 1)
+  if (totalPages <= 1) return first
+
+  const remaining = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) => fetchPage(index + 2)),
+  )
+  return {
+    ...first,
+    data: [first, ...remaining].flatMap((response) => response.data),
+  } as T
 }
 
 export type TransactionTypeFilter = 'all' | 'withdrawal' | 'deposit' | 'transfer'
@@ -94,6 +164,19 @@ export async function getTransactions(
   return transactionsResponseSchema.parse(raw)
 }
 
+export async function getAllTransactions(
+  range: DateRange,
+  opts: { limit?: number; type?: TransactionTypeFilter } = {},
+): Promise<TransactionsResponse> {
+  const limit = opts.limit ?? 200
+  return getAllPages(
+    '/api/v1/transactions',
+    { start: range.start, end: range.end, type: opts.type ?? 'all' },
+    transactionsResponseSchema,
+    limit,
+  )
+}
+
 /**
  * 命令面板「搜索交易」区：GET /api/v1/search/transactions?query=&limit=。
  * 实测响应结构与 GET /api/v1/transactions 完全一致（data 为 transaction group 数组，
@@ -102,6 +185,19 @@ export async function getTransactions(
 export async function searchTransactions(query: string, limit = 10): Promise<TransactionsResponse> {
   const raw = await fireflyFetch('/api/v1/search/transactions', { query, limit })
   return transactionsResponseSchema.parse(raw)
+}
+
+export async function countTransactions(query: string): Promise<TransactionSearchCount> {
+  const raw = await fireflyFetch('/api/v1/search/transactions', { query, limit: 1, page: 1 })
+  const response = transactionsResponseSchema.parse(raw)
+  return transactionSearchCountSchema.parse({
+    count: response.meta?.pagination?.total ?? response.data.length,
+  })
+}
+
+export async function searchAccounts(query: string): Promise<AccountsResponse> {
+  const raw = await fireflyFetch('/api/v1/search/accounts', { query, field: 'all', type: 'all' })
+  return accountsResponseSchema.parse(raw)
 }
 
 export async function getExpenseByCategory(range: DateRange): Promise<InsightCategoryEntry[]> {
@@ -128,6 +224,32 @@ export async function getExpenseByAsset(range: DateRange): Promise<InsightCatego
     end: range.end,
   })
   return insightCategoryResponseSchema.parse(raw)
+}
+
+async function getInsightRanking(path: string, range: DateRange): Promise<InsightCategoryEntry[]> {
+  const raw = await fireflyFetch(path, { start: range.start, end: range.end })
+  return insightCategoryResponseSchema.parse(raw)
+}
+
+export function getExpenseByTag(range: DateRange): Promise<InsightCategoryEntry[]> {
+  return getInsightRanking('/api/v1/insight/expense/tag', range)
+}
+
+export function getExpenseByBudget(range: DateRange): Promise<InsightCategoryEntry[]> {
+  return getInsightRanking('/api/v1/insight/expense/budget', range)
+}
+
+export async function getExpenseWithoutCategory(range: DateRange): Promise<InsightCategoryEntry[]> {
+  return (await getInsightRanking('/api/v1/insight/expense/no-category', range)).map((row) => ({ ...row, name: '未分类支出' }))
+}
+
+export async function getExpenseWithoutBudget(range: DateRange): Promise<InsightCategoryEntry[]> {
+  return (await getInsightRanking('/api/v1/insight/expense/no-budget', range)).map((row) => ({ ...row, name: '未编入预算' }))
+}
+
+export async function getFinancialReport(range: DateRange): Promise<FinancialReportResponse> {
+  const raw = await fireflyFetch('/api/v1/insight/report/overview', { start: range.start, end: range.end })
+  return financialReportResponseSchema.parse(raw)
 }
 
 /** chart/account/overview 的 period 枚举（config/firefly.php valid_view_ranges） */
@@ -189,6 +311,35 @@ export async function getBillInboxSummary(): Promise<BillInboxSummary> {
   return billInboxSummarySchema.parse(raw)
 }
 
+export type BillInboxSettingsInput = Partial<
+  Pick<
+    BillInboxSettings['data']['attributes'],
+    'enabled' | 'provider' | 'email' | 'host' | 'port' | 'encryption' | 'username' | 'folder'
+  >
+> & { password?: string }
+
+export async function getBillInboxSettings(): Promise<BillInboxSettings> {
+  const raw = await fireflyFetch('/api/v1/bill-inbox/settings')
+  return billInboxSettingsSchema.parse(raw)
+}
+
+export async function updateBillInboxSettings(
+  input: BillInboxSettingsInput,
+): Promise<BillInboxSettings> {
+  const raw = await fireflyPut('/api/v1/bill-inbox/settings', input)
+  return billInboxSettingsSchema.parse(raw)
+}
+
+export async function processBillInbox(limit = 25): Promise<BillInboxProcessResult> {
+  const raw = await fireflyPost('/api/v1/bill-inbox/process', { limit })
+  return billInboxProcessResultSchema.parse(raw)
+}
+
+export async function cleanupBillInbox(): Promise<BillInboxCleanupResult> {
+  const raw = await fireflyPost('/api/v1/bill-inbox/cleanup-stale', {})
+  return billInboxCleanupResultSchema.parse(raw)
+}
+
 export async function getReconciliationSummary(days = 30): Promise<ReconciliationSummary> {
   const raw = await fireflyFetch('/api/v1/daily-reconciliation/summary', { days })
   return reconciliationSummarySchema.parse(raw)
@@ -211,6 +362,27 @@ export async function getBillTasks(opts: {
   return billTasksResponseSchema.parse(raw)
 }
 
+export async function getAllBillTasks(opts: {
+  source?: string
+  status?: string
+  limit?: number
+}): Promise<BillTasksResponse> {
+  const limit = opts.limit ?? 100
+  const first = await getBillTasks({ ...opts, limit, page: 1 })
+  const totalPages = first.meta?.pagination?.total_pages ?? 1
+  if (totalPages <= 1) return first
+
+  const remaining = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) =>
+      getBillTasks({ ...opts, limit, page: index + 2 }),
+    ),
+  )
+  return {
+    ...first,
+    data: [first, ...remaining].flatMap((page) => page.data),
+  }
+}
+
 /**
  * 行列表接口的 page/limit 参数目前对后端无效（实测总是整表返回），
  * 这里仍然透传参数以贴合接口文档，真正的"加载更多"体验在前端对已取回的
@@ -226,13 +398,38 @@ export async function getBillTaskRows(
   return billStatementRowsResponseSchema.parse(raw)
 }
 
+export async function getBillTaskArtifacts(taskId: string): Promise<BillArtifactsResponse> {
+  const raw = await fireflyFetch(`/api/v1/bill-tasks/${taskId}/artifacts`)
+  return billArtifactsResponseSchema.parse(raw)
+}
+
+export async function getBillTaskEvents(taskId: string): Promise<BillTaskEventsResponse> {
+  const raw = await fireflyFetch(`/api/v1/bill-tasks/${taskId}/events`)
+  return billTaskEventsResponseSchema.parse(raw)
+}
+
+export async function getBillTaskReview(taskId: string): Promise<BillTaskReview> {
+  const raw = await fireflyFetch(`/api/v1/bill-tasks/${taskId}/review`)
+  return billTaskReviewSchema.parse(raw)
+}
+
+export async function downloadBillArtifact(
+  artifactId: string,
+): Promise<{ blob: Blob; filename: string | null }> {
+  return fireflyDownload(`/api/v1/bill-artifacts/${artifactId}/download`)
+}
+
 /**
  * PATCH /api/v1/bill-statement-rows/{id}
  * 收件箱行内编辑：金额/分类/描述等（ActionController@updateRow 校验字段）。
  * 同时写 amount 与 firefly_amount、firefly_description，保证入账预览与展示一致。
  */
 export interface UpdateBillStatementRowInput {
+  firefly_type?: 'withdrawal' | 'deposit' | 'transfer' | null
+  firefly_date?: string | null
   firefly_description?: string
+  source_name?: string | null
+  destination_name?: string | null
   category_name?: string | null
   amount?: string
   firefly_amount?: string
@@ -246,6 +443,14 @@ export async function updateBillStatementRow(
 ): Promise<BillStatementRowItemResponse> {
   const raw = await fireflyPatch(`/api/v1/bill-statement-rows/${rowId}`, input)
   return billStatementRowItemResponseSchema.parse(raw)
+}
+
+export async function splitBillStatementRow(
+  rowId: string,
+  splits: Array<{ payment_method?: string; source_name?: string; amount: string; description: string; category_name?: string }>,
+): Promise<BillRowSplitResponse> {
+  const raw = await fireflyPost(`/api/v1/bill-statement-rows/${rowId}/split`, { splits })
+  return billRowSplitResponseSchema.parse(raw)
 }
 
 export async function importBillTaskRows(
@@ -288,11 +493,10 @@ export async function retryBillTask(taskId: string): Promise<BillTaskItemRespons
   return billTaskItemResponseSchema.parse(raw)
 }
 
-export type AccountType = 'asset' | 'expense' | 'revenue' | 'liabilities'
+export type AccountType = 'asset' | 'cash' | 'expense' | 'revenue' | 'liabilities'
 
 /**
  * 账户页四个 tab 的分页列表：GET /api/v1/accounts?type=&limit=&page=。
- * 「加载更多」沿用账单收件箱/交易列表的惯例——用增大 limit 而非翻页重新整体取数。
  */
 export async function getAccountsByType(
   type: AccountType,
@@ -310,6 +514,39 @@ export async function getAccountsByType(
 export async function getAccount(accountId: string): Promise<AccountDetailResponse> {
   const raw = await fireflyFetch(`/api/v1/accounts/${accountId}`)
   return accountDetailResponseSchema.parse(raw)
+}
+
+export interface AccountInput {
+  name: string
+  type?: AccountType
+  currency_code?: string
+  active?: boolean
+  include_net_worth?: boolean
+  account_role?: string
+  liability_type?: 'loan' | 'debt' | 'mortgage'
+  liability_direction?: 'credit' | 'debit'
+  interest?: string
+  interest_period?: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'half-year' | 'yearly'
+  credit_card_type?: 'monthlyFull'
+  monthly_payment_date?: string
+  opening_balance?: string
+  opening_balance_date?: string
+  account_number?: string
+  notes?: string
+}
+
+export async function createAccount(input: AccountInput): Promise<AccountDetailResponse> {
+  const raw = await fireflyPost('/api/v1/accounts', input)
+  return accountItemResponseSchema.parse(raw)
+}
+
+export async function updateAccount(accountId: string, input: AccountInput): Promise<AccountDetailResponse> {
+  const raw = await fireflyPut(`/api/v1/accounts/${accountId}`, input)
+  return accountItemResponseSchema.parse(raw)
+}
+
+export async function deleteAccount(accountId: string): Promise<void> {
+  return fireflyDelete(`/api/v1/accounts/${accountId}`)
 }
 
 /**
@@ -334,6 +571,8 @@ export async function getAccountTransactions(
 export interface AccountSummary {
   id: string
   name: string
+  currencyCode: string
+  currencySymbol: string
 }
 
 /**
@@ -345,20 +584,23 @@ export async function getAssetAccounts(
   opts: { includeLiabilities?: boolean } = {},
 ): Promise<AccountSummary[]> {
   const includeLiabilities = opts.includeLiabilities ?? true
-  const assetRaw = await fireflyFetch('/api/v1/accounts', { type: 'asset', limit: 200 })
-  const assets = accountsResponseSchema.parse(assetRaw).data
-  let list = assets as Account[]
-  if (includeLiabilities) {
-    const liabRaw = await fireflyFetch('/api/v1/accounts', { type: 'liabilities', limit: 200 })
-    list = [...assets, ...accountsResponseSchema.parse(liabRaw).data] as Account[]
-  }
+  const types = includeLiabilities ? ['asset', 'cash', 'liabilities'] : ['asset', 'cash']
+  const responses = await Promise.all(
+    types.map((type) => getAllPages('/api/v1/accounts', { type }, accountsResponseSchema)),
+  )
+  const list = responses.flatMap((response) => response.data) as Account[]
   const seen = new Set<string>()
   const out: AccountSummary[] = []
   for (const a of list) {
     if (a.attributes.active === false) continue
     if (seen.has(a.id)) continue
     seen.add(a.id)
-    out.push({ id: a.id, name: a.attributes.name })
+    out.push({
+      id: a.id,
+      name: a.attributes.name,
+      currencyCode: a.attributes.currency_code ?? '',
+      currencySymbol: a.attributes.currency_symbol ?? a.attributes.currency_code ?? '',
+    })
   }
   return out
 }
@@ -367,6 +609,8 @@ export type CreateTransactionType = 'withdrawal' | 'deposit' | 'transfer'
 
 export interface CreateTransactionInput {
   type: CreateTransactionType
+  /** 交易组内的稳定展示顺序，从 0 开始。 */
+  order?: number
   /** YYYY-MM-DD，本地日期 */
   date: string
   /** 如 "23.60" */
@@ -377,6 +621,16 @@ export interface CreateTransactionInput {
   destination_id?: string
   destination_name?: string
   category_name?: string
+  category_id?: string | null
+  budget_id?: string | null
+  budget_name?: string
+  bill_id?: string | null
+  bill_name?: string
+  currency_id?: string | null
+  currency_code?: string
+  foreign_currency_id?: string | null
+  foreign_currency_code?: string
+  foreign_amount?: string | null
   tags?: string[]
   notes?: string
 }
@@ -384,32 +638,26 @@ export interface CreateTransactionInput {
 /**
  * 记一笔表单提交。
  * 实测 POST /api/v1/transactions body 形如
- * {error_if_duplicate_hash:false, transactions:[{type, date:'YYYY-MM-DDT00:00:00+08:00',
+ * {error_if_duplicate_hash:false, transactions:[{type, date:'YYYY-MM-DD',
  * amount, description, source_id|source_name, destination_id|destination_name,
  * category_name?, tags?, notes?}]}（字段名对照后端 app/Api/V1/Requests/Models/Transaction/StoreRequest.php
  * 的校验规则确认）。响应是单个 Item 资源（data 为对象，不是数组），与 GET /transactions 的
  * Collection 响应结构不同。
  */
-export async function createTransaction(input: CreateTransactionInput): Promise<TransactionCreateResponse> {
-  const tx: Record<string, unknown> = {
-    type: input.type,
-    date: `${input.date}T00:00:00+08:00`,
-    amount: input.amount,
-    description: input.description,
-  }
-  if (input.source_id) tx.source_id = input.source_id
-  else if (input.source_name) tx.source_name = input.source_name
-  if (input.destination_id) tx.destination_id = input.destination_id
-  else if (input.destination_name) tx.destination_name = input.destination_name
-  if (input.category_name) tx.category_name = input.category_name
-  if (input.tags && input.tags.length > 0) tx.tags = input.tags
-  if (input.notes) tx.notes = input.notes
-
+export async function createTransactionSplits(
+  inputs: CreateTransactionInput[],
+  groupTitle?: string,
+): Promise<TransactionCreateResponse> {
   const raw = await fireflyPost('/api/v1/transactions', {
     error_if_duplicate_hash: false,
-    transactions: [tx],
+    group_title: inputs.length > 1 ? groupTitle?.trim() || inputs[0]?.description : undefined,
+    transactions: inputs.map(transactionWritePayload),
   })
   return transactionCreateResponseSchema.parse(raw)
+}
+
+export async function createTransaction(input: CreateTransactionInput): Promise<TransactionCreateResponse> {
+  return createTransactionSplits([input])
 }
 
 /**
@@ -422,9 +670,58 @@ export async function getTransaction(groupId: string): Promise<TransactionDetail
   return transactionDetailResponseSchema.parse(raw)
 }
 
+export async function getTransactionAttachments(groupId: string): Promise<AttachmentsResponse> {
+  return getAllPages(
+    `/api/v1/transactions/${groupId}/attachments`,
+    {},
+    attachmentsResponseSchema,
+  )
+}
+
+export async function createTransactionAttachment(input: {
+  journalId: string
+  file: File
+  title?: string
+  notes?: string
+}): Promise<AttachmentItemResponse> {
+  const createdRaw = await fireflyPost('/api/v1/attachments', {
+    filename: input.file.name,
+    title: input.title || input.file.name,
+    notes: input.notes || undefined,
+    attachable_type: 'TransactionJournal',
+    attachable_id: input.journalId,
+  })
+  const created = attachmentItemResponseSchema.parse(createdRaw)
+  try {
+    await fireflyUpload(`/api/v1/attachments/${created.data.id}/upload`, input.file)
+  } catch (error) {
+    await fireflyDelete(`/api/v1/attachments/${created.data.id}`).catch(() => undefined)
+    throw error
+  }
+  return created
+}
+
+export async function updateAttachment(
+  attachmentId: string,
+  input: { filename?: string; title?: string; notes?: string },
+): Promise<AttachmentItemResponse> {
+  const raw = await fireflyPut(`/api/v1/attachments/${attachmentId}`, input)
+  return attachmentItemResponseSchema.parse(raw)
+}
+
+export async function deleteAttachment(attachmentId: string): Promise<void> {
+  return fireflyDelete(`/api/v1/attachments/${attachmentId}`)
+}
+
+export async function downloadAttachment(attachmentId: string) {
+  return fireflyDownload(`/api/v1/attachments/${attachmentId}/download`)
+}
+
 export interface UpdateTransactionInput {
   /** 拆分 journal id（string/number 均可，后端 numeric） */
-  transaction_journal_id: string
+  transaction_journal_id?: string
+  /** 交易组内的稳定展示顺序，从 0 开始。 */
+  order?: number
   type?: CreateTransactionType | string
   date?: string
   amount?: string
@@ -434,27 +731,28 @@ export interface UpdateTransactionInput {
   destination_id?: string
   destination_name?: string
   category_name?: string
+  category_id?: string | null
+  budget_id?: string | null
+  budget_name?: string
+  bill_id?: string | null
+  bill_name?: string
+  currency_id?: string | null
+  currency_code?: string
+  foreign_currency_id?: string | null
+  foreign_currency_code?: string
+  foreign_amount?: string | null
   tags?: string[]
   notes?: string
   /** 对账方案 b：PUT 置位 transactions.reconciled（2026-07-10 实测生效） */
   reconciled?: boolean
 }
 
-/**
- * PUT /api/v1/transactions/{groupId}
- * body 形如 {transactions:[{transaction_journal_id, ...改动字段}]}。
- * 字段名对照 UpdateRequest.php；实测改 description/amount 生效，响应同 GET 单笔。
- * 多拆分 group（transactions.length > 1）v1 前端不支持编辑。
- */
-export async function updateTransaction(
-  groupId: string,
-  input: UpdateTransactionInput,
-): Promise<TransactionDetailResponse> {
-  const tx: Record<string, unknown> = {
-    transaction_journal_id: input.transaction_journal_id,
-  }
+function transactionWritePayload(input: CreateTransactionInput | UpdateTransactionInput): Record<string, unknown> {
+  const tx: Record<string, unknown> = {}
+  if ('transaction_journal_id' in input && input.transaction_journal_id) tx.transaction_journal_id = input.transaction_journal_id
+  if (input.order !== undefined) tx.order = input.order
   if (input.type) tx.type = input.type
-  if (input.date) tx.date = input.date.includes('T') ? input.date : `${input.date}T00:00:00+08:00`
+  if (input.date) tx.date = input.date
   if (input.amount) tx.amount = input.amount
   if (input.description !== undefined) tx.description = input.description
   if (input.source_id) tx.source_id = input.source_id
@@ -462,68 +760,55 @@ export async function updateTransaction(
   if (input.destination_id) tx.destination_id = input.destination_id
   else if (input.destination_name) tx.destination_name = input.destination_name
   if (input.category_name !== undefined) tx.category_name = input.category_name
+  if (input.category_id !== undefined) tx.category_id = input.category_id
+  if (input.budget_id !== undefined) tx.budget_id = input.budget_id
+  else if (input.budget_name !== undefined) tx.budget_name = input.budget_name
+  if (input.bill_id !== undefined) tx.bill_id = input.bill_id
+  else if (input.bill_name !== undefined) tx.bill_name = input.bill_name
+  if (input.currency_id !== undefined) tx.currency_id = input.currency_id
+  else if (input.currency_code !== undefined) tx.currency_code = input.currency_code
+  if (input.foreign_currency_id !== undefined) tx.foreign_currency_id = input.foreign_currency_id
+  else if (input.foreign_currency_code !== undefined) tx.foreign_currency_code = input.foreign_currency_code
+  if (input.foreign_amount !== undefined) tx.foreign_amount = input.foreign_amount
   if (input.tags) tx.tags = input.tags
   if (input.notes !== undefined) tx.notes = input.notes
-  if (input.reconciled !== undefined) tx.reconciled = input.reconciled
+  if ('reconciled' in input && input.reconciled !== undefined) tx.reconciled = input.reconciled
+  return tx
+}
 
+export async function updateTransactionSplits(
+  groupId: string,
+  inputs: UpdateTransactionInput[],
+  groupTitle?: string,
+): Promise<TransactionDetailResponse> {
   const raw = await fireflyPut(`/api/v1/transactions/${groupId}`, {
-    transactions: [tx],
+    group_title: inputs.length > 1 ? groupTitle?.trim() || inputs[0]?.description : undefined,
+    transactions: inputs.map(transactionWritePayload),
   })
   return transactionDetailResponseSchema.parse(raw)
 }
 
-/**
- * 对账方案 b：GET 整组后 PUT 各 split 的 reconciled。
- * 2026-07-10 实测 ¥0.01 自建交易 PUT reconciled:true 可置位，随后 GET 仍为 true。
- */
-export async function setTransactionGroupReconciled(
+export async function updateTransaction(
   groupId: string,
-  reconciled: boolean,
+  input: UpdateTransactionInput,
 ): Promise<TransactionDetailResponse> {
-  const detail = await getTransaction(groupId)
-  const splits = detail.data.attributes.transactions
-  const body = {
-    transactions: splits.map((s) => {
-      const tx: Record<string, unknown> = {
-        transaction_journal_id: String(s.transaction_journal_id ?? ''),
-        type: s.type,
-        date: s.date,
-        amount: String(Math.abs(Number(s.amount))),
-        description: s.description,
-        reconciled,
-      }
-      if (s.source_id != null && s.source_id !== '') tx.source_id = String(s.source_id)
-      else if (s.source_name) tx.source_name = s.source_name
-      if (s.destination_id != null && s.destination_id !== '') tx.destination_id = String(s.destination_id)
-      else if (s.destination_name) tx.destination_name = s.destination_name
-      return tx
-    }),
-  }
-  const raw = await fireflyPut(`/api/v1/transactions/${groupId}`, body)
-  return transactionDetailResponseSchema.parse(raw)
+  return updateTransactionSplits(groupId, [input])
 }
 
-/**
- * 将某日全部普通交易标记为已对账（方案 b 批量）。
- * 跳过 reconciliation 类型；逐 group PUT。
- */
-export async function markDayTransactionsReconciled(date: string): Promise<{ total: number; updated: number }> {
-  const list = await getTransactions({ start: date, end: date }, { limit: 200, page: 1, type: 'all' })
-  let updated = 0
-  for (const g of list.data) {
-    const first = g.attributes.transactions[0]
-    if (!first) continue
-    if (first.type === 'reconciliation' || first.type === 'opening balance') continue
-    await setTransactionGroupReconciled(g.id, true)
-    updated += 1
-  }
-  return { total: list.data.length, updated }
+export async function markDayTransactionsReconciled(
+  date: string,
+): Promise<ReconciliationActionResult> {
+  const raw = await fireflyPost(`/api/v1/daily-reconciliation/${date}/reconcile`, {})
+  return reconciliationActionResultSchema.parse(raw)
 }
 
 /** 按名称查找资产对应的 Reconciliation 账户（与资产同名）。 */
 async function findReconciliationAccountId(assetName: string): Promise<string | null> {
-  const raw = await fireflyFetch('/api/v1/accounts', { type: 'reconciliation', limit: 200 })
-  const list = accountsResponseSchema.parse(raw).data
+  const list = (await getAllPages(
+    '/api/v1/accounts',
+    { type: 'reconciliation' },
+    accountsResponseSchema,
+  )).data
   const hit = list.find((a) => a.attributes.name === assetName && a.attributes.active !== false)
   return hit?.id ?? null
 }
@@ -562,7 +847,7 @@ export async function createReconciliationAdjustment(input: {
     transactions: [
       {
         type: 'reconciliation',
-        date: `${input.date}T12:00:00+08:00`,
+        date: input.date,
         amount: input.amount,
         description:
           input.description ??
@@ -589,17 +874,20 @@ export async function deleteTransaction(groupId: string): Promise<void> {
  * 传入 start/end 时后端才会计算 attributes.spent（见 BudgetEnrichment），因此这里强制要求 range。
  */
 export async function getBudgets(range: DateRange): Promise<BudgetsResponse> {
-  const raw = await fireflyFetch('/api/v1/budgets', { start: range.start, end: range.end, limit: 100 })
-  return budgetsResponseSchema.parse(raw)
+  return getAllPages(
+    '/api/v1/budgets',
+    { start: range.start, end: range.end },
+    budgetsResponseSchema,
+  )
 }
 
-/** GET /api/v1/budgets/{id}/limits?start&end（该预算在当前日期范围内的手动限额，通常 0~1 条） */
+/** GET /api/v1/budgets/{id}/limits?start&end（该预算在当前日期范围内的手动限额） */
 export async function getBudgetLimits(budgetId: string, range: DateRange): Promise<BudgetLimitsResponse> {
-  const raw = await fireflyFetch(`/api/v1/budgets/${budgetId}/limits`, {
-    start: range.start,
-    end: range.end,
-  })
-  return budgetLimitsResponseSchema.parse(raw)
+  return getAllPages(
+    `/api/v1/budgets/${budgetId}/limits`,
+    { start: range.start, end: range.end },
+    budgetLimitsResponseSchema,
+  )
 }
 
 /** POST /api/v1/budgets —— 创建预算（name 必填） */
@@ -609,6 +897,15 @@ export async function createBudget(input: { name: string; active?: boolean }): P
     active: input.active ?? true,
   })
   return budgetItemResponseSchema.parse(raw)
+}
+
+export async function createBudgetWithLimit(input: {
+  name: string
+  active?: boolean
+  limit: { start: string; end: string; amount: string; currency_code?: string }
+}): Promise<BudgetWithLimitResponse> {
+  const raw = await fireflyPost('/api/v1/budgets/with-limit', input)
+  return budgetWithLimitResponseSchema.parse(raw)
 }
 
 /** PUT /api/v1/budgets/{id} */
@@ -623,15 +920,20 @@ export async function updateBudget(
   return budgetItemResponseSchema.parse(raw)
 }
 
+export async function deleteBudget(budgetId: string): Promise<void> {
+  return fireflyDelete(`/api/v1/budgets/${budgetId}`)
+}
+
 /** POST /api/v1/budgets/{id}/limits —— 为日期范围设限额 */
 export async function createBudgetLimit(
   budgetId: string,
-  input: { start: string; end: string; amount: string },
+  input: { start: string; end: string; amount: string; currency_code?: string },
 ): Promise<BudgetLimitItemResponse> {
   const raw = await fireflyPost(`/api/v1/budgets/${budgetId}/limits`, {
     start: input.start,
     end: input.end,
     amount: input.amount,
+    currency_code: input.currency_code,
   })
   return budgetLimitItemResponseSchema.parse(raw)
 }
@@ -649,46 +951,91 @@ export async function updateBudgetLimit(
   return budgetLimitItemResponseSchema.parse(raw)
 }
 
-/** GET /api/v1/bills（预算与订阅页「订阅」tab，只读展示不分页——订阅数量通常较少） */
+/** GET /api/v1/bills（预算与订阅页「订阅」tab） */
 export async function getBills(): Promise<BillsResponse> {
-  const raw = await fireflyFetch('/api/v1/bills', { limit: 200 })
-  return billsResponseSchema.parse(raw)
+  return getAllPages('/api/v1/bills', {}, billsResponseSchema)
 }
 
 /** GET /api/v1/piggy-banks（预算与订阅页「储蓄罐」tab） */
 export async function getPiggyBanks(): Promise<PiggyBanksResponse> {
-  const raw = await fireflyFetch('/api/v1/piggy-banks', { limit: 200 })
-  return piggyBanksResponseSchema.parse(raw)
+  return getAllPages('/api/v1/piggy-banks', {}, piggyBanksResponseSchema)
 }
 
-/** GET /api/v1/categories（设置页「分类与标签」组，只读展示，limit=200 覆盖测试环境全量 45 条） */
+/** GET /api/v1/categories（设置页「分类与标签」组） */
 export async function getCategories(): Promise<CategoriesResponse> {
-  const raw = await fireflyFetch('/api/v1/categories', { limit: 200 })
-  return categoriesResponseSchema.parse(raw)
+  return getAllPages('/api/v1/categories', {}, categoriesResponseSchema)
 }
 
 /** GET /api/v1/tags（设置页「分类与标签」组） */
 export async function getTags(): Promise<TagsResponse> {
-  const raw = await fireflyFetch('/api/v1/tags', { limit: 200 })
-  return tagsResponseSchema.parse(raw)
+  return getAllPages('/api/v1/tags', {}, tagsResponseSchema)
 }
 
 /** GET /api/v1/rules（设置页「自动化」组） */
 export async function getRules(): Promise<RulesResponse> {
-  const raw = await fireflyFetch('/api/v1/rules', { limit: 200 })
-  return rulesResponseSchema.parse(raw)
+  return getAllPages('/api/v1/rules', {}, rulesResponseSchema)
+}
+
+export async function getRuleGroups(): Promise<RuleGroupsResponse> {
+  return getAllPages('/api/v1/rule-groups', {}, ruleGroupsResponseSchema)
+}
+
+export async function testRule(ruleId: string, range: DateRange): Promise<TransactionsResponse> {
+  const raw = await fireflyFetch(`/api/v1/rules/${ruleId}/test`, { start: range.start, end: range.end })
+  return transactionsResponseSchema.parse(raw)
+}
+
+export async function triggerRule(ruleId: string, range: DateRange): Promise<void> {
+  const params = new URLSearchParams({ start: range.start, end: range.end })
+  await fireflyPost(`/api/v1/rules/${ruleId}/trigger?${params}`, {})
+}
+
+export async function testRuleGroup(groupId: string, range: DateRange): Promise<TransactionsResponse> {
+  const raw = await fireflyFetch(`/api/v1/rule-groups/${groupId}/test`, { start: range.start, end: range.end })
+  return transactionsResponseSchema.parse(raw)
+}
+
+export async function triggerRuleGroup(groupId: string, range: DateRange): Promise<void> {
+  const params = new URLSearchParams({ start: range.start, end: range.end })
+  await fireflyPost(`/api/v1/rule-groups/${groupId}/trigger?${params}`, {})
+}
+
+export async function triggerRecurrence(recurrenceId: string, date: string): Promise<TransactionsResponse> {
+  const raw = await fireflyPost(`/api/v1/recurrences/${recurrenceId}/trigger?date=${encodeURIComponent(date)}`, {})
+  return transactionsResponseSchema.parse(raw)
+}
+
+export type ExportDataType =
+  | 'accounts'
+  | 'bills'
+  | 'subscriptions'
+  | 'budgets'
+  | 'categories'
+  | 'piggy-banks'
+  | 'recurring'
+  | 'rules'
+  | 'tags'
+  | 'transactions'
+
+export async function exportData(
+  type: ExportDataType,
+  opts: { start?: string; end?: string; accounts?: string[] } = {},
+) {
+  const params = new URLSearchParams({ type: 'csv' })
+  if (opts.start) params.set('start', opts.start)
+  if (opts.end) params.set('end', opts.end)
+  if (opts.accounts && opts.accounts.length > 0) params.set('accounts', opts.accounts.join(','))
+  return fireflyDownload(`/api/v1/data/export/${type}?${params}`)
 }
 
 /** GET /api/v1/recurrences（设置页「自动化」组） */
 export async function getRecurrences(): Promise<RecurrencesResponse> {
-  const raw = await fireflyFetch('/api/v1/recurrences', { limit: 200 })
-  return recurrencesResponseSchema.parse(raw)
+  return getAllPages('/api/v1/recurrences', {}, recurrencesResponseSchema)
 }
 
 /** GET /api/v1/currencies（设置页「币种」组） */
 export async function getCurrencies(): Promise<CurrenciesResponse> {
-  const raw = await fireflyFetch('/api/v1/currencies', { limit: 200 })
-  return currenciesResponseSchema.parse(raw)
+  return getAllPages('/api/v1/currencies', {}, currenciesResponseSchema)
 }
 
 /** GET /api/v1/about（设置页「关于」卡） */

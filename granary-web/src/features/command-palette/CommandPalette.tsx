@@ -2,17 +2,17 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEve
 import { createPortal } from 'react-dom'
 import { useNavigate } from '@tanstack/react-router'
 import gsap from 'gsap'
-import { Plus, Search, type LucideIcon } from 'lucide-react'
+import { Landmark, Plus, Search, type LucideIcon } from 'lucide-react'
 import { useCommandPaletteStore } from '../../store/commandPaletteStore'
 import { useRecordTxStore } from '../../store/recordTxStore'
-import { useSearchTransactions } from '../../api/queries'
+import { useSearchAccounts, useSearchTransactionCount, useSearchTransactions } from '../../api/queries'
 import { NAV_ITEMS } from '../../routes/navItems'
 import { fuzzyMatch } from '../../lib/fuzzyMatch'
-import { formatDateTime } from '../../lib/format'
-import type { TransactionKind } from '../../lib/format'
-import { MoneyText } from '../../components/granary/MoneyText'
+import { formatDateTime, formatSignedAmount } from '../../lib/format'
 import { LottieIcon } from '../../components/granary/LottieIcon'
 import { prefersReducedMotion } from '../../motion/reducedMotion'
+import { useDialogBehavior } from '../../components/granary/useDialogBehavior'
+import { toTransactionGroupView } from '../../lib/transactionGroup'
 
 const RECORD_KEYWORDS = ['记一笔', '记账', '新增交易', 'record', 'add', '+']
 
@@ -37,13 +37,19 @@ interface SearchPaletteItem {
   id: string
   description: string
   date: string
-  amount: string
-  symbol: string
-  txKind: TransactionKind
+  amountLabel: string
   run: () => void
 }
 
-type PaletteItem = ActionItem | NavPaletteItem | SearchPaletteItem
+interface AccountSearchPaletteItem {
+  key: 'account-search'
+  id: string
+  name: string
+  accountType: string
+  run: () => void
+}
+
+type PaletteItem = ActionItem | NavPaletteItem | SearchPaletteItem | AccountSearchPaletteItem
 
 /**
  * 全局命令面板（Cmd+K）：搜索交易 / 跳页 / 快捷记账三合一（规范 §5/§6）。
@@ -64,6 +70,7 @@ export function CommandPalette() {
   const cardRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  useDialogBehavior(open, cardRef, closePalette)
 
   function close() {
     closePalette()
@@ -107,7 +114,10 @@ export function CommandPalette() {
   const trimmedDebounced = debouncedQuery.trim()
   const searchEnabled = open && trimmedDebounced.length >= 2
   const searchQuery = useSearchTransactions(trimmedDebounced, { enabled: searchEnabled })
-  const isSearchLoading = searchEnabled && searchQuery.isFetching
+  const searchCountQuery = useSearchTransactionCount(trimmedDebounced, { enabled: searchEnabled })
+  const accountSearchQuery = useSearchAccounts(trimmedDebounced, { enabled: searchEnabled })
+  const isSearchLoading = searchEnabled && (searchQuery.isFetching || searchCountQuery.isFetching || accountSearchQuery.isFetching)
+  const hasSearchError = searchQuery.isError || searchCountQuery.isError || accountSearchQuery.isError
 
   // 入场动效：surface 底、阴影+1px 描边、240ms 入场（规范 §5/§6），尊重 reduced-motion
   useLayoutEffect(() => {
@@ -158,29 +168,43 @@ export function CommandPalette() {
     const groups = searchQuery.data?.data ?? []
     const items: SearchPaletteItem[] = []
     for (const group of groups) {
-      group.attributes.transactions.forEach((split, idx) => {
-        items.push({
-          key: 'search',
-          id: `search-${group.id}-${idx}`,
-          description: split.description,
-          date: split.date,
-          amount: split.amount,
-          symbol: split.currency_symbol,
-          txKind: split.type,
-          run: () => {
-            close()
-            navigate({ to: '/transactions' })
-          },
-        })
+      const view = toTransactionGroupView(group)
+      const first = view?.splits[0]
+      if (!view || !first) continue
+      items.push({
+        key: 'search',
+        id: `search-${group.id}`,
+        description: `${first.description}${view.splits.length > 1 ? ` · ${view.splits.length} 条拆分` : ''}`,
+        date: first.date,
+        amountLabel: view.totals.map((total) => formatSignedAmount(total.amount, first.type, total.currencySymbol || total.currencyCode || '')).join(' / '),
+        run: () => {
+          close()
+          navigate({ to: '/transactions', search: { transaction: Number(group.id) } })
+        },
       })
     }
     return items
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchEnabled, searchQuery.data, navigate])
 
+  const accountSearchItems = useMemo<AccountSearchPaletteItem[]>(() => {
+    if (!searchEnabled) return []
+    return (accountSearchQuery.data?.data ?? []).slice(0, 10).map((account) => ({
+      key: 'account-search',
+      id: `account-search-${account.id}`,
+      name: account.attributes.name,
+      accountType: account.attributes.type,
+      run: () => {
+        close()
+        navigate({ to: '/accounts/$accountId', params: { accountId: account.id } })
+      },
+    }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchEnabled, accountSearchQuery.data, navigate])
+
   const flatItems = useMemo<PaletteItem[]>(
-    () => [...actionItems, ...navPaletteItems, ...searchItems],
-    [actionItems, navPaletteItems, searchItems],
+    () => [...actionItems, ...navPaletteItems, ...searchItems, ...accountSearchItems],
+    [actionItems, navPaletteItems, searchItems, accountSearchItems],
   )
   const indexById = useMemo(() => {
     const m = new Map<string, number>()
@@ -218,7 +242,8 @@ export function CommandPalette() {
   if (!open) return null
 
   const showSearchSection = searchEnabled && (isSearchLoading || searchItems.length > 0)
-  const showNoResults = query.trim() !== '' && flatItems.length === 0 && !isSearchLoading
+  const showNoResults = query.trim() !== '' && flatItems.length === 0 && !isSearchLoading && !hasSearchError
+  const accountTotal = accountSearchQuery.data?.meta?.pagination?.total ?? accountSearchItems.length
 
   return createPortal(
     <div
@@ -232,6 +257,7 @@ export function CommandPalette() {
         role="dialog"
         aria-modal="true"
         aria-label="命令面板"
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         className="flex h-fit max-h-[60vh] w-full flex-col rounded-[10px]"
         style={{
@@ -294,8 +320,9 @@ export function CommandPalette() {
             </PaletteSection>
           )}
 
-          {showSearchSection && (
-            <PaletteSection label="搜索交易" loading={isSearchLoading}>
+          {(showSearchSection || searchQuery.isError || searchCountQuery.isError) && (
+            <PaletteSection label={`搜索交易组${searchCountQuery.data ? ` · ${searchCountQuery.data.count}` : ''}`} loading={searchQuery.isFetching || searchCountQuery.isFetching}>
+              {(searchQuery.isError || searchCountQuery.isError) && <SearchError label="交易搜索失败" onRetry={() => { void searchQuery.refetch(); void searchCountQuery.refetch() }} />}
               {searchItems.map((item) => {
                 const idx = indexById.get(item.id) ?? 0
                 const active = idx === activeIndex
@@ -317,7 +344,24 @@ export function CommandPalette() {
                     <div className="font-num shrink-0 text-[11px]" style={{ color: 'var(--g-ink-2)' }}>
                       {formatDateTime(item.date)}
                     </div>
-                    <MoneyText className="shrink-0 text-[12.5px]" value={item.amount} kind={item.txKind} symbol={item.symbol} />
+                    <span className="font-num shrink-0 text-[12.5px]" style={{ color: 'var(--g-ink)' }}>{item.amountLabel}</span>
+                  </div>
+                )
+              })}
+            </PaletteSection>
+          )}
+
+          {searchEnabled && (accountSearchQuery.isFetching || accountSearchItems.length > 0 || accountSearchQuery.isError) && (
+            <PaletteSection label={`搜索账户${accountSearchQuery.data ? ` · ${accountTotal}` : ''}`} loading={accountSearchQuery.isFetching}>
+              {accountSearchQuery.isError && <SearchError label="账户搜索失败" onRetry={() => void accountSearchQuery.refetch()} />}
+              {accountSearchItems.map((item) => {
+                const idx = indexById.get(item.id) ?? 0
+                const active = idx === activeIndex
+                return (
+                  <div key={item.id} data-index={idx} role="option" aria-selected={active} onMouseEnter={() => setActiveIndex(idx)} onClick={item.run} className="mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-[6px] px-2.5 py-1.5" style={{ background: active ? 'var(--g-surface-2)' : 'transparent' }}>
+                    <Landmark aria-hidden size={14} color="var(--g-ink-2)" />
+                    <span className="min-w-0 flex-1 truncate text-[12.5px]" style={{ color: 'var(--g-ink)' }}>{item.name}</span>
+                    <span className="text-[11px]" style={{ color: 'var(--g-ink-2)' }}>{item.accountType}</span>
                   </div>
                 )
               })}
@@ -349,6 +393,10 @@ function PaletteSection({ label, loading, children }: { label: string; loading?:
       <div className="flex flex-col gap-0.5">{children}</div>
     </div>
   )
+}
+
+function SearchError({ label, onRetry }: { label: string; onRetry: () => void }) {
+  return <div className="mx-3 flex items-center justify-between rounded-[4px] px-2 py-1.5 text-[11.5px]" style={{ color: 'var(--g-danger)' }}><span>{label}</span><button type="button" onClick={onRetry} style={{ color: 'var(--g-accent)' }}>重试</button></div>
 }
 
 function PaletteRow({

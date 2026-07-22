@@ -15,6 +15,7 @@ import { IgnoreConfirmDialog } from './IgnoreConfirmDialog'
 import { FireflyApiError } from '../../api/client'
 import { LottieIcon } from '../../components/granary/LottieIcon'
 import { StatementRow } from './StatementRow'
+import { TaskEvidencePanel } from './TaskEvidencePanel'
 
 const PAGE_SIZE = 50
 
@@ -22,13 +23,13 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
   const status = task.attributes.status
   const isNeedsSecret = status === 'needs_secret'
   const isFailed = status === 'failed' || status === 'unknown'
-  // 需验证码/失败任务通常尚无 pending 行，跳过行查询避免无意义请求
-  const rowsQuery = useBillTaskRows(isNeedsSecret || isFailed ? null : task.id, 'pending')
+  const rowsQuery = useBillTaskRows(isNeedsSecret || isFailed ? null : task.id)
   const rows = useMemo(() => rowsQuery.data?.data ?? [], [rowsQuery.data])
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [dryRun, setDryRun] = useState<BillImportResponse | null>(null)
+  const [previewRowIds, setPreviewRowIds] = useState<string[]>([])
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [ignoreOpen, setIgnoreOpen] = useState(false)
   const [secretValue, setSecretValue] = useState('')
@@ -41,6 +42,12 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
     setSecretValue('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowsQuery.data, task.id])
+
+  useEffect(() => {
+    setDryRun(null)
+    setPreviewRowIds([])
+    setConfirmOpen(false)
+  }, [task.id])
 
   const importMutation = useImportBillTaskRows()
   const secretMutation = useSubmitBillTaskSecret()
@@ -70,6 +77,7 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
         rowIds: Array.from(selected),
         confirm: false,
       })
+      setPreviewRowIds(res.rows.filter((row) => row.action === 'would_import').map((row) => row.row_id))
       setDryRun(res)
       setConfirmOpen(true)
     } catch {
@@ -78,14 +86,16 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
   }
 
   async function handleConfirmImport() {
+    if (previewRowIds.length === 0) return
     try {
       const res = await importMutation.mutateAsync({
         taskId: task.id,
-        rowIds: Array.from(selected),
+        rowIds: previewRowIds,
         confirm: true,
       })
       setConfirmOpen(false)
       setDryRun(null)
+      setPreviewRowIds([])
       showToast({ message: `已入账 ${res.summary.imported} 笔`, kind: 'success' })
     } catch {
       showToast({ message: '入账失败，请重试', kind: 'error' })
@@ -121,6 +131,15 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
   const visibleRows = rows.slice(0, visibleCount)
   const canLoadMore = visibleCount < rows.length
   const errorText = task.attributes.error_message || task.attributes.error_code || null
+
+  function focusReviewRow(rowId: string) {
+    setVisibleCount(rows.length)
+    requestAnimationFrame(() => {
+      const element = document.getElementById(`bill-row-${rowId}`)
+      element?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      element?.querySelector<HTMLButtonElement>('[aria-label="编辑行"]')?.focus()
+    })
+  }
 
   return (
     <div
@@ -269,6 +288,11 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
                 <Skeleton key={i} className="h-8" />
               ))}
             </div>
+          ) : rowsQuery.isError ? (
+            <div className="flex items-center justify-between py-6 text-[12.5px]" style={{ color: 'var(--g-danger)' }}>
+              <span>账单流水加载失败</span>
+              <button type="button" onClick={() => void rowsQuery.refetch()} style={{ color: 'var(--g-accent)' }}>重试</button>
+            </div>
           ) : rows.length === 0 ? (
             <EmptyState icon="✅" message="该任务没有待处理的流水" />
           ) : (
@@ -325,6 +349,8 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
         </>
       )}
 
+      <TaskEvidencePanel taskId={task.id} onReviewRow={focusReviewRow} />
+
       <ImportConfirmDialog
         open={confirmOpen}
         task={task}
@@ -333,6 +359,7 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
         onCancel={() => {
           setConfirmOpen(false)
           setDryRun(null)
+          setPreviewRowIds([])
         }}
         onConfirm={handleConfirmImport}
       />

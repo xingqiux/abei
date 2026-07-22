@@ -96,7 +96,7 @@ export function DateRangePreferenceSync() {
 
   // 2) store 变化 → debounce 写 preferences
   useEffect(() => {
-    if (!hydrated || !tokenReady) return
+    if (!hydrateDoneRef.current || !hydrated || !tokenReady) return
     const payload = { preset, start, end }
     const key = JSON.stringify(payload)
     if (key === lastSavedRef.current) return

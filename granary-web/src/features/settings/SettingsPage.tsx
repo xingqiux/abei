@@ -4,15 +4,14 @@ import {
   useAbout,
   useCategories,
   useCurrencies,
-  useRecurrences,
-  useRules,
   useTags,
 } from '../../api/queries'
 import { CategoryChip } from '../../components/granary/CategoryChip'
-import { StatusChip } from '../../components/granary/StatusChip'
 import { Skeleton } from '../../components/granary/Skeleton'
-import { requestTokenReset } from '../../components/TokenGate'
+import { requestTokenReset } from '../../components/tokenEvents'
 import pkg from '../../../package.json'
+import { AutomationPanel } from './AutomationPanel'
+import { ExportPanel } from './ExportPanel'
 
 const CHIP_LIMIT = 12
 
@@ -77,28 +76,9 @@ function NameChips({ names, total }: { names: string[]; total: number }) {
   )
 }
 
-/** 自动化组「规则/定期交易」只读行列表 */
-function AutomationList({ items }: { items: { id: string; title: string; active?: boolean }[] }) {
-  if (items.length === 0) return <Empty />
-  return (
-    <div className="flex flex-col gap-1">
-      {items.map((item) => (
-        <div key={item.id} className="flex items-center justify-between rounded-[4px] px-2 py-1.5 text-[12.5px]" style={{ background: 'var(--g-surface-2)' }}>
-          <span className="truncate" style={{ color: 'var(--g-ink)' }}>
-            {item.title}
-          </span>
-          {item.active === false && <StatusChip label="已停用" kind="muted" />}
-        </div>
-      ))}
-    </div>
-  )
-}
-
 export function SettingsPage() {
   const categoriesQuery = useCategories()
   const tagsQuery = useTags()
-  const rulesQuery = useRules()
-  const recurrencesQuery = useRecurrences()
   const currenciesQuery = useCurrencies()
   const aboutQuery = useAbout()
 
@@ -107,12 +87,6 @@ export function SettingsPage() {
 
   const tags = tagsQuery.data?.data ?? []
   const tagsTotal = tagsQuery.data?.meta?.pagination?.total ?? tags.length
-
-  const rules = (rulesQuery.data?.data ?? []).map((r) => ({ id: r.id, title: r.attributes.title, active: r.attributes.active }))
-  const rulesTotal = rulesQuery.data?.meta?.pagination?.total ?? rules.length
-
-  const recurrences = (recurrencesQuery.data?.data ?? []).map((r) => ({ id: r.id, title: r.attributes.title, active: r.attributes.active }))
-  const recurrencesTotal = recurrencesQuery.data?.meta?.pagination?.total ?? recurrences.length
 
   const currencies = [...(currenciesQuery.data?.data ?? [])].sort((a, b) => {
     const enabledDiff = Number(b.attributes.enabled ?? false) - Number(a.attributes.enabled ?? false)
@@ -138,15 +112,10 @@ export function SettingsPage() {
       </Card>
 
       <Card title="自动化">
-        <div className="flex flex-col gap-4">
-          <SubGroup label="规则" count={rulesTotal} isLoading={rulesQuery.isLoading} isError={rulesQuery.isError}>
-            <AutomationList items={rules} />
-          </SubGroup>
-          <SubGroup label="定期交易" count={recurrencesTotal} isLoading={recurrencesQuery.isLoading} isError={recurrencesQuery.isError}>
-            <AutomationList items={recurrences} />
-          </SubGroup>
-        </div>
+        <AutomationPanel />
       </Card>
+
+      <Card title="CSV 导出"><ExportPanel /></Card>
 
       <Card title="币种">
         {currenciesQuery.isLoading ? (
@@ -190,11 +159,6 @@ export function SettingsPage() {
               谷仓 Web 版本：
               <span className="font-num" style={{ color: 'var(--g-ink-2)' }}>{pkg.version}</span>
             </span>
-          </div>
-
-          <div className="rounded-[6px] px-2.5 py-2 text-[11.5px] leading-relaxed" style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink-2)' }}>
-            动效素材来源 LottieFiles / useAnimations，具体链接待补。素材已按谷仓设计 token 程序化改色
-            （celebrate.json / empty-wallet.json，处理记录见项目 git 历史）。
           </div>
 
           <a

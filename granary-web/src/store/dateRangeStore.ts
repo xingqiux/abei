@@ -15,6 +15,7 @@ interface DateRangeState extends DateRangeValue {
   /** 服务端偏好或本地默认灌入；仅 hydration 路径调用 */
   hydrate: (next: DateRangeValue) => void
   markHydrated: () => void
+  reset: () => void
 }
 
 export const useDateRangeStore = create<DateRangeState>((set) => ({
@@ -34,4 +35,5 @@ export const useDateRangeStore = create<DateRangeState>((set) => ({
     set({ ...next, hydrated: true })
   },
   markHydrated: () => set({ hydrated: true }),
+  reset: () => set({ ...defaultDateRange(), hydrated: false }),
 }))

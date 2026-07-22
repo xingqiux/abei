@@ -3,9 +3,6 @@ import type { BillImportResponse, BillTask } from '../../api/schemas'
 import { Modal } from '../../components/granary/Modal'
 import { formatAmount } from '../../lib/format'
 
-/** 干跑（confirm:false）时后端对"本可入账"的行统一回填这条占位错误，用来和真正的跳过原因区分 */
-const NOT_CONFIRMED_MARKER = '未确认导入。'
-
 export function ImportConfirmDialog({
   open,
   task,
@@ -23,8 +20,8 @@ export function ImportConfirmDialog({
 }) {
   const { willImport, trueSkips, reasonGroups } = useMemo(() => {
     const rows = dryRun?.rows ?? []
-    const willImportRows = rows.filter((r) => r.error === NOT_CONFIRMED_MARKER)
-    const trueSkipRows = rows.filter((r) => r.error !== NOT_CONFIRMED_MARKER)
+    const willImportRows = rows.filter((r) => r.action === 'would_import')
+    const trueSkipRows = rows.filter((r) => r.action !== 'would_import')
     const groups = new Map<string, number>()
     for (const r of trueSkipRows) {
       const reason = r.error ?? '未知原因'
@@ -100,7 +97,7 @@ export function ImportConfirmDialog({
               <div key={r.row_id} className="flex items-center justify-between gap-2 text-[12px]" style={{ color: 'var(--g-ink)' }}>
                 <span className="min-w-0 flex-1 truncate">{r.description_preview ?? r.counterparty ?? '--'}</span>
                 <span className="font-num shrink-0" style={{ color: 'var(--g-ink-2)' }}>
-                  ¥{formatAmount(r.firefly_amount ?? r.amount ?? 0)}
+                  {r.currency_symbol ?? r.currency_code ?? ''}{formatAmount(r.firefly_amount ?? r.amount ?? 0)}
                 </span>
               </div>
             ))}

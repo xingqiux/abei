@@ -1,12 +1,11 @@
 import { useEffect, useRef } from 'react'
-import { LottieIcon } from './LottieIcon'
-import celebrateUrl from '../../assets/lottie/celebrate.json?url'
+import { PartyPopper } from 'lucide-react'
 import { playGrainBurst } from '../../motion/grainBurst'
+import { prefersReducedMotion } from '../../motion/reducedMotion'
 
 /**
  * 全屏庆祝动效（对账清零 / 储蓄达成等里程碑时刻）。
- * 播放一次即回调 onDone 卸载；2 倍速把 5s 素材压到 ~2.5s，贴近规范的 ≤2s 要求。
- * 彩纸 Lottie 播放的同时叠加一次 matter.js 谷粒撒落（规范 §6 里程碑庆祝场景②）。
+ * 播放一次即回调 onDone 卸载；粒子效果由按需加载的 matter.js 提供。
  */
 export function CelebrateOverlay({ onDone }: { onDone: () => void }) {
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -15,11 +14,13 @@ export function CelebrateOverlay({ onDone }: { onDone: () => void }) {
     if (overlayRef.current) {
       void playGrainBurst(overlayRef.current, { count: 60 })
     }
-  }, [])
+    const timer = window.setTimeout(onDone, prefersReducedMotion() ? 0 : 1800)
+    return () => window.clearTimeout(timer)
+  }, [onDone])
 
   return (
     <div ref={overlayRef} className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center overflow-hidden">
-      <LottieIcon kind="file" src={celebrateUrl} size={420} speed={2} onComplete={onDone} />
+      <PartyPopper aria-hidden size={64} className="animate-pulse" style={{ color: 'var(--g-accent)' }} />
     </div>
   )
 }

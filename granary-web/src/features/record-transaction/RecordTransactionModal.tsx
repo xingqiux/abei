@@ -18,6 +18,9 @@ import { showToast } from '../../store/toastStore'
 import { useRecordTxStore } from '../../store/recordTxStore'
 import { toDateInputValue, formatAmount } from '../../lib/format'
 import { prefersReducedMotion } from '../../motion/reducedMotion'
+import { TransactionAttachments } from './TransactionAttachments'
+import { MultiSplitTransactionEditor } from './MultiSplitTransactionEditor'
+import { isPositiveDecimal, normalizeDecimalString } from '../../lib/decimal'
 
 /** 标签多值：只对最后一个逗号后的 token 做补全查询 */
 function extractLastTagToken(value: string): string {
@@ -76,7 +79,7 @@ function inputStyle(hasError?: string) {
 
 /**
  * 「记一笔」/「编辑交易」表单（规范 §4.3）。
- * 创建：顶栏 + 快捷键 n；编辑：行操作 openEdit。多拆分 group v1 不支持编辑。
+ * 创建：顶栏 + 快捷键 n；编辑：行操作 openEdit。多拆分 group 使用完整拆分编辑器。
  */
 export function RecordTransactionModal() {
   const open = useRecordTxStore((s) => s.open)
@@ -105,6 +108,8 @@ export function RecordTransactionModal() {
   const [moreOpen, setMoreOpen] = useState(false)
   const [errors, setErrors] = useState<FieldErrors>({})
   const [savingContinue, setSavingContinue] = useState(false)
+  const [multiSplitDirty, setMultiSplitDirty] = useState(false)
+  const [createMode, setCreateMode] = useState<'single' | 'split'>('single')
 
   const [descQuery, setDescQuery] = useState('')
   const [sourceAcQuery, setSourceAcQuery] = useState('')
@@ -122,7 +127,9 @@ export function RecordTransactionModal() {
   const onTagQuery = useCallback((q: string) => setTagQuery(q), [])
 
   const isEdit = mode === 'edit'
-  const multiSplitBlocked = isEdit && (edit?.splitCount ?? 0) > 1
+  const editingMultiSplit = isEdit && (edit?.splitCount ?? 0) > 1
+  const creatingMultiSplit = !isEdit && createMode === 'split'
+  const showMultiSplitEditor = editingMultiSplit || creatingMultiSplit
 
   const expenseAccountsQ = useAutocompleteAccounts(destAcQuery, {
     types: 'Expense account',
@@ -182,6 +189,8 @@ export function RecordTransactionModal() {
     setDestAcQuery('')
     setCategoryQuery('')
     setTagQuery('')
+    setCreateMode('single')
+    setMultiSplitDirty(false)
   }
 
   // 打开时按 mode 灌初值 / 清空
@@ -222,9 +231,9 @@ export function RecordTransactionModal() {
 
   useLayoutEffect(() => {
     const el = fieldsRef.current
-    if (!el || prefersReducedMotion() || multiSplitBlocked) return
+    if (!el || prefersReducedMotion() || showMultiSplitEditor) return
     gsap.fromTo(el, { opacity: 0.4 }, { opacity: 1, duration: 0.12, ease: 'power1.out' })
-  }, [type, multiSplitBlocked])
+  }, [type, showMultiSplitEditor])
 
   function resetForContinue() {
     setAmount('')
@@ -242,7 +251,9 @@ export function RecordTransactionModal() {
         description.trim() !== edit.description.trim() ||
         date !== edit.date ||
         sourceId !== (edit.sourceId ?? '') ||
+        sourceName.trim() !== (edit.sourceName ?? '').trim() ||
         destId !== (edit.destId ?? '') ||
+        destName.trim() !== (edit.destName ?? '').trim() ||
         category.trim() !== (edit.category ?? '').trim() ||
         tagsRaw.trim() !== (edit.tagsRaw ?? '').trim() ||
         notes.trim() !== (edit.notes ?? '').trim()
@@ -253,7 +264,9 @@ export function RecordTransactionModal() {
   }
 
   function handleRequestClose() {
-    if (multiSplitBlocked) {
+    if (showMultiSplitEditor) {
+      if ((multiSplitDirty || isDirty()) && !window.confirm('放弃已修改的拆分内容？')) return
+      setMultiSplitDirty(false)
       resetAll()
       close()
       return
@@ -263,10 +276,20 @@ export function RecordTransactionModal() {
     close()
   }
 
+  function selectCreateMode(next: 'single' | 'split') {
+    if (next === createMode) return
+    if (next === 'single' && multiSplitDirty && !window.confirm('放弃已修改的拆分内容？')) return
+    setMultiSplitDirty(false)
+    setCreateMode(next)
+  }
+
   function validate(): FieldErrors {
     const errs: FieldErrors = {}
-    const amountNum = Number(amount)
-    if (!amount.trim() || !(amountNum > 0)) errs.amount = '请输入大于 0 的金额'
+    try {
+      if (!amount.trim() || !isPositiveDecimal(amount)) errs.amount = '请输入大于 0 的金额'
+    } catch {
+      errs.amount = '请输入有效金额'
+    }
     if (!description.trim()) errs.description = '请输入描述'
 
     if (type === 'withdrawal') {
@@ -282,7 +305,7 @@ export function RecordTransactionModal() {
   }
 
   async function handleSave(continueAfter: boolean) {
-    if (multiSplitBlocked) return
+    if (showMultiSplitEditor) return
     const errs = validate()
     setErrors(errs)
     if (Object.keys(errs).length > 0) return
@@ -291,7 +314,10 @@ export function RecordTransactionModal() {
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean)
-    const amountStr = Number(amount).toFixed(2)
+    const amountStr = normalizeDecimalString(amount)
+    const amountAccountId = type === 'deposit' ? destId : sourceId
+    const amountAccount = accounts.find((account) => account.id === amountAccountId)
+    const amountSymbol = amountAccount?.currencySymbol || amountAccount?.currencyCode || ''
 
     setSavingContinue(continueAfter)
     try {
@@ -313,7 +339,7 @@ export function RecordTransactionModal() {
             notes: notes.trim() || '',
           },
         })
-        showToast({ kind: 'success', message: `已更新 ¥${formatAmount(amountStr)} · ${description.trim()}` })
+        showToast({ kind: 'success', message: `已更新 ${amountSymbol}${formatAmount(amountStr)} · ${description.trim()}` })
         resetAll()
         close()
       } else {
@@ -330,7 +356,7 @@ export function RecordTransactionModal() {
           tags: tags.length > 0 ? tags : undefined,
           notes: notes.trim() || undefined,
         })
-        showToast({ kind: 'success', message: `已入账 ¥${formatAmount(amountStr)} · ${description.trim()}` })
+        showToast({ kind: 'success', message: `已入账 ${amountSymbol}${formatAmount(amountStr)} · ${description.trim()}` })
         if (continueAfter) {
           resetForContinue()
         } else {
@@ -348,7 +374,7 @@ export function RecordTransactionModal() {
 
   const title = isEdit ? '编辑交易' : '记一笔'
 
-  const footer = multiSplitBlocked ? (
+  const footer = showMultiSplitEditor ? (
     <button
       type="button"
       onClick={handleRequestClose}
@@ -384,10 +410,15 @@ export function RecordTransactionModal() {
 
   return (
     <Modal open={open} onClose={handleRequestClose} title={title} width={520} footer={footer}>
-      {multiSplitBlocked ? (
-        <p className="m-0 leading-relaxed" style={{ color: 'var(--g-ink)' }}>
-          这笔交易包含多个拆分（{edit?.splitCount} 笔），v1 暂不支持在此编辑。请在旧版 Firefly 界面中修改。
-        </p>
+      {!isEdit && (
+        <div className="mb-3 flex gap-0.5 rounded-[6px] p-0.5" style={{ background: 'var(--g-surface-2)' }} role="tablist" aria-label="记账模式">
+          {([['single', '单笔'], ['split', '多拆分']] as const).map(([value, label]) => (
+            <button key={value} type="button" role="tab" aria-selected={createMode === value} onClick={() => selectCreateMode(value)} className="flex-1 rounded-[4px] py-1.5 text-[12.5px]" style={{ background: createMode === value ? 'var(--g-accent)' : 'transparent', color: createMode === value ? 'var(--g-accent-ink)' : 'var(--g-ink-2)', fontWeight: createMode === value ? 'var(--g-weight-demibold)' : 'var(--g-weight-regular)' }}>{label}</button>
+          ))}
+        </div>
+      )}
+      {showMultiSplitEditor ? (
+        <MultiSplitTransactionEditor groupId={editingMultiSplit ? edit?.groupId : undefined} onDirtyChange={setMultiSplitDirty} onSaved={() => { setMultiSplitDirty(false); resetAll(); close() }} />
       ) : (
         <div className="flex flex-col gap-3.5">
           <div
@@ -406,6 +437,10 @@ export function RecordTransactionModal() {
                   aria-selected={active}
                   onClick={() => {
                     setType(opt.value)
+                    setSourceId('')
+                    setSourceName('')
+                    setDestId('')
+                    setDestName('')
                     setErrors({})
                   }}
                   className="flex-1 rounded-[4px] py-1.5 text-[12.5px] transition-colors"
@@ -473,6 +508,7 @@ export function RecordTransactionModal() {
                   />
                 ) : (
                   <select
+                    aria-label="来源账户"
                     value={sourceId}
                     onChange={(e) => {
                       setSourceId(e.target.value)
@@ -506,6 +542,7 @@ export function RecordTransactionModal() {
                   />
                 ) : (
                   <select
+                    aria-label="目标账户"
                     value={destId}
                     onChange={(e) => {
                       setDestId(e.target.value)
@@ -597,6 +634,7 @@ export function RecordTransactionModal() {
           </div>
         </div>
       )}
+      {isEdit && edit && <TransactionAttachments groupId={edit.groupId} journalId={edit.journalId} />}
     </Modal>
   )
 }

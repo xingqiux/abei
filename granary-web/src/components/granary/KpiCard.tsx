@@ -1,28 +1,19 @@
-import { useCountUp } from '../../motion/useCountUp'
 import { formatAmount } from '../../lib/format'
+import type { CurrencyAmount } from '../../lib/summary'
 
 export function KpiCard({
   label,
-  value,
+  amounts,
   colorVar,
   sublabel,
-  staggerIndex = 0,
   signed = false,
 }: {
   label: string
-  value: number
+  amounts: CurrencyAmount[]
   colorVar: string
   sublabel: string
-  staggerIndex?: number
   signed?: boolean
 }) {
-  const formatter = (n: number) => {
-    const sign = signed && n > 0 ? '+' : n < 0 ? '-' : ''
-    return `${sign}¥${formatAmount(n)}`
-  }
-
-  const ref = useCountUp(value, formatter, { delay: staggerIndex * 0.06 })
-
   return (
     <div
       className="rounded-[10px] p-3.5"
@@ -34,13 +25,19 @@ export function KpiCard({
       >
         {label}
       </div>
-      <span
-        ref={ref}
-        className="font-num mt-1.5 block"
-        style={{ fontSize: 20, fontWeight: 600, color: colorVar }}
-      >
-        ¥0.00
-      </span>
+      <div className="font-num mt-1.5 flex min-h-[30px] flex-wrap items-baseline gap-x-3 gap-y-1" style={{ color: colorVar }}>
+        {amounts.map((amount) => {
+          const negative = amount.value.trim().startsWith('-')
+          const zero = /^[-+]?0(?:\.0*)?$/.test(amount.value.trim())
+          const sign = signed && !zero ? (negative ? '-' : '+') : negative ? '-' : ''
+          return (
+            <span key={amount.code} title={amount.code} style={{ fontSize: 20, fontWeight: 600 }}>
+              {sign}{amount.symbol}{formatAmount(amount.value)}
+            </span>
+          )
+        })}
+        {amounts.length === 0 && <span style={{ fontSize: 20, fontWeight: 600 }}>--</span>}
+      </div>
       <div className="mt-1 text-[11px]" style={{ color: 'var(--g-ink-2)' }}>
         {sublabel}
       </div>
