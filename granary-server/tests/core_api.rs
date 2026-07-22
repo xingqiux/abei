@@ -67,8 +67,13 @@ async fn send_json(
         .oneshot(json_request(method, uri, token, body))
         .await
         .unwrap();
-    assert_eq!(response.status(), expected_status);
-    response_json(response).await
+    let status = response.status();
+    let response = response_json(response).await;
+    assert_eq!(
+        status, expected_status,
+        "response body for {method} {uri}: {response}"
+    );
+    response
 }
 
 async fn send_status(
