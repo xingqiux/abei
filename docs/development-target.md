@@ -57,11 +57,13 @@
 - mutation 成功后必须刷新或更新所有受影响的查询。
 - 不为未出现的复用需求增加额外框架或抽象层。
 
-## 4. 本地开发与测试基线
+## 4. 历史本地开发与测试基线
+
+本节到第 11 节记录的是 Rust 后端切换前的 Firefly 阶段证据，其中 `e2e-app`、`e2e-seed`、`cli-contract` 和 Playwright `22/22` 均是历史拓扑与历史结果，不是当前 Granary E2E 的服务或数量。切换后的当前入口和证据见第 12 节。
 
 ### 4.1 根目录命令
 
-| 命令 | 当前职责 |
+| 命令 | 当时职责 |
 | --- | --- |
 | `make help` | 列出根目录开发、测试和发布入口 |
 | `make bootstrap` | 缺少 `.env` 时从 `.env.example` 创建，并构建源码镜像和 CLI |
@@ -128,7 +130,7 @@ E2E 紧跟配置校验，优先使用干净的宿主资源预算；它仍从当�
 
 E2E 与 empty-start 使用独立 project name。入口开始前和退出时都删除自己的容器、网络和卷，不接触默认开发卷；清理命令失败会使对应门禁失败，不能以成功状态掩盖资源残留。
 
-## 5. 当前状态与开发重心
+## 5. 历史阶段状态与开发重心
 
 | 领域 | 最终状态 | 后续工作 |
 | --- | --- | --- |
@@ -574,3 +576,43 @@ E2E 与 empty-start 使用独立 project name。入口开始前和退出时都�
 | `make release` | 2026-07-21 完整执行成功，最终退出码 0 |
 
 第 10.3 节已全部关闭，P0 状态完成。第 10.2 节三项 P1 债务继续保留，不得因本次发布成功从目标文档中删除。
+
+## 12. Granary 切换后的当前实现快照
+
+本节只记录 2026-07-22 代码和测试可证明的实现事实，不承载产品范围、优先级或长期任务。产品方向仍以产品所有者维护的《谷仓产品方向》为唯一来源。
+
+### 12.1 当前根目录入口
+
+| 命令 | 当前职责 |
+| --- | --- |
+| `make up` | 启动 Firefly 迁移基线、Granary PostgreSQL、Rust Server、Granary Web 和本地合成邮箱 |
+| `make up-server` | 只启动 Granary PostgreSQL、迁移、Rust Server 及其邮件依赖 |
+| `make test-server` | 在独立临时 PostgreSQL 上运行 Rust 单元和集成测试 |
+| `make test-web` | 在 Node 22 容器内运行 Granary Web Vitest |
+| `make test-cli` | 在 Node 22 容器内运行现有 Firefly CLI 测试 |
+| `make test-e2e` | 从空卷运行 Granary Session、多账本和核心账务浏览器验收 |
+| `make test-empty-start` | 从空卷验证 Firefly 基线与 Granary 新链路均可启动且依赖健康 |
+| `make config` | 展开 `test`、`e2e`、`granary` 和 `granary-test` profiles 并校验 Compose |
+
+### 12.2 当前 E2E 拓扑和覆盖
+
+当前 E2E 服务链为：
+
+```text
+e2e-db
+  -> e2e-migrate
+  -> e2e-server
+  -> e2e-web
+  -> Playwright
+```
+
+它不再启动 Firefly `e2e-app`，不再创建 PAT，不再运行旧 `cli-contract`，也不读取默认开发数据库。桌面与移动用例都从空数据库开始，覆盖首次初始化、邮箱密码登录、HttpOnly Session Cookie、刷新后的 CSRF 轮换、分类/交易方/账户/交易创建、总览与交易读取、第二账本创建与数据隔离、切回账本、退出和安全响应头。
+
+当前同工作树证据：Rust fmt 和 Clippy 通过；Granary Web lint 通过、Vitest `85/85`、production build 通过；Compose E2E `2/2` 通过。E2E 实际发现过币种表字段 `exponent` 被错误读取为 `minor_units` 导致的 HTTP 500，并在修复后增加 PostgreSQL 集成断言，因此当前门禁验证了真实 Server/数据库契约，而不是只检查页面能否打开。
+
+### 12.3 当前切换边界
+
+- Granary Web 的 Session、账本、账户、交易、搜索、概览和分类/标签/交易方基础管理已接入 `granary-server`。
+- `firefly-cli` 仍以 Firefly API 为目标，后续才切换到 Granary API。
+- Firefly III 及其历史 E2E 证据继续作为迁移核对基线，不再是 Granary Web 当前运行后端。
+- 生产迁移只能使用隔离的 PostgreSQL/storage 只读快照；真实 `.env`、dump、附件、OAuth key、Session、PAT、MFA seed 和密码不得进入仓库、CI 或测试产物。
