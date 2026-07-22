@@ -1,0 +1,44 @@
+[package]
+name = "granary-server"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+
+[lib]
+name = "granary_server"
+path = "src/lib.rs"
+
+[dependencies]
+aes-gcm = "0.10"
+axum = "0.8"
+axum-extra = { version = "0.12", features = ["cookie"] }
+base64 = "0.22"
+clap = { version = "4.5", features = ["derive", "env"] }
+chrono-tz = "0.10"
+email_address = "0.2"
+hex = "0.4"
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1"] }
+password-auth = "1"
+rand = "0.10"
+rust_decimal = { version = "1.39", features = ["db-postgres", "serde-with-str"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "time", "rust_decimal", "migrate"] }
+subtle = "2"
+thiserror = "2"
+time = { version = "0.3", features = ["formatting", "parsing", "serde", "serde-human-readable"] }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"] }
+totp-rs = { version = "5.7", features = ["gen_secret", "otpauth", "zeroize"] }
+tower-http = { version = "0.6", features = ["request-id", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tower = { version = "0.5", features = ["util"] }
+
+[profile.release]
+lto = "thin"
+strip = true
