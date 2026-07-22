@@ -171,16 +171,7 @@ describe('bill inbox commands', () => {
       data: [],
     });
 
-    await runCli([
-      'bill-inbox',
-      'rows',
-      '13',
-      '--summary',
-      '--limit',
-      '10',
-      '--format',
-      'json',
-    ]);
+    await runCli(['bill-inbox', 'rows', '13', '--summary', '--limit', '10', '--format', 'json']);
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/api/v1/bill-tasks/13/rows?summary=true&limit=10',
@@ -579,7 +570,16 @@ describe('bill inbox commands', () => {
     );
     const output = join(tempDir, 'artifact.zip');
 
-    await runCli(['bill-inbox', 'artifact', 'download', '9', '--output', output, '--format', 'json']);
+    await runCli([
+      'bill-inbox',
+      'artifact',
+      'download',
+      '9',
+      '--output',
+      output,
+      '--format',
+      'json',
+    ]);
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/api/v1/bill-artifacts/9/download',

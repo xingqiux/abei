@@ -47,7 +47,9 @@ export class BillTaskService {
   constructor(private readonly client: FireflyHttpClient) {}
 
   list(filters: BillTaskListFilters = {}): Promise<unknown> {
-    return this.client.request('GET', ENDPOINT, { query: filters });
+    return this.client.request('GET', ENDPOINT, {
+      query: { source: filters.source, status: filters.status },
+    });
   }
 
   show(taskId: string): Promise<unknown> {
@@ -75,7 +77,15 @@ export class BillTaskService {
   }
 
   rows(taskId: string, filters: BillStatementRowFilters = {}): Promise<unknown> {
-    return this.client.request('GET', `${taskPath(taskId)}/rows`, { query: filters });
+    return this.client.request('GET', `${taskPath(taskId)}/rows`, {
+      query: {
+        status: filters.status,
+        from: filters.from,
+        to: filters.to,
+        summary: filters.summary,
+        limit: filters.limit,
+      },
+    });
   }
 
   review(taskId: string): Promise<unknown> {

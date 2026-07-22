@@ -16,12 +16,13 @@
   },
   "scripts": {
     "dev": "tsx src/cli.ts",
-    "build": "tsup",
+    "build": "npm run typecheck && tsup",
     "build:watch": "tsup --watch",
     "test": "vitest",
-    "test:run": "vitest run",
+    "test:run": "npm run typecheck && vitest run",
     "lint": "eslint .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "firefly-iii",
@@ -44,5 +45,8 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.60.1",
     "vitest": "^4.1.8"
+  },
+  "overrides": {
+    "esbuild": "0.28.1"
   }
 }

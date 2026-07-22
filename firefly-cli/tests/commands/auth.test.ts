@@ -104,4 +104,31 @@ describe('auth commands', () => {
       'Active profile: local\nBase URL: http://localhost\nToken: **********************wxyz',
     );
   });
+
+  test('all auth commands honor the global config path', async () => {
+    delete process.env.FIREFLY_CLI_CONFIG;
+    const explicitPath = join(tempDir, 'explicit.json');
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await runCli([
+      '--config',
+      explicitPath,
+      'auth',
+      'set-token',
+      '--profile',
+      'local',
+      '--url',
+      'http://localhost',
+      '--token',
+      'explicit-token',
+    ]);
+    await runCli(['--config', explicitPath, 'auth', 'use', 'local']);
+    await runCli(['--config', explicitPath, 'auth', 'status']);
+
+    const config = JSON.parse(await readFile(explicitPath, 'utf8'));
+    expect(config.activeProfile).toBe('local');
+    expect(log).toHaveBeenLastCalledWith(
+      'Active profile: local\nBase URL: http://localhost\nToken: **********oken',
+    );
+  });
 });

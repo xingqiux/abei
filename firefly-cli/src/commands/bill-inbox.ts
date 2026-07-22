@@ -159,7 +159,10 @@ export function registerBillInboxCommands(program: Command): void {
       const service = new BillTaskService(context.client);
       const review = await service.review(taskId);
       console.log(renderOutput(review, { format: context.format }));
-      for (const advisory of [renderCrossSourceAdvisory(review), renderBalanceChainAdvisory(review)]) {
+      for (const advisory of [
+        renderCrossSourceAdvisory(review),
+        renderBalanceChainAdvisory(review),
+      ]) {
         if (advisory !== undefined) {
           console.error(advisory);
         }
@@ -194,7 +197,12 @@ export function registerBillInboxCommands(program: Command): void {
     .command('split')
     .description('Split a combo-payment statement row into importable rows.')
     .argument('<rowId>', 'Statement row identifier.')
-    .requiredOption('--part <payment=amount>', 'Split part. Use payment=amount or payment:source=amount. Repeatable.', collect, [])
+    .requiredOption(
+      '--part <payment=amount>',
+      'Split part. Use payment=amount or payment:source=amount. Repeatable.',
+      collect,
+      [],
+    )
     .action(async function (rowId: string, options: BillStatementRowSplitOptions) {
       const context = await createCommandContext(this);
       const service = new BillTaskService(context.client);
@@ -209,7 +217,10 @@ export function registerBillInboxCommands(program: Command): void {
     .option('--all', 'Import all importable rows for the task.')
     .option('--rows <ids>', 'Comma-separated statement row IDs to import.')
     .option('--confirm', 'Actually create Firefly transactions. Without this, performs a dry run.')
-    .option('--include-payload', 'Include sanitized Firefly transaction payloads in dry-run output.')
+    .option(
+      '--include-payload',
+      'Include sanitized Firefly transaction payloads in dry-run output.',
+    )
     .action(async function (taskId: string, options: BillStatementImportCommandOptions) {
       if (options.all && options.rows) {
         throw new FireflyInputError('Use either --all or --rows, not both.');
@@ -338,7 +349,9 @@ export function registerBillInboxCommands(program: Command): void {
       console.log(renderOutput(result, { format: context.format }));
     });
 
-  const settings = bills.command('settings').description('Show or update bill inbox mailbox settings.');
+  const settings = bills
+    .command('settings')
+    .description('Show or update bill inbox mailbox settings.');
   settings
     .command('show')
     .description('Show configured bill inbox mailbox settings.')
@@ -392,7 +405,9 @@ function parseSetValues(values: string[]): Record<string, string> {
   return parsed;
 }
 
-function parseSplitParts(values: string[]): Array<{ payment_method: string; source_name?: string; amount: string }> {
+function parseSplitParts(
+  values: string[],
+): Array<{ payment_method: string; source_name?: string; amount: string }> {
   if (values.length < 2) {
     throw new FireflyInputError('Pass at least two --part values.');
   }
@@ -428,7 +443,10 @@ function parseIdList(value: string, option: string): number[] {
   return ids;
 }
 
-function parseOptionalPositiveInteger(value: string | undefined, option: string): number | undefined {
+function parseOptionalPositiveInteger(
+  value: string | undefined,
+  option: string,
+): number | undefined {
   if (undefined === value || '' === value.trim()) {
     return undefined;
   }
@@ -440,7 +458,9 @@ function parseOptionalPositiveInteger(value: string | undefined, option: string)
   return parsed;
 }
 
-function parseSettingsUpdate(options: BillInboxSettingsSetOptions): Record<string, string | number | boolean> {
+function parseSettingsUpdate(
+  options: BillInboxSettingsSetOptions,
+): Record<string, string | number | boolean> {
   if (options.enabled && options.disabled) {
     throw new FireflyInputError('Use either --enabled or --disabled, not both.');
   }
@@ -452,7 +472,15 @@ function parseSettingsUpdate(options: BillInboxSettingsSetOptions): Record<strin
   if (options.disabled) {
     payload.enabled = false;
   }
-  for (const key of ['provider', 'email', 'host', 'encryption', 'username', 'password', 'folder'] as const) {
+  for (const key of [
+    'provider',
+    'email',
+    'host',
+    'encryption',
+    'username',
+    'password',
+    'folder',
+  ] as const) {
     const value = options[key];
     if (undefined !== value && '' !== value.trim()) {
       payload[key] = value;
@@ -548,8 +576,5 @@ function renderBalanceChainAdvisory(review: unknown): string | undefined {
     return `  - ${name}：预期 ${entry.expected_after ?? '?'}，账单 ${entry.statement_balance ?? '?'}，差 ${entry.difference ?? '?'}`;
   });
 
-  return [
-    `⚠ ${broken.length} 个资产账户的余额链未闭合，导入前请核对：`,
-    ...lines,
-  ].join('\n');
+  return [`⚠ ${broken.length} 个资产账户的余额链未闭合，导入前请核对：`, ...lines].join('\n');
 }

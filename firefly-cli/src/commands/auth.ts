@@ -19,7 +19,7 @@ export function registerAuthCommands(program: Command): void {
     .requiredOption('--token <token>', 'Firefly III personal access token.')
     .action(async function (options: SetTokenOptions) {
       const profile = this.optsWithGlobals().profile ?? options.profile ?? 'default';
-      const store = new ConfigStore();
+      const store = new ConfigStore(this.optsWithGlobals().config);
       await store.setToken({
         profile,
         baseUrl: options.url,
@@ -33,8 +33,8 @@ export function registerAuthCommands(program: Command): void {
     .command('use')
     .description('Set the active Firefly III profile.')
     .argument('<profile>', 'Profile name.')
-    .action(async (profile: string) => {
-      const store = new ConfigStore();
+    .action(async function (profile: string) {
+      const store = new ConfigStore(this.optsWithGlobals().config);
       await store.useProfile(profile);
       console.log(`Active profile is now "${profile}".`);
     });
@@ -42,8 +42,8 @@ export function registerAuthCommands(program: Command): void {
   auth
     .command('status')
     .description('Show the active profile without exposing the full token.')
-    .action(async () => {
-      const store = new ConfigStore();
+    .action(async function () {
+      const store = new ConfigStore(this.optsWithGlobals().config);
       const active = await store.getActiveProfile();
       if (!active) {
         console.log('No active profile configured.');
