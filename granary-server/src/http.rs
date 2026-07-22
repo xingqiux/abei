@@ -15,7 +15,7 @@ use tower_http::{
 
 use crate::{
     access, admin, advanced_transactions, api, auth, config::Config, instance, invitation, mfa,
-    password_reset, planning, reconciliation, transaction_links,
+    password_reset, planning, reconciliation, reports, transaction_links,
 };
 
 #[derive(Clone)]
@@ -65,6 +65,7 @@ pub fn router(pool: PgPool, config: &Config) -> Router {
     let protected = Router::new()
         .route("/api/v1/auth/logout", post(auth::logout))
         .route("/api/v1/me", get(auth::me))
+        .route("/api/v1/auth/csrf", get(auth::csrf))
         .route("/api/v1/auth/sessions", get(auth::list_sessions))
         .route(
             "/api/v1/auth/sessions/{session_id}",
@@ -134,7 +135,9 @@ pub fn router(pool: PgPool, config: &Config) -> Router {
         )
         .route(
             "/api/v1/books/{book_id}/accounts/{account_id}",
-            put(api::update_account).delete(api::archive_account),
+            get(api::show_account)
+                .put(api::update_account)
+                .delete(api::archive_account),
         )
         .route(
             "/api/v1/books/{book_id}/accounts/{account_id}/restore",
@@ -193,6 +196,14 @@ pub fn router(pool: PgPool, config: &Config) -> Router {
             get(planning::budget_report),
         )
         .route(
+            "/api/v1/books/{book_id}/reports/summary",
+            get(reports::summary),
+        )
+        .route(
+            "/api/v1/books/{book_id}/reports/expenses/by-category",
+            get(reports::expense_by_category),
+        )
+        .route(
             "/api/v1/books/{book_id}/counterparties",
             get(api::list_counterparties).post(api::create_counterparty),
         )
@@ -204,6 +215,7 @@ pub fn router(pool: PgPool, config: &Config) -> Router {
             "/api/v1/books/{book_id}/counterparties/{counterparty_id}/restore",
             post(api::restore_counterparty),
         )
+        .route("/api/v1/currencies", get(api::list_currencies))
         .route(
             "/api/v1/books/{book_id}/transactions",
             get(api::list_transactions).post(api::create_transaction),

@@ -8,7 +8,7 @@ use axum::{
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool, Postgres, Transaction};
-use time::OffsetDateTime;
+use time::{Date, OffsetDateTime};
 
 use crate::{
     auth::{ApiError, AuthKind, Principal, initialize_book_accounts},
@@ -149,6 +149,15 @@ pub struct AccountResponse {
     version: i64,
     #[serde(with = "time::serde::rfc3339::option")]
     archived_at: Option<OffsetDateTime>,
+}
+
+#[derive(Serialize, FromRow)]
+pub struct CurrencyResponse {
+    code: String,
+    name: String,
+    symbol: String,
+    minor_units: i16,
+    enabled_by_default: bool,
 }
 
 #[derive(Deserialize)]
@@ -365,6 +374,8 @@ pub struct PostingResponse {
     account_name: String,
     account_class: String,
     currency_code: String,
+    category_id: Option<i64>,
+    category_name: Option<String>,
     budget_id: Option<i64>,
     budget_name: Option<String>,
     #[serde(with = "rust_decimal::serde::str")]
@@ -421,6 +432,12 @@ pub struct TransactionPage {
 pub struct PageQuery {
     limit: Option<u16>,
     before_id: Option<i64>,
+    start: Option<String>,
+    end: Option<String>,
+    #[serde(rename = "type")]
+    transaction_type: Option<String>,
+    account_id: Option<i64>,
+    query: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1021,6 +1038,48 @@ pub async fn list_accounts(
     .await
     .map_err(ApiError::database)?;
     Ok(Json(rows))
+}
+
+pub async fn show_account(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((book_id, account_id)): Path<(i64, i64)>,
+) -> Result<Json<AccountResponse>, ApiError> {
+    require_book(&state.pool, &principal, book_id, false).await?;
+    let account = sqlx::query_as::<_, AccountResponse>(
+        r#"
+        SELECT a.id, a.name, a.class, a.role, a.currency_code,
+               COALESCE(sum(p.amount) FILTER (WHERE j.status IN ('posted', 'reversed')), 0) AS balance,
+               a.version, a.archived_at
+        FROM ledger_accounts a
+        LEFT JOIN postings p ON p.book_id = a.book_id AND p.account_id = a.id
+        LEFT JOIN journal_entries j ON j.id = p.journal_entry_id
+        WHERE a.book_id = $1 AND a.id = $2 AND a.hidden = FALSE
+          AND a.class IN ('asset', 'liability')
+        GROUP BY a.id
+        "#,
+    )
+    .bind(book_id)
+    .bind(account_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::database)?
+    .ok_or_else(|| ApiError::not_found("账户不存在"))?;
+    Ok(Json(account))
+}
+
+pub async fn list_currencies(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<Vec<CurrencyResponse>>, ApiError> {
+    require_scope(&principal, "books:read")?;
+    let currencies = sqlx::query_as::<_, CurrencyResponse>(
+        "SELECT code, name, symbol, exponent AS minor_units, enabled_by_default FROM currencies ORDER BY code",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::database)?;
+    Ok(Json(currencies))
 }
 
 pub async fn update_account(
@@ -1905,6 +1964,29 @@ pub async fn list_transactions(
 ) -> Result<Json<TransactionPage>, ApiError> {
     require_book(&state.pool, &principal, book_id, false).await?;
     let limit = i64::from(query.limit.unwrap_or(50).clamp(1, 200));
+    let start = parse_query_date(query.start.as_deref(), "start")?;
+    let end = parse_query_date(query.end.as_deref(), "end")?;
+    if start.zip(end).is_some_and(|(start, end)| start > end) {
+        return Err(ApiError::bad_request(
+            "date_range_invalid",
+            "start 不能晚于 end",
+        ));
+    }
+    let transaction_type = match query.transaction_type.as_deref() {
+        None | Some("all") => None,
+        Some(value @ ("withdrawal" | "deposit" | "transfer")) => Some(value),
+        Some(_) => {
+            return Err(ApiError::bad_request(
+                "transaction_type_invalid",
+                "type 只支持 withdrawal、deposit 或 transfer",
+            ));
+        }
+    };
+    let search = query
+        .query
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     let journals = sqlx::query_as::<_, JournalRow>(
         r#"
         SELECT j.id, j.status, j.occurred_at, j.description, j.counterparty_id,
@@ -1922,14 +2004,49 @@ pub async fn list_transactions(
         LEFT JOIN transaction_replacements replacement_target
           ON replacement_target.book_id = j.book_id
          AND replacement_target.original_journal_id = j.id
+        JOIN books b ON b.id = j.book_id
         WHERE j.book_id = $1 AND j.status IN ('posted', 'reversed')
           AND ($2::bigint IS NULL OR j.id < $2)
+          AND ($3::date IS NULL OR (j.occurred_at AT TIME ZONE b.timezone)::date >= $3)
+          AND ($4::date IS NULL OR (j.occurred_at AT TIME ZONE b.timezone)::date <= $4)
+          AND (
+            $5::text IS NULL
+            OR ($5 = 'withdrawal' AND EXISTS (
+                SELECT 1 FROM postings fp JOIN ledger_accounts fa ON fa.id = fp.account_id
+                WHERE fp.journal_entry_id = j.id AND fa.class = 'expense'
+            ))
+            OR ($5 = 'deposit' AND EXISTS (
+                SELECT 1 FROM postings fp JOIN ledger_accounts fa ON fa.id = fp.account_id
+                WHERE fp.journal_entry_id = j.id AND fa.class = 'income'
+            ))
+            OR ($5 = 'transfer' AND NOT EXISTS (
+                SELECT 1 FROM postings fp JOIN ledger_accounts fa ON fa.id = fp.account_id
+                WHERE fp.journal_entry_id = j.id AND fa.class IN ('expense', 'income')
+            ))
+          )
+          AND ($6::bigint IS NULL OR EXISTS (
+              SELECT 1 FROM postings fp
+              WHERE fp.journal_entry_id = j.id AND fp.account_id = $6
+          ))
+          AND (
+            $7::text IS NULL OR j.description ILIKE '%' || $7 || '%'
+            OR c.name ILIKE '%' || $7 || '%'
+            OR EXISTS (
+                SELECT 1 FROM postings fp JOIN ledger_accounts fa ON fa.id = fp.account_id
+                WHERE fp.journal_entry_id = j.id AND fa.name ILIKE '%' || $7 || '%'
+            )
+          )
         ORDER BY j.id DESC
-        LIMIT $3
+        LIMIT $8
         "#,
     )
     .bind(book_id)
     .bind(query.before_id)
+    .bind(start)
+    .bind(end)
+    .bind(transaction_type)
+    .bind(query.account_id)
+    .bind(search)
     .bind(limit)
     .fetch_all(&state.pool)
     .await
@@ -1942,6 +2059,17 @@ pub async fn list_transactions(
         data,
         next_before_id,
     }))
+}
+
+fn parse_query_date(value: Option<&str>, field: &'static str) -> Result<Option<Date>, ApiError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let format = time::format_description::parse_borrowed::<3>("[year]-[month]-[day]")
+        .map_err(ApiError::internal)?;
+    Date::parse(value, &format)
+        .map(Some)
+        .map_err(|_| ApiError::bad_request("date_invalid", format!("{field} 必须是 YYYY-MM-DD")))
 }
 
 pub async fn reverse_transaction(
@@ -2103,10 +2231,13 @@ async fn hydrate_transactions(
     let rows = sqlx::query_as::<_, PostingRow>(
         r#"
         SELECT p.journal_entry_id, p.id, p.line_no, p.account_id, a.name AS account_name,
-               a.class AS account_class, a.currency_code, p.budget_id,
+               a.class AS account_class, a.currency_code, c.id AS category_id,
+               c.name AS category_name, p.budget_id,
                bu.name AS budget_name, p.amount, p.book_amount, p.memo, p.cleared_at
         FROM postings p
         JOIN ledger_accounts a ON a.id = p.account_id
+        LEFT JOIN categories c
+          ON c.book_id = p.book_id AND c.ledger_account_id = p.account_id
         LEFT JOIN budgets bu ON bu.book_id = p.book_id AND bu.id = p.budget_id
         WHERE p.journal_entry_id = ANY($1)
         ORDER BY p.journal_entry_id, p.line_no
@@ -2200,6 +2331,8 @@ struct PostingRow {
     account_name: String,
     account_class: String,
     currency_code: String,
+    category_id: Option<i64>,
+    category_name: Option<String>,
     budget_id: Option<i64>,
     budget_name: Option<String>,
     amount: Decimal,
@@ -2226,6 +2359,8 @@ impl From<PostingRow> for PostingResponse {
             account_name: row.account_name,
             account_class: row.account_class,
             currency_code: row.currency_code,
+            category_id: row.category_id,
+            category_name: row.category_name,
             budget_id: row.budget_id,
             budget_name: row.budget_name,
             amount: row.amount,
@@ -2246,7 +2381,21 @@ async fn category_postings(
     let mut postings = Vec::with_capacity(splits.len());
     for split in splits {
         let account_id = sqlx::query_scalar::<_, i64>(
-            "SELECT ledger_account_id FROM categories WHERE book_id = $1 AND id = $2 AND kind = $3 AND archived_at IS NULL",
+            r#"
+            SELECT category.ledger_account_id
+            FROM categories category
+            WHERE category.book_id = $1
+              AND category.id = $2
+              AND category.kind = $3
+              AND category.archived_at IS NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM categories child
+                  WHERE child.book_id = category.book_id
+                    AND child.parent_id = category.id
+                    AND child.archived_at IS NULL
+              )
+            "#,
         )
         .bind(book_id)
         .bind(split.category_id)
@@ -2254,7 +2403,9 @@ async fn category_postings(
         .fetch_optional(pool)
         .await
         .map_err(ApiError::database)?
-        .ok_or_else(|| ApiError::bad_request("category_invalid", "分类不存在或类型不匹配"))?;
+        .ok_or_else(|| {
+            ApiError::bad_request("category_invalid", "分类不存在、类型不匹配或不是末级分类")
+        })?;
         if split.budget_id.is_some() && matches!(kind, CategoryKind::Income) {
             return Err(ApiError::bad_request(
                 "budget_income_invalid",

@@ -109,6 +109,20 @@ async fn pat_can_post_a_balanced_withdrawal_and_read_the_result(pool: PgPool) {
     let token = initialized["personal_access_token"].as_str().unwrap();
     let book_id = initialized["book_id"].as_i64().unwrap();
 
+    let currencies = app
+        .clone()
+        .oneshot(get_request("/api/v1/currencies", token))
+        .await
+        .unwrap();
+    assert_eq!(currencies.status(), StatusCode::OK);
+    let currencies = response_json(currencies).await;
+    assert!(currencies.as_array().unwrap().iter().any(|currency| {
+        currency["code"] == "CNY"
+            && currency["symbol"] == "CN¥"
+            && currency["minor_units"] == 2
+            && currency["enabled_by_default"] == true
+    }));
+
     let account = send_json(
         &app,
         "POST",

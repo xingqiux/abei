@@ -13,6 +13,7 @@ pub mod mfa;
 pub mod password_reset;
 pub mod planning;
 pub mod reconciliation;
+pub mod reports;
 pub mod transaction_links;
 
 use sqlx::{PgPool, postgres::PgPoolOptions};

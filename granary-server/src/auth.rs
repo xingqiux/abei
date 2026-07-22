@@ -99,6 +99,11 @@ pub struct MeResponse {
     instance_admin: bool,
 }
 
+#[derive(Serialize)]
+pub struct CsrfResponse {
+    csrf_token: String,
+}
+
 #[derive(Deserialize)]
 pub struct CreatePatRequest {
     name: String,
@@ -628,6 +633,32 @@ pub async fn me(
         display_name: user.2,
         instance_admin: user.3,
     }))
+}
+
+pub async fn csrf(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<CsrfResponse>, ApiError> {
+    if principal.auth_kind != AuthKind::Session {
+        return Err(ApiError::bad_request(
+            "session_required",
+            "PAT 请求不需要 CSRF Token",
+        ));
+    }
+    let csrf_token = random_token();
+    let updated = sqlx::query(
+        "UPDATE user_sessions SET csrf_hash = $3 WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL",
+    )
+    .bind(principal.credential_id)
+    .bind(principal.user_id)
+    .bind(digest(&csrf_token))
+    .execute(&state.pool)
+    .await
+    .map_err(ApiError::database)?;
+    if updated.rows_affected() != 1 {
+        return Err(ApiError::unauthorized("登录会话无效或已过期"));
+    }
+    Ok(Json(CsrfResponse { csrf_token }))
 }
 
 pub async fn create_pat(
