@@ -4,6 +4,7 @@ pub mod advanced_transactions;
 pub mod api;
 pub mod auth;
 pub mod config;
+pub mod firefly_import;
 pub mod http;
 pub mod instance;
 pub mod invitation;

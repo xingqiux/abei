@@ -9,6 +9,7 @@
 - `granary-web/`: 面向日常使用的 Granary Web 前端；认证、账本、账户、交易、搜索、基础资料和概览已接入 `granary-server`。
 - `firefly-cli/`: 面向用户和 AI agent 的命令行工具，提供更顺手的记账操作入口。
 - `docs/development-target.md`: Rust 后端启动前的 Firefly/Web/CLI 历史验收基线，不是当前产品方向来源。
+- `docs/firefly-migration-runbook.md`: 生产快照的隔离恢复、脱敏盘点和迁移核对操作手册。
 
 ## 本地开发与测试
 
@@ -43,7 +44,9 @@ make release
 
 `make test` 覆盖 Rust/PostgreSQL、Firefly PHPUnit、CLI 和 Granary Web 自动化测试。`make audit` 覆盖 Firefly Composer、Firefly npm、CLI npm 和 Granary npm；`make release` 依次执行配置校验、隔离 E2E、测试、lint、依赖审计、镜像构建和默认栈空卷启动。常用命令可运行 `make help` 查看。
 
-`make down` 只停止默认开发栈并保留数据。`make reset` 会删除默认开发数据后立即重建；`make clean` 会删除默认、测试、empty-start 和 E2E 项目的容器、网络及数据卷。这两个命令都是破坏性操作，只应在确认不需要相关数据时使用。
+真实 Firefly PostgreSQL dump 只能恢复到独立 Compose project 的 `migration` profile 源库。`make migration-source-restore FIREFLY_SOURCE_DUMP=/absolute/path/postgres.dump` 会重建该源库并在恢复后默认设为只读；`make migration-source-inspect` 只输出表数量、系统类型和迁移冲突，不输出账户名、交易描述、邮箱、备注、文件名或路径。完整流程见迁移操作手册。
+
+`make down` 只停止默认开发栈并保留数据。`make reset` 会删除默认开发数据后立即重建，但不接触独立 migration project；`make clean` 会删除默认、测试、迁移、empty-start 和 E2E 项目的容器、网络及数据卷。这两个命令都是破坏性操作，只应在确认不需要相关数据时使用。
 
 ## 当前目标
 

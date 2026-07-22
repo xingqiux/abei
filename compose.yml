@@ -110,6 +110,45 @@ services:
       timeout: 5s
       retries: 30
 
+  firefly-source-db:
+    image: postgres:17-alpine
+    profiles: [migration]
+    environment:
+      POSTGRES_DB: ${FIREFLY_SOURCE_POSTGRES_DB:-firefly_source}
+      POSTGRES_USER: ${FIREFLY_SOURCE_POSTGRES_USER:-firefly_source}
+      POSTGRES_PASSWORD: ${FIREFLY_SOURCE_POSTGRES_PASSWORD:-granary-local-migration-only}
+    volumes:
+      - firefly-source-postgres:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${FIREFLY_SOURCE_POSTGRES_PORT:-15445}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  firefly-source-restore:
+    image: postgres:17-alpine
+    profiles: [migration]
+    environment:
+      PGPASSWORD: ${FIREFLY_SOURCE_POSTGRES_PASSWORD:-granary-local-migration-only}
+    depends_on:
+      firefly-source-db:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ${FIREFLY_SOURCE_DUMP:-./import/firefly-postgres.dump}
+        target: /snapshot/postgres.dump
+        read_only: true
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        pg_restore --list /snapshot/postgres.dump >/dev/null
+        dropdb --host=firefly-source-db --username=${FIREFLY_SOURCE_POSTGRES_USER:-firefly_source} --force --if-exists ${FIREFLY_SOURCE_POSTGRES_DB:-firefly_source}
+        createdb --host=firefly-source-db --username=${FIREFLY_SOURCE_POSTGRES_USER:-firefly_source} ${FIREFLY_SOURCE_POSTGRES_DB:-firefly_source}
+        pg_restore --host=firefly-source-db --username=${FIREFLY_SOURCE_POSTGRES_USER:-firefly_source} --dbname=${FIREFLY_SOURCE_POSTGRES_DB:-firefly_source} --exit-on-error --single-transaction --no-owner --no-privileges /snapshot/postgres.dump
+        psql --host=firefly-source-db --username=${FIREFLY_SOURCE_POSTGRES_USER:-firefly_source} --dbname=postgres --set=ON_ERROR_STOP=1 --command="ALTER DATABASE ${FIREFLY_SOURCE_POSTGRES_DB:-firefly_source} SET default_transaction_read_only = on"
+
   db:
     image: postgres:17-alpine
     environment:
@@ -371,6 +410,7 @@ volumes:
   app-storage:
   cli-node-modules:
   dev-postgres:
+  firefly-source-postgres:
   granary-postgres:
   e2e-node-modules:
   web-node-modules:

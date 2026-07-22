@@ -17,3 +17,8 @@ firefly-cli/coverage/
 granary-server/target/
 .playwright-mcp/
 *.vsix
+*.dump
+env.secret
+firefly-rmb-*.tar.gz
+storage.tar.gz
+**/backups/

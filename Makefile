@@ -15,17 +15,19 @@ GRANARY_TEST_PROJECT ?= firefly-ai-accounting-granary-test
 GRANARY_TEST_COMPOSE := docker compose --env-file .env.example -p $(GRANARY_TEST_PROJECT) --profile granary-test
 GRANARY_TEST_SMTP_PORT ?= 13026
 GRANARY_TEST_IMAP_PORT ?= 13144
+MIGRATION_PROJECT ?= firefly-ai-accounting-migration
+MIGRATION_COMPOSE := docker compose --env-file .env.example -p $(MIGRATION_PROJECT) --profile migration
 
 .DEFAULT_GOAL := help
 
-.PHONY: help bootstrap up up-server down clean reset ps logs logs-server build test test-server test-backend test-cli test-web test-e2e test-empty-start lint analyze-backend audit migrate migrate-server shell config release
+.PHONY: help bootstrap up up-server down clean reset ps logs logs-server build test test-server test-backend test-cli test-web test-e2e test-empty-start lint analyze-backend audit migrate migrate-server migration-source-restore migration-source-inspect migration-source-down shell config release
 
 help:
 	@echo "bootstrap      Create .env when missing and build local images"
 	@echo "up             Start PostgreSQL, local mail, Firefly and Granary"
 	@echo "up-server      Start the new Granary PostgreSQL and Rust server"
 	@echo "down           Stop the local stack"
-	@echo "clean          Delete all local, test, empty-start and E2E containers and data"
+	@echo "clean          Delete all local, test, migration, empty-start and E2E containers and data"
 	@echo "reset          Delete local containers and development data, then restart"
 	@echo "ps             Show service status"
 	@echo "logs           Follow application and Granary logs"
@@ -43,6 +45,9 @@ help:
 	@echo "audit          Audit Firefly Composer/npm, CLI and Granary dependencies"
 	@echo "migrate        Run backend migrations"
 	@echo "migrate-server Run granary-server database migrations"
+	@echo "migration-source-restore  Restore FIREFLY_SOURCE_DUMP into the isolated source database"
+	@echo "migration-source-inspect  Print a value-free Firefly migration inventory"
+	@echo "migration-source-down     Stop the isolated Firefly source database"
 	@echo "shell          Open a shell in the backend container"
 	@echo "config         Render and validate the Compose configuration"
 	@echo "release        Run all checks, builds, empty-start and isolated E2E gates"
@@ -65,6 +70,7 @@ clean:
 	@status=0; \
 		$(COMPOSE) --profile test --profile e2e --profile granary --profile granary-test down -v --remove-orphans || status=$$?; \
 		$(GRANARY_TEST_COMPOSE) down -v --remove-orphans || status=$$?; \
+		$(MIGRATION_COMPOSE) down -v --remove-orphans || status=$$?; \
 		$(E2E_COMPOSE) down -v --remove-orphans || status=$$?; \
 		$(EMPTY_START_COMPOSE) down -v --remove-orphans || status=$$?; \
 		exit $$status
@@ -190,11 +196,26 @@ migrate:
 migrate-server:
 	$(COMPOSE) --profile granary run --rm granary-migrate
 
+migration-source-restore: .env
+	@if [ -z "$(FIREFLY_SOURCE_DUMP)" ] || [ ! -f "$(FIREFLY_SOURCE_DUMP)" ]; then \
+		echo "FIREFLY_SOURCE_DUMP must point to a readable pg_dump custom-format file" >&2; \
+		exit 2; \
+	fi
+	FIREFLY_SOURCE_DUMP="$(FIREFLY_SOURCE_DUMP)" $(MIGRATION_COMPOSE) up -d --wait firefly-source-db
+	FIREFLY_SOURCE_DUMP="$(FIREFLY_SOURCE_DUMP)" $(MIGRATION_COMPOSE) run --rm firefly-source-restore
+
+migration-source-inspect:
+	FIREFLY_SOURCE_DATABASE_URL='postgres://$(or $(FIREFLY_SOURCE_POSTGRES_USER),firefly_source):$(or $(FIREFLY_SOURCE_POSTGRES_PASSWORD),granary-local-migration-only)@127.0.0.1:$(or $(FIREFLY_SOURCE_POSTGRES_PORT),15445)/$(or $(FIREFLY_SOURCE_POSTGRES_DB),firefly_source)' \
+		cargo run --quiet --locked --manifest-path granary-server/Cargo.toml -- inspect-firefly
+
+migration-source-down:
+	$(MIGRATION_COMPOSE) stop firefly-source-db
+
 shell:
 	$(COMPOSE) exec app sh
 
 config: .env
-	$(COMPOSE) --profile test --profile e2e --profile granary --profile granary-test config --quiet
+	$(COMPOSE) --profile test --profile e2e --profile granary --profile granary-test --profile migration config --quiet
 
 release:
 	+$(MAKE) -j1 config
