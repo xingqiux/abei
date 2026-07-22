@@ -168,8 +168,9 @@ services:
       target: runtime
       args:
         VITE_LEGACY_URL: ${APP_URL:-http://localhost:${FIREFLY_PORT:-18001}}
+    profiles: [granary]
     depends_on:
-      app:
+      granary-server:
         condition: service_healthy
     ports:
       - "127.0.0.1:${GRANARY_WEB_PORT:-18002}:80"
@@ -264,9 +265,9 @@ services:
     image: postgres:17-alpine
     profiles: [e2e]
     environment:
-      POSTGRES_DB: firefly_e2e
-      POSTGRES_USER: firefly_e2e
-      POSTGRES_PASSWORD: firefly-e2e-only
+      POSTGRES_DB: granary_e2e
+      POSTGRES_USER: granary_e2e
+      POSTGRES_PASSWORD: granary-e2e-only
     tmpfs:
       - /var/lib/postgresql/data
     networks: [e2e]
@@ -288,50 +289,60 @@ services:
     networks: [e2e]
     healthcheck: *mail-healthcheck
 
-  e2e-app:
+  e2e-migrate:
     build:
-      context: ./firefly-iii
-      target: production
+      context: ./granary-server
     profiles: [e2e]
     environment:
-      <<: *app-environment
-      APP_ENV: testing
-      APP_DEBUG: "false"
-      APP_URL: http://e2e-web
-      DB_HOST: e2e-db
-      DB_DATABASE: firefly_e2e
-      DB_USERNAME: firefly_e2e
-      DB_PASSWORD: firefly-e2e-only
-      MAIL_HOST: e2e-mail
-      MAIL_USERNAME: bills
-      MAIL_PASSWORD: bills-e2e-only
-      FIREFLY_RUN_MIGRATIONS: "true"
-      FIREFLY_GENERATE_OAUTH_KEYS: "true"
+      GRANARY_DATABASE_URL: postgres://granary_e2e:granary-e2e-only@e2e-db:5432/granary_e2e
+      GRANARY_SECRET_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
     depends_on:
       e2e-db:
         condition: service_healthy
+    networks: [e2e]
+    command: ["migrate"]
+
+  e2e-server:
+    build:
+      context: ./granary-server
+    profiles: [e2e]
+    environment:
+      GRANARY_DATABASE_URL: postgres://granary_e2e:granary-e2e-only@e2e-db:5432/granary_e2e
+      GRANARY_LISTEN_ADDR: 0.0.0.0:8080
+      GRANARY_DB_MAX_CONNECTIONS: 10
+      GRANARY_COOKIE_SECURE: "false"
+      GRANARY_ALLOWED_ORIGIN: http://e2e-web
+      GRANARY_SECRET_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      GRANARY_SMTP_HOST: e2e-mail
+      GRANARY_SMTP_PORT: 3025
+      GRANARY_SMTP_USERNAME: bills
+      GRANARY_SMTP_PASSWORD: bills-e2e-only
+      GRANARY_MAIL_FROM: Granary E2E <no-reply@granary.test>
+      GRANARY_PUBLIC_URL: http://e2e-web
+      RUST_LOG: granary_server=info,tower_http=info
+    depends_on:
+      e2e-migrate:
+        condition: service_completed_successfully
       e2e-mail:
         condition: service_healthy
-    volumes:
-      - e2e-app-storage:/var/www/html/storage
     networks:
       e2e:
-        aliases: [app]
+        aliases: [granary-server]
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/health >/dev/null || exit 1"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health/ready"]
       interval: 3s
       timeout: 5s
-      retries: 60
+      retries: 30
 
   e2e-web:
     build:
       context: ./granary-web
       target: runtime
       args:
-        VITE_LEGACY_URL: http://e2e-app
+        VITE_LEGACY_URL: http://e2e-web
     profiles: [e2e]
     depends_on:
-      e2e-app:
+      e2e-server:
         condition: service_healthy
     networks: [e2e]
     healthcheck:
@@ -340,102 +351,28 @@ services:
       timeout: 5s
       retries: 30
 
-  e2e-seed:
-    build:
-      context: ./firefly-iii
-      target: production
-    profiles: [e2e]
-    environment:
-      <<: *app-environment
-      APP_ENV: testing
-      APP_DEBUG: "false"
-      APP_URL: http://e2e-web
-      CACHE_DRIVER: array
-      SESSION_DRIVER: array
-      DB_HOST: e2e-db
-      DB_DATABASE: firefly_e2e
-      DB_USERNAME: firefly_e2e
-      DB_PASSWORD: firefly-e2e-only
-      MAIL_HOST: e2e-mail
-      MAIL_USERNAME: bills
-      MAIL_PASSWORD: bills-e2e-only
-    depends_on:
-      e2e-app:
-        condition: service_healthy
-    volumes:
-      - e2e-app-storage:/var/www/html/storage
-      - e2e-secrets:/run/e2e
-    networks: [e2e]
-    command: ["sh", "-lc", "php artisan system:seed-e2e --send-mail && chown -R www-data:www-data storage"]
-
-  cli-contract:
-    image: node:22-alpine
-    profiles: [e2e]
-    working_dir: /workspace
-    depends_on:
-      e2e-seed:
-        condition: service_completed_successfully
-    volumes:
-      - ./firefly-cli:/workspace
-      - cli-contract-node-modules:/workspace/node_modules
-      - e2e-secrets:/run/e2e:ro
-    networks: [e2e]
-    command:
-      - sh
-      - -lc
-      - |
-        set -eu
-        npm ci
-        npm run build
-        node dist/cli.js --config /tmp/ffc-e2e.json auth set-token --profile e2e --url http://e2e-app --token "$$(cat /run/e2e/token)" >/dev/null
-        node dist/cli.js --config /tmp/ffc-e2e.json --profile e2e ping
-        crud_name="FFC E2E CRUD $$(date +%s)"
-        crud_json="$$(node dist/cli.js --config /tmp/ffc-e2e.json --profile e2e --format json budgets create --name "$$crud_name")"
-        crud_id="$$(node -e 'const value = JSON.parse(process.argv[1]); if (!value.data?.id) process.exit(1); process.stdout.write(String(value.data.id))' "$$crud_json")"
-        cleanup() {
-          if [ -n "$$crud_id" ]; then
-            node dist/cli.js --config /tmp/ffc-e2e.json --profile e2e budgets delete "$$crud_id" >/dev/null 2>&1 || true
-          fi
-        }
-        trap cleanup EXIT INT TERM
-        read_json="$$(node dist/cli.js --config /tmp/ffc-e2e.json --profile e2e --format json budgets get "$$crud_id")"
-        node -e 'const value = JSON.parse(process.argv[1]); if (String(value.data?.id) !== process.argv[2] || value.data?.attributes?.name !== process.argv[3]) process.exit(1)' "$$read_json" "$$crud_id" "$$crud_name"
-        node dist/cli.js --config /tmp/ffc-e2e.json --profile e2e budgets delete "$$crud_id" >/dev/null
-        if node dist/cli.js --config /tmp/ffc-e2e.json --profile e2e budgets get "$$crud_id" >/dev/null 2>&1; then
-          echo "Deleted CLI contract budget is still readable" >&2
-          exit 1
-        fi
-        crud_id=""
-
   e2e:
     image: mcr.microsoft.com/playwright:v1.61.1-noble
     profiles: [e2e]
     init: true
     working_dir: /workspace
     depends_on:
-      cli-contract:
-        condition: service_completed_successfully
       e2e-web:
         condition: service_healthy
     environment:
       E2E_BASE_URL: http://e2e-web
-      E2E_TOKEN_PATH: /run/e2e/token
     volumes:
       - ./granary-web:/workspace
       - e2e-node-modules:/workspace/node_modules
-      - e2e-secrets:/run/e2e:ro
     networks: [e2e]
     command: ["sh", "-lc", "npm ci && npm run test:e2e"]
 
 volumes:
   app-storage:
-  cli-contract-node-modules:
   cli-node-modules:
   dev-postgres:
   granary-postgres:
-  e2e-app-storage:
   e2e-node-modules:
-  e2e-secrets:
   web-node-modules:
 
 networks:

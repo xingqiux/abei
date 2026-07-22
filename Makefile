@@ -6,7 +6,9 @@ EMPTY_START_PROJECT ?= firefly-ai-accounting-empty-start
 EMPTY_START_COMPOSE := docker compose --env-file .env.example -p $(EMPTY_START_PROJECT)
 EMPTY_START_FIREFLY_PORT ?= 18021
 EMPTY_START_GRANARY_PORT ?= 18022
+EMPTY_START_GRANARY_SERVER_PORT ?= 18023
 EMPTY_START_POSTGRES_PORT ?= 15442
+EMPTY_START_GRANARY_POSTGRES_PORT ?= 15443
 EMPTY_START_SMTP_PORT ?= 13035
 EMPTY_START_IMAP_PORT ?= 13153
 GRANARY_TEST_PROJECT ?= firefly-ai-accounting-granary-test
@@ -34,7 +36,7 @@ help:
 	@echo "test-backend   Run PHPUnit against the isolated PostgreSQL test database"
 	@echo "test-cli       Run CLI tests in Node 22"
 	@echo "test-web       Run Granary tests in Node 22"
-	@echo "test-e2e       Run isolated CLI contract and browser tests from empty volumes"
+	@echo "test-e2e       Run the isolated Granary browser journey from empty volumes"
 	@echo "test-empty-start  Verify the default development stack from empty volumes"
 	@echo "lint           Run backend, CLI and Granary linters"
 	@echo "analyze-backend  Run full-tree Mago analysis against the upstream baseline"
@@ -51,7 +53,7 @@ help:
 bootstrap: .env build
 
 up: .env
-	$(COMPOSE) up -d --build db mail app granary-web
+	$(COMPOSE) --profile granary up -d --build --wait db mail app granary-db granary-migrate granary-server granary-web
 
 up-server: .env
 	$(COMPOSE) --profile granary up -d --build --wait granary-db granary-migrate granary-server
@@ -69,7 +71,7 @@ clean:
 
 reset: .env
 	$(COMPOSE) down -v --remove-orphans
-	$(COMPOSE) up -d --build db mail app granary-web
+	$(COMPOSE) --profile granary up -d --build db mail app granary-db granary-migrate granary-server granary-web
 
 ps:
 	$(COMPOSE) ps
@@ -142,7 +144,9 @@ test-empty-start:
 		export APP_URL='http://localhost:$(EMPTY_START_FIREFLY_PORT)'; \
 		export FIREFLY_PORT='$(EMPTY_START_FIREFLY_PORT)'; \
 		export GRANARY_WEB_PORT='$(EMPTY_START_GRANARY_PORT)'; \
+		export GRANARY_SERVER_PORT='$(EMPTY_START_GRANARY_SERVER_PORT)'; \
 		export POSTGRES_PORT='$(EMPTY_START_POSTGRES_PORT)'; \
+		export GRANARY_POSTGRES_PORT='$(EMPTY_START_GRANARY_POSTGRES_PORT)'; \
 		export MAIL_SMTP_PORT='$(EMPTY_START_SMTP_PORT)'; \
 		export MAIL_IMAP_PORT='$(EMPTY_START_IMAP_PORT)'; \
 		cleanup() { \
@@ -153,10 +157,12 @@ test-empty-start:
 			exit "$$cleanup_status"; \
 		}; \
 		trap cleanup EXIT INT TERM; \
-		$(EMPTY_START_COMPOSE) down -v --remove-orphans; \
-		$(EMPTY_START_COMPOSE) up -d --build --wait --wait-timeout 300 db mail app granary-web; \
+		$(EMPTY_START_COMPOSE) --profile granary down -v --remove-orphans; \
+		$(EMPTY_START_COMPOSE) --profile granary up -d --build --wait --wait-timeout 300 db mail app granary-db granary-migrate granary-server granary-web; \
 		$(EMPTY_START_COMPOSE) exec -T db sh -lc 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"' >/dev/null; \
+		$(EMPTY_START_COMPOSE) exec -T granary-db sh -lc 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"' >/dev/null; \
 		$(EMPTY_START_COMPOSE) exec -T app curl -fsS 'http://127.0.0.1/health' >/dev/null; \
+		$(EMPTY_START_COMPOSE) exec -T granary-server curl -fsS 'http://127.0.0.1:8080/health/ready' >/dev/null; \
 		$(EMPTY_START_COMPOSE) exec -T granary-web wget -q -O /dev/null 'http://127.0.0.1/index.html'; \
 		$(EMPTY_START_COMPOSE) exec -T app php -r 'foreach ([3025, 3143] as $$port) { $$socket = @fsockopen("mail", $$port, $$errno, $$error, 5); if (false === $$socket) { exit(1); } fclose($$socket); }'
 
