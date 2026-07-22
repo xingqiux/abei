@@ -136,7 +136,7 @@ test-e2e:
 		}; \
 		trap cleanup EXIT INT TERM; \
 		$(E2E_COMPOSE) down -v --remove-orphans; \
-		$(E2E_COMPOSE) up --build --quiet-build --attach e2e --abort-on-container-exit --exit-code-from e2e e2e
+		$(E2E_COMPOSE) up --build --attach e2e --abort-on-container-exit --exit-code-from e2e e2e
 
 test-empty-start:
 	@set -eu; \
