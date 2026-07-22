@@ -1,18 +1,18 @@
-# Firefly AI Accounting 完整开发目标与验收标准
+# Firefly AI Accounting 历史实现与验收基线
 
-状态：P0 完成；P1 持续治理
+状态：历史基线；不再作为当前产品方向或任务来源
 
 最后更新：2026-07-22
 
 适用范围：`firefly-iii/`、`granary-web/`、`firefly-cli/` 和根目录开发基础设施
 
-> 2026-07-21 已在同一份未提交工作树完整执行 `make release`，最终退出码为 0；CLI 契约、Playwright `22 passed / 0 failed`、全量测试、lint、审计、构建和 empty-start 均通过。P0 发布门禁已关闭，第 6.16 节和第 10.2 节列出的 P1 债务继续治理。
+> 本文保留 Rust `granary-server` 启动前，Firefly III、Granary Web 和 Firefly CLI 的实现范围与验收证据，供迁移和行为核对使用。当前产品方向以产品所有者维护的《谷仓产品方向》为唯一来源，当前实现状态以代码、测试和 Git 历史为准。
 
 ## 1. 文档用途
 
-本文是当前阶段唯一的开发范围、优先级和验收依据。目标是让 Granary Web、Firefly III 后端和 Firefly CLI 形成可用于真实日常账务的完整闭环，并提供可重复、隔离、从空卷可启动的本地测试与发布流程。
+本文记录上一阶段让 Granary Web、Firefly III 后端和 Firefly CLI 形成日常账务闭环时采用的范围、验收标准和结果。它不是 `granary-server` 的开发清单，也不得覆盖当前产品方向。
 
-用户已经清理的旧设计文档不再作为实现依据，也不得恢复。实现、API 契约或测试发现新边界时，应先在本文记录目标、风险和验收条件，再关闭对应任务。
+本文后续只在需要更正历史事实时修改。新的产品范围、优先级和决策不再写入本文。
 
 ## 2. 完成定义
 

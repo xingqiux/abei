@@ -1,13 +1,14 @@
 # Firefly AI Accounting
 
-基于 Firefly III 的 AI 记账项目，包含账本后端、Granary Web 和命令行工具。
+个人财务管理项目，正在以 Rust `granary-server` 完整替代 Firefly III 后端，同时保留现有 Granary Web、命令行工具和迁移来源。
 
 ## 目录结构
 
-- `firefly-iii/`: Firefly III 本体，本项目用作账本后端。
-- `granary-web/`: 面向日常使用的 Granary Web 前端。
+- `firefly-iii/`: 现有 Firefly III 实现，作为迁移来源和行为核对基线保留。
+- `granary-server/`: 新的 Rust 账务后端，拥有独立 PostgreSQL schema。
+- `granary-web/`: 面向日常使用的 Granary Web 前端，当前仍待切换到 `granary-server` API。
 - `firefly-cli/`: 面向用户和 AI agent 的命令行工具，提供更顺手的记账操作入口。
-- `docs/development-target.md`: 当前完整开发范围、验收标准和执行顺序。
+- `docs/development-target.md`: Rust 后端启动前的 Firefly/Web/CLI 历史验收基线，不是当前产品方向来源。
 
 ## 本地开发与测试
 
@@ -16,6 +17,7 @@
 ```bash
 make bootstrap
 make up
+make up-server
 make test
 make test-empty-start
 make test-e2e
@@ -27,8 +29,10 @@ make release
 启动后：
 
 - Granary Web: http://localhost:18002
+- Granary Server: http://localhost:18003
 - Firefly III: http://localhost:18001
 - PostgreSQL: `127.0.0.1:15432`
+- Granary PostgreSQL: `127.0.0.1:15433`
 - 测试 IMAP/SMTP: `127.0.0.1:13143` / `127.0.0.1:13025`
 
 这些端口可在 `.env` 中修改。`APP_URL` 默认跟随 `FIREFLY_PORT`，并同时用于 Granary 的“旧版界面”入口；只有使用自定义主机名或反向代理时才需要显式设置。
@@ -39,7 +43,7 @@ make release
 
 ## 当前目标
 
-当前 P0 收口目标已完成：Firefly III 账本后端、Granary Web、`firefly-cli`、账单邮件采集和多渠道账单导入已经由同一份工作树的完整 `make release` 验收，最终退出码为 0。当前开发重心转为 P1 持续治理，包括镜像精确版本或 digest、Firefly v2 direct-eval 依赖债和 Mago analyzer 基线；自然语言记账和 MCP 接入仍属于后续扩展方向。完整结果和后续任务以 `docs/development-target.md` 为准。
+现有 Firefly III、Granary Web 和 `firefly-cli` 闭环继续作为迁移基线。当前开发重心是 `granary-server`：先建立账本隔离、双重记账内核、认证和完整迁移验证，再把 Web 与 CLI 切换到新 API。产品方向由产品所有者维护，仓库只记录当前实现事实和可运行验证。
 
 ## 许可证说明
 
