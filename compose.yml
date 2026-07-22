@@ -32,7 +32,84 @@ x-mail-healthcheck: &mail-healthcheck
   retries: 30
   start_period: 2s
 
+x-granary-environment: &granary-environment
+  GRANARY_DATABASE_URL: postgres://${GRANARY_POSTGRES_USER:-granary}:${GRANARY_POSTGRES_PASSWORD:-granary-local-only}@granary-db:5432/${GRANARY_POSTGRES_DB:-granary}
+  GRANARY_LISTEN_ADDR: 0.0.0.0:8080
+  GRANARY_DB_MAX_CONNECTIONS: 10
+  GRANARY_COOKIE_SECURE: "false"
+  GRANARY_ALLOWED_ORIGIN: http://localhost:${GRANARY_WEB_PORT:-18002}
+  GRANARY_SECRET_KEY: ${GRANARY_SECRET_KEY:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+  GRANARY_SMTP_HOST: ${GRANARY_SMTP_HOST:-mail}
+  GRANARY_SMTP_PORT: ${GRANARY_SMTP_PORT:-3025}
+  GRANARY_SMTP_USERNAME: ${GRANARY_SMTP_USERNAME:-bills}
+  GRANARY_SMTP_PASSWORD: ${GRANARY_SMTP_PASSWORD:-bills-local-only}
+  GRANARY_MAIL_FROM: ${GRANARY_MAIL_FROM:-Granary <no-reply@granary.local>}
+  GRANARY_PUBLIC_URL: ${GRANARY_PUBLIC_URL:-http://localhost:${GRANARY_WEB_PORT:-18002}}
+  RUST_LOG: ${GRANARY_RUST_LOG:-granary_server=info,tower_http=info}
+
 services:
+  granary-db:
+    image: postgres:17-alpine
+    profiles: [granary]
+    environment:
+      POSTGRES_DB: ${GRANARY_POSTGRES_DB:-granary}
+      POSTGRES_USER: ${GRANARY_POSTGRES_USER:-granary}
+      POSTGRES_PASSWORD: ${GRANARY_POSTGRES_PASSWORD:-granary-local-only}
+    volumes:
+      - granary-postgres:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${GRANARY_POSTGRES_PORT:-15433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  granary-migrate:
+    build:
+      context: ./granary-server
+    profiles: [granary]
+    environment: *granary-environment
+    depends_on:
+      granary-db:
+        condition: service_healthy
+    command: ["migrate"]
+
+  granary-server:
+    build:
+      context: ./granary-server
+    profiles: [granary]
+    environment: *granary-environment
+    depends_on:
+      granary-migrate:
+        condition: service_completed_successfully
+      mail:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${GRANARY_SERVER_PORT:-18003}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health/ready"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  granary-test-db:
+    image: postgres:17-alpine
+    profiles: [granary-test]
+    environment:
+      POSTGRES_DB: ${GRANARY_TEST_POSTGRES_DB:-granary_test}
+      POSTGRES_USER: ${GRANARY_TEST_POSTGRES_USER:-granary_test}
+      POSTGRES_PASSWORD: ${GRANARY_TEST_POSTGRES_PASSWORD:-granary-test-only}
+    tmpfs:
+      - /var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${GRANARY_TEST_POSTGRES_PORT:-15434}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
   db:
     image: postgres:17-alpine
     environment:
@@ -355,6 +432,7 @@ volumes:
   cli-contract-node-modules:
   cli-node-modules:
   dev-postgres:
+  granary-postgres:
   e2e-app-storage:
   e2e-node-modules:
   e2e-secrets:

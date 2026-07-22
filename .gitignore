@@ -14,5 +14,6 @@ firefly-iii/storage/database/*.sqlite-*
 firefly-iii/storage/logs/*.log
 firefly-cli/dist/
 firefly-cli/coverage/
+granary-server/target/
 .playwright-mcp/
 *.vsix
