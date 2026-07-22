@@ -53,7 +53,7 @@ final class NativeImapBillMailboxClientTest extends TestCase
 
         $this->assertSame([
             'host' => '172.19.0.1',
-            'port' => 17890,
+            'port' => 17_890,
             'user' => 'user@name',
             'pass' => 'pa:ss',
         ], $method->invoke($client, 'imap.gmail.com'));
@@ -70,6 +70,25 @@ final class NativeImapBillMailboxClientTest extends TestCase
         $this->assertNull($method->invoke($client, 'imap.gmail.com'));
     }
 
+    public function testOpenSocketAcceptsNullableErrorOutputs(): void
+    {
+        $server = stream_socket_server('tcp://127.0.0.1:0');
+        $this->assertIsResource($server);
+        $address = stream_socket_get_name($server, false);
+        $this->assertIsString($address);
+
+        $client = new NativeImapBillMailboxClient();
+        $method = (new ReflectionClass($client))->getMethod('openSocket');
+        $errno  = null;
+        $errstr = null;
+        $arguments = [sprintf('tcp://%s', $address), &$errno, &$errstr];
+        $stream = $method->invokeArgs($client, $arguments);
+
+        $this->assertIsResource($stream);
+        fclose($stream);
+        fclose($server);
+    }
+
     public function testEstablishProxyTunnelSendsConnectRequest(): void
     {
         $client = new NativeImapBillMailboxClient();
@@ -81,7 +100,7 @@ final class NativeImapBillMailboxClientTest extends TestCase
         $method = (new ReflectionClass($client))->getMethod('establishProxyTunnel');
         $method->invoke($client, $clientStream, $this->mailboxConfig(), [
             'host' => '172.19.0.1',
-            'port' => 17890,
+            'port' => 17_890,
             'user' => 'proxy-user',
             'pass' => 'proxy-pass',
         ]);

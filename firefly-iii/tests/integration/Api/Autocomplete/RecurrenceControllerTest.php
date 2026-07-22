@@ -47,7 +47,7 @@ final class RecurrenceControllerTest extends TestCase
     {
         // act as a user
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $response = $this->get(route('api.v1.autocomplete.recurring'), ['Accept' => 'application/json']);
         $response->assertStatus(200);
@@ -57,7 +57,7 @@ final class RecurrenceControllerTest extends TestCase
     public function testGivenAuthenticatedRequestWithItems(): void
     {
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $this->createTestRecurrences(5, $user);
         $response = $this->get(route('api.v1.autocomplete.recurring'), ['Accept' => 'application/json']);
@@ -71,7 +71,7 @@ final class RecurrenceControllerTest extends TestCase
     public function testGivenAuthenticatedRequestWithItemsLimited(): void
     {
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $this->createTestRecurrences(5, $user);
         $response = $this->get(route('api.v1.autocomplete.recurring', ['query' => 'Recurrence', 'limit' => 3]), ['Accept' => 'application/json']);
@@ -86,7 +86,7 @@ final class RecurrenceControllerTest extends TestCase
     public function testGivenAuthenticatedRequestWithItemsLots(): void
     {
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $this->createTestRecurrences(20, $user);
         $response = $this->get(route('api.v1.autocomplete.recurring', ['query' => 'Recurrence 1', 'limit' => 20]), ['Accept' => 'application/json']);

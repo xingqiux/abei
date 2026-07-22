@@ -120,6 +120,8 @@ class BillStatementRow extends Model
             'row_number'                 => 'integer',
             'transaction_group_id'       => 'integer',
             'duplicate_of_row_id'        => 'integer',
+            'amount'                     => 'decimal:2',
+            'firefly_amount'             => 'decimal:2',
         ];
     }
 }

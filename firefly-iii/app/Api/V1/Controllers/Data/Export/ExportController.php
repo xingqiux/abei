@@ -192,7 +192,7 @@ final class ExportController extends Controller
         $response = response($data[$key]);
         $response
             ->header('Content-Description', 'File Transfer')
-            ->header('Content-Type', 'application/octet-stream')
+            ->header('Content-Type', 'text/csv; charset=UTF-8')
             ->header('Content-Disposition', 'attachment; filename='.$fileName)
             ->header('Content-Transfer-Encoding', 'binary')
             ->header('Connection', 'Keep-Alive')

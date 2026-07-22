@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace FireflyIII\Services\BillIngestion;
 
-use Carbon\Carbon;
+
 use FireflyIII\Models\Account;
 use FireflyIII\Models\BillStatementRow;
 use FireflyIII\Support\Steam;
@@ -78,7 +78,7 @@ class BalanceChainVerifier
                 continue;
             }
 
-            if (!isset($grouped[$accountName])) {
+            if (null === ($grouped[$accountName] ?? null)) {
                 $grouped[$accountName] = new Collection();
             }
             $grouped[$accountName]->push($row);
@@ -107,12 +107,12 @@ class BalanceChainVerifier
         }
 
         // Get the current Firefly balance as of the earliest row date
-        $earliestDate = $rows->min(fn (BillStatementRow $row) => $row->occurred_at?->timestamp ?? 0);
+        $earliestDate = $rows->min(fn (BillStatementRow $row) => $row->occurred_at->timestamp ?? 0);
         if (0 === $earliestDate) {
             return null;
         }
 
-        $earliestRow = $rows->first(fn (BillStatementRow $row) => ($row->occurred_at?->timestamp ?? 0) === $earliestDate);
+        $earliestRow = $rows->first(fn (BillStatementRow $row) => ($row->occurred_at->timestamp ?? 0) === $earliestDate);
         if (null === $earliestRow?->occurred_at) {
             return null;
         }
@@ -129,7 +129,7 @@ class BalanceChainVerifier
         $expectedAfter = bcadd($currentFireflyBalance, $netEffect, 2);
 
         // Get the statement balance from the latest row
-        $latestRow = $rows->sortByDesc(fn (BillStatementRow $row) => $row->occurred_at?->timestamp ?? 0)->first();
+        $latestRow = $rows->sortByDesc(fn (BillStatementRow $row) => $row->occurred_at->timestamp ?? 0)->first();
         if (null === $latestRow) {
             return null;
         }
@@ -170,7 +170,9 @@ class BalanceChainVerifier
 
             if ('deposit' === $row->firefly_type) {
                 $deposits = bcadd($deposits, $amount, 2);
-            } elseif ('withdrawal' === $row->firefly_type) {
+                continue;
+            }
+            if ('withdrawal' === $row->firefly_type) {
                 $withdrawals = bcadd($withdrawals, $amount, 2);
             }
         }
@@ -210,7 +212,7 @@ class BalanceChainVerifier
         $currencyCode = $repository->getAccountCurrency($account)?->code;
 
         // Prefer the account's own currency balance.
-        if (null !== $currencyCode && isset($balances[$currencyCode]) && '' !== (string) $balances[$currencyCode]) {
+        if (null !== $currencyCode && null !== ($balances[$currencyCode] ?? null) && '' !== (string) $balances[$currencyCode]) {
             return (string) $balances[$currencyCode];
         }
 

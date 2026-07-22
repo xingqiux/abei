@@ -58,7 +58,7 @@ class BillStatementRowSplitService
     /**
      * @param array<int,array<string,mixed>> $splits
      *
-     * @return array<int,array{payment_method:string,source_name:string,amount:string}>
+     * @return array<int,array{payment_method:string,source_name:string,amount:string,description:string,category_name:?string}>
      */
     private function normalizeSplits(array $splits): array
     {
@@ -67,19 +67,23 @@ class BillStatementRowSplitService
             $paymentMethod = trim((string) ($split['payment_method'] ?? ''));
             $sourceName = trim((string) ($split['source_name'] ?? ''));
             $amount = trim((string) ($split['amount'] ?? ''));
+            $description = trim((string) ($split['description'] ?? ''));
+            $categoryName = trim((string) ($split['category_name'] ?? ''));
             if ('' === $paymentMethod) {
                 $paymentMethod = $sourceName;
             }
             if ('' === $sourceName) {
                 $sourceName = $this->fireflyAccountName($paymentMethod);
             }
-            if ('' === $paymentMethod || '' === $sourceName || '' === $amount || 1 !== bccomp($amount, '0', 2)) {
+            if ('' === $paymentMethod || '' === $sourceName || '' === $amount || '' === $description || 1 !== bccomp($amount, '0', 2)) {
                 continue;
             }
             $parts[] = [
                 'payment_method' => $paymentMethod,
                 'source_name'    => $sourceName,
                 'amount'         => bcadd($amount, '0', 2),
+                'description'    => $description,
+                'category_name'  => '' === $categoryName ? null : $categoryName,
             ];
         }
 
@@ -91,7 +95,7 @@ class BillStatementRowSplitService
     }
 
     /**
-     * @param array{payment_method:string,source_name:string,amount:string} $part
+     * @param array{payment_method:string,source_name:string,amount:string,description:string,category_name:?string} $part
      *
      * @return array<string,mixed>
      */
@@ -100,6 +104,17 @@ class BillStatementRowSplitService
         $metadata = is_array($row->metadata) ? $row->metadata : [];
         $direction = (string) $row->direction;
         $fireflyType = '收入' === $direction ? 'deposit' : 'withdrawal';
+        $counterparty = trim((string) $row->counterparty);
+        $parentSource = trim((string) $row->source_name);
+        $parentDestination = trim((string) $row->destination_name);
+        $sourceName = '' !== $parentSource ? $parentSource : $counterparty;
+        $destinationName = '' !== $parentDestination ? $parentDestination : $counterparty;
+        if ('withdrawal' === $fireflyType) {
+            $sourceName = $part['source_name'];
+        }
+        if ('deposit' === $fireflyType) {
+            $destinationName = $part['source_name'];
+        }
 
         return [
             'user_id'                  => $row->user_id,
@@ -125,12 +140,12 @@ class BillStatementRowSplitService
                 '收/付款方式' => $part['payment_method'],
             ]),
             'firefly_type'             => $fireflyType,
-            'firefly_date'             => $row->firefly_date ?: $row->occurred_at,
+            'firefly_date'             => $row->firefly_date ?? $row->occurred_at,
             'firefly_amount'           => $part['amount'],
-            'firefly_description'      => $row->firefly_description ?: $row->description ?: $row->counterparty,
-            'source_name'              => 'withdrawal' === $fireflyType ? $part['source_name'] : $row->source_name,
-            'destination_name'         => 'withdrawal' === $fireflyType ? $row->destination_name : $part['source_name'],
-            'category_name'            => $row->category_name,
+            'firefly_description'      => $part['description'],
+            'source_name'              => $sourceName,
+            'destination_name'         => $destinationName,
+            'category_name'            => $part['category_name'],
             'notes'                    => trim((string) $row->notes."\n组合支付拆分自流水 #".$row->id),
             'tags'                     => $row->tags,
             'external_key'             => null === $row->external_key ? null : $row->external_key.':split:'.$rowNumber,

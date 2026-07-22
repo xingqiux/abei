@@ -28,7 +28,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use ZipArchive;
 
-class IndexController extends Controller
+final class IndexController extends Controller
 {
     public function __construct(
         private readonly BillTaskActionService $actionService,
@@ -85,7 +85,8 @@ class IndexController extends Controller
 
         if ('' !== $status) {
             $query->where('status', $status);
-        } else {
+        }
+        if ('' === $status) {
             $query->where('status', '!=', 'cleaned');
         }
 
@@ -588,7 +589,7 @@ class IndexController extends Controller
 
     private function readTextPreview(BillArtifact $artifact): string
     {
-        return mb_convert_encoding(substr(Storage::disk('local')->get((string) $artifact->path), 0, 200000), 'UTF-8', 'UTF-8,GB18030,GBK,BIG5');
+        return mb_convert_encoding(substr(Storage::disk('local')->get((string) $artifact->path), 0, 200_000), 'UTF-8', 'UTF-8,GB18030,GBK,BIG5');
     }
 
     /**
@@ -609,7 +610,7 @@ class IndexController extends Controller
             }
 
             $worksheet = simplexml_load_string($worksheetXml);
-            if (false === $worksheet || !isset($worksheet->sheetData)) {
+            if (false === $worksheet || null === ($worksheet->sheetData ?? null)) {
                 return [];
             }
 
@@ -687,7 +688,7 @@ class IndexController extends Controller
         if ('s' === $type) {
             return $sharedStrings[(int) $value] ?? $value;
         }
-        if ('inlineStr' === $type && isset($cell->is)) {
+        if ('inlineStr' === $type && null !== ($cell->is ?? null)) {
             return $this->xlsxTextNodeValue($cell->is);
         }
 
@@ -696,7 +697,7 @@ class IndexController extends Controller
 
     private function xlsxTextNodeValue(\SimpleXMLElement $node): string
     {
-        $text = isset($node->t) ? (string) $node->t : '';
+        $text = null === ($node->t ?? null) ? '' : (string) $node->t;
         foreach ($node->r as $run) {
             $text .= (string) ($run->t ?? '');
         }

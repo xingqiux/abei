@@ -128,7 +128,7 @@ class CmbTransactionBillSourceChannel implements BillSourceChannel
         return '请输入招商银行App“流水打印-申请记录”中的账单解压码';
     }
 
-    public function process(BillTask $task, ?string $secret = null): bool
+    public function process(BillTask $task, #[\SensitiveParameter] ?string $secret = null): bool
     {
         $encryptedArchives = $task->artifacts()
             ->where('kind', 'zip')
@@ -257,7 +257,10 @@ class CmbTransactionBillSourceChannel implements BillSourceChannel
 
     private function safeFilename(string $filename): string
     {
-        $filename = preg_replace('/[\/\\\\]+/', '_', basename($filename)) ?: 'cmb-transaction-statement.zip';
+        $filename = preg_replace('/[\/\\\\]+/', '_', basename($filename));
+        if (null === $filename || '' === $filename || '0' === $filename) {
+            $filename = 'cmb-transaction-statement.zip';
+        }
 
         return '' === pathinfo($filename, PATHINFO_EXTENSION) ? $filename.'.zip' : $filename;
     }

@@ -15,13 +15,18 @@ use FireflyIII\Models\BillTaskEvent;
 use FireflyIII\Models\Account;
 use FireflyIII\Models\AccountType;
 use FireflyIII\Models\GroupMembership;
+use FireflyIII\Models\TransactionGroup;
+use FireflyIII\Models\TransactionCurrency;
 use FireflyIII\Models\UserGroup;
 use FireflyIII\Models\UserRole;
+use FireflyIII\Repositories\TransactionGroup\TransactionGroupRepository;
+use FireflyIII\Repositories\TransactionGroup\TransactionGroupRepositoryInterface;
 use FireflyIII\Support\Facades\Preferences;
 use FireflyIII\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Override;
+use RuntimeException;
 use Tests\integration\TestCase;
 
 /**
@@ -94,6 +99,7 @@ final class BillTaskControllerTest extends TestCase
 
     public function testIndexAndShowExposeRowCountsPerTask(): void
     {
+        $transactionGroup = $this->createTransactionGroup();
         $pending   = $this->createStatementRow();
         $duplicate = $this->createStatementRow([
             'row_number'        => 2,
@@ -107,7 +113,7 @@ final class BillTaskControllerTest extends TestCase
         $imported  = $this->createStatementRow([
             'row_number'        => 3,
             'status'            => 'imported',
-            'transaction_group_id' => 999,
+            'transaction_group_id' => $transactionGroup->id,
             'platform_order_no' => 'row-counts-imported-0001',
             'merchant_order_no' => 'row-counts-imported-merchant-0001',
             'external_key'      => 'alipay:order:row-counts-imported-0001',
@@ -182,6 +188,9 @@ final class BillTaskControllerTest extends TestCase
                     'status'              => 'pending',
                     'url'                 => $downloadUrl,
                     'encrypted_file_data' => 'secret-token-123',
+                    'storage_path'        => '/srv/private/wechat.zip',
+                    'access_token'        => 'access-token-456',
+                    'password_hint'       => 'private-password-hint',
                     'host'                => 'tenpay.wechatpay.cn',
                 ],
             ],
@@ -199,7 +208,19 @@ final class BillTaskControllerTest extends TestCase
                 'remote_file' => [
                     'url'                 => $downloadUrl,
                     'encrypted_file_data' => 'secret-token-123',
+                    'temporary_path'      => 'bill-inbox/1/private/wechat.zip',
+                    'download_token'      => 'download-token-789',
                 ],
+            ],
+        ]);
+
+        $task->events()->create([
+            'event_type' => 'remote_file.pending',
+            'message'    => '等待下载',
+            'metadata'   => [
+                'safe_status' => 'pending',
+                'request_url' => $downloadUrl,
+                'api_secret'  => 'event-secret-321',
             ],
         ]);
 
@@ -211,11 +232,22 @@ final class BillTaskControllerTest extends TestCase
         $show->assertJsonPath('data.attributes.metadata.remote_file.host', 'tenpay.wechatpay.cn');
         $show->assertJsonMissingPath('data.attributes.metadata.remote_file.url');
         $show->assertJsonMissingPath('data.attributes.metadata.remote_file.encrypted_file_data');
+        $show->assertJsonMissingPath('data.attributes.metadata.remote_file.storage_path');
+        $show->assertJsonMissingPath('data.attributes.metadata.remote_file.access_token');
+        $show->assertJsonMissingPath('data.attributes.metadata.remote_file.password_hint');
 
         $artifacts = $this->getJson(route('api.v1.bill-tasks.artifacts', ['billTask' => $task->id]));
         $artifacts->assertStatus(200);
         $artifacts->assertJsonMissingPath('data.0.attributes.metadata.remote_file.url');
         $artifacts->assertJsonMissingPath('data.0.attributes.metadata.remote_file.encrypted_file_data');
+        $artifacts->assertJsonMissingPath('data.0.attributes.metadata.remote_file.temporary_path');
+        $artifacts->assertJsonMissingPath('data.0.attributes.metadata.remote_file.download_token');
+
+        $events = $this->getJson(route('api.v1.bill-tasks.events', ['billTask' => $task->id]));
+        $events->assertOk();
+        $events->assertJsonPath('data.0.attributes.metadata.safe_status', 'pending');
+        $events->assertJsonMissingPath('data.0.attributes.metadata.request_url');
+        $events->assertJsonMissingPath('data.0.attributes.metadata.api_secret');
 
         $this->assertStringNotContainsString('secret-token-123', $show->getContent());
         $this->assertStringNotContainsString('encrypted_file_data', $show->getContent());
@@ -223,6 +255,10 @@ final class BillTaskControllerTest extends TestCase
         $this->assertStringNotContainsString('secret-token-123', $artifacts->getContent());
         $this->assertStringNotContainsString('encrypted_file_data', $artifacts->getContent());
         $this->assertStringNotContainsString('downloadfilefromemail', $artifacts->getContent());
+        $this->assertStringNotContainsString('/srv/private', $show->getContent());
+        $this->assertStringNotContainsString('access-token-456', $show->getContent());
+        $this->assertStringNotContainsString('download-token-789', $artifacts->getContent());
+        $this->assertStringNotContainsString('event-secret-321', $events->getContent());
     }
 
     public function testListsArtifactsAndEvents(): void
@@ -233,6 +269,9 @@ final class BillTaskControllerTest extends TestCase
         $artifacts->assertStatus(200);
         $artifacts->assertJsonPath('data.0.type', 'bill-artifacts');
         $artifacts->assertJsonPath('data.0.attributes.filename', 'statement.zip');
+        $artifacts->assertJsonPath('data.0.attributes.mime_type', 'application/zip');
+        $artifacts->assertJsonPath('data.0.attributes.size', 1234);
+        $artifacts->assertJsonPath('data.0.attributes.generation_stage', 'received');
 
         $events = $this->getJson(route('api.v1.bill-tasks.events', ['billTask' => $this->task->id]));
         $events->assertStatus(200);
@@ -283,6 +322,7 @@ final class BillTaskControllerTest extends TestCase
 
         $response->assertStatus(200);
         $response->assertJsonPath('data.attributes.status', 'ready');
+        $this->assertStringNotContainsString('123456', $response->getContent());
 
         $this->task->refresh();
         $this->assertSame('ready', $this->task->status);
@@ -302,11 +342,11 @@ final class BillTaskControllerTest extends TestCase
 
         $retried = $this->postJson(route('api.v1.bill-tasks.retry', ['billTask' => $this->task->id]));
         $retried->assertStatus(200);
-        $retried->assertJsonPath('data.attributes.status', 'received');
+        $retried->assertJsonPath('data.attributes.status', 'unknown');
 
         $this->task->refresh();
-        $this->assertSame('received', $this->task->status);
-        $this->assertSame('task.retry_requested', $this->task->events()->latest('id')->first()->event_type);
+        $this->assertSame('unknown', $this->task->status);
+        $this->assertSame('task.unknown', $this->task->events()->latest('id')->first()->event_type);
     }
 
     public function testRejectsBlankSecret(): void
@@ -416,6 +456,13 @@ final class BillTaskControllerTest extends TestCase
         ]);
         $invalid->assertStatus(422);
         $invalid->assertJsonValidationErrors(['firefly_type', 'firefly_amount']);
+
+        $zero = $this->patchJson(route('api.v1.bill-statement-rows.update', ['billStatementRow' => $row->id]), [
+            'amount'         => '0',
+            'firefly_amount' => '0.00',
+        ]);
+        $zero->assertStatus(422);
+        $zero->assertJsonValidationErrors(['amount', 'firefly_amount']);
 
         // a rejected update must not silently apply partial changes.
         $row->refresh();
@@ -697,6 +744,7 @@ final class BillTaskControllerTest extends TestCase
 
         $row->refresh();
         $this->assertSame('imported', $row->status);
+        $this->assertSame('imported', $this->task->refresh()->status);
         $this->assertNotNull($row->transaction_group_id);
         $this->assertDatabaseHas('transaction_journals', [
             'id'          => $row->transactionGroup->transactionJournals()->first()->id,
@@ -711,6 +759,66 @@ final class BillTaskControllerTest extends TestCase
         $again->assertStatus(200);
         $again->assertJsonPath('summary.imported', 0);
         $again->assertJsonPath('summary.skipped', 1);
+    }
+
+    public function testImportUsesFundingAccountCurrencyInRowsPreviewAndTransaction(): void
+    {
+        $currency = TransactionCurrency::query()->where('code', 'USD')->firstOrFail();
+        $this->createAccount('USD checking', 'Asset account', $currency->id);
+        $row = $this->createStatementRow(['source_name' => 'USD checking']);
+
+        $this->actingAs($this->user, 'api');
+        $rows = $this->getJson(route('api.v1.bill-tasks.rows', ['billTask' => $this->task->id]));
+        $rows->assertOk();
+        $rows->assertJsonPath('data.0.attributes.currency_code', 'USD');
+        $rows->assertJsonPath('data.0.attributes.currency_symbol', '$');
+
+        $dryRun = $this->postJson(route('api.v1.bill-tasks.import', ['billTask' => $this->task->id]), [
+            'row_ids'         => [$row->id],
+            'confirm'         => false,
+            'include_payload' => true,
+        ]);
+        $dryRun->assertOk();
+        $dryRun->assertJsonPath('rows.0.action', 'would_import');
+        $dryRun->assertJsonPath('rows.0.currency_code', 'USD');
+        $dryRun->assertJsonPath('rows.0.currency_symbol', '$');
+        $dryRun->assertJsonPath('rows.0.payload.transactions.0.currency_code', 'USD');
+
+        $import = $this->postJson(route('api.v1.bill-tasks.import', ['billTask' => $this->task->id]), [
+            'row_ids' => [$row->id],
+            'confirm' => true,
+        ]);
+        $import->assertOk();
+        $import->assertJsonPath('summary.imported', 1);
+
+        $journal = $row->refresh()->transactionGroup->transactionJournals()->with('transactionCurrency')->firstOrFail();
+        $this->assertSame('USD', $journal->transactionCurrency->code);
+    }
+
+    public function testImportDoesNotExposeUnexpectedInternalExceptionDetails(): void
+    {
+        $row = $this->createStatementRow();
+        $this->createAccount('招商银行', 'Asset account');
+        $repository = new class extends TransactionGroupRepository {
+            public function store(array $data): TransactionGroup
+            {
+                throw new RuntimeException('access-token-456 at /srv/private/import.csv');
+            }
+        };
+        $this->app->instance(TransactionGroupRepositoryInterface::class, $repository);
+
+        $this->actingAs($this->user, 'api');
+        $response = $this->postJson(route('api.v1.bill-tasks.import', ['billTask' => $this->task->id]), [
+            'row_ids' => [$row->id],
+            'confirm' => true,
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('summary.failed', 1);
+        $response->assertJsonPath('rows.0.error', '导入失败，请检查账户和账单行后重试。');
+        $this->assertStringNotContainsString('access-token-456', $response->getContent());
+        $this->assertStringNotContainsString('/srv/private', $response->getContent());
+        $this->assertSame('导入失败，请检查账户和账单行后重试。', $row->refresh()->error_message);
     }
 
     public function testImportDryRunReturnsCompactRowsByDefault(): void
@@ -733,6 +841,8 @@ final class BillTaskControllerTest extends TestCase
         $response->assertJsonPath('rows.0.row_id', (string) $row->id);
         $response->assertJsonPath('rows.0.row_number', 1);
         $response->assertJsonPath('rows.0.status', 'skipped');
+        $response->assertJsonPath('rows.0.action', 'would_import');
+        $response->assertJsonPath('rows.0.error', null);
         $response->assertJsonPath('rows.0.description_preview', '为15****78交费20.00元');
         $response->assertJsonMissingPath('rows.0.payload');
         $this->assertStringNotContainsString('user_group', $response->getContent());
@@ -826,7 +936,8 @@ final class BillTaskControllerTest extends TestCase
             'firefly_type'        => null,
             'firefly_amount'      => null,
             'source_name'         => null,
-            'destination_name'    => '淘宝闪购',
+            'destination_name'    => null,
+            'counterparty'        => '淘宝闪购',
             'platform_order_no'   => '2026061823001114871453041742',
             'merchant_order_no'   => '13110600726061845616321068857',
             'metadata'            => [
@@ -841,8 +952,8 @@ final class BillTaskControllerTest extends TestCase
         $this->actingAs($this->user, 'api');
         $response = $this->postJson(route('api.v1.bill-statement-rows.split', ['billStatementRow' => $row->id]), [
             'splits' => [
-                ['payment_method' => '招商银行储蓄卡(8705)', 'amount' => '9.72'],
-                ['payment_method' => '花呗', 'amount' => '14.08'],
+                ['payment_method' => '招商银行储蓄卡(8705)', 'amount' => '9.72', 'description' => '午餐银行部分', 'category_name' => '餐饮'],
+                ['payment_method' => '花呗', 'amount' => '14.08', 'description' => '午餐花呗部分', 'category_name' => '外卖'],
             ],
         ]);
 
@@ -850,9 +961,15 @@ final class BillTaskControllerTest extends TestCase
         $response->assertJsonPath('parent.attributes.status', 'split');
         $response->assertJsonPath('data.0.attributes.status', 'pending');
         $response->assertJsonPath('data.0.attributes.source_name', '招商银行');
+        $response->assertJsonPath('data.0.attributes.destination_name', '淘宝闪购');
         $response->assertJsonPath('data.0.attributes.firefly_amount', '9.72');
+        $response->assertJsonPath('data.0.attributes.firefly_description', '午餐银行部分');
+        $response->assertJsonPath('data.0.attributes.category_name', '餐饮');
         $response->assertJsonPath('data.1.attributes.source_name', '花呗');
+        $response->assertJsonPath('data.1.attributes.destination_name', '淘宝闪购');
         $response->assertJsonPath('data.1.attributes.firefly_amount', '14.08');
+        $response->assertJsonPath('data.1.attributes.firefly_description', '午餐花呗部分');
+        $response->assertJsonPath('data.1.attributes.category_name', '外卖');
 
         $row->refresh();
         $this->assertSame('split', $row->status);
@@ -861,13 +978,14 @@ final class BillTaskControllerTest extends TestCase
 
     public function testDoesNotSplitAlreadyImportedComboPaymentRow(): void
     {
+        $transactionGroup = $this->createTransactionGroup();
         $row = $this->createStatementRow([
             'status'               => 'needs_split',
             'amount'               => '23.80',
             'payment_method'       => '招商银行储蓄卡(8705)&花呗',
             'firefly_type'         => null,
             'firefly_amount'       => null,
-            'transaction_group_id' => 158,
+            'transaction_group_id' => $transactionGroup->id,
             'metadata'             => [
                 'payment_split' => [
                     'status'  => 'needs_split',
@@ -879,8 +997,8 @@ final class BillTaskControllerTest extends TestCase
         $this->actingAs($this->user, 'api');
         $response = $this->postJson(route('api.v1.bill-statement-rows.split', ['billStatementRow' => $row->id]), [
             'splits' => [
-                ['payment_method' => '招商银行储蓄卡(8705)', 'amount' => '9.72'],
-                ['payment_method' => '花呗', 'amount' => '14.08'],
+                ['payment_method' => '招商银行储蓄卡(8705)', 'amount' => '9.72', 'description' => '银行部分'],
+                ['payment_method' => '花呗', 'amount' => '14.08', 'description' => '花呗部分'],
             ],
         ]);
 
@@ -1053,7 +1171,7 @@ final class BillTaskControllerTest extends TestCase
             'path'         => 'artifacts/original/task-1/statement.zip',
             'checksum'     => 'artifact-checksum',
             'encrypted'    => true,
-            'metadata'     => ['source' => 'mail_attachment'],
+            'metadata'     => ['source' => 'mail_attachment', 'size' => 1234],
         ]);
 
         $challenge = BillSecretChallenge::query()->create([
@@ -1146,11 +1264,11 @@ final class BillTaskControllerTest extends TestCase
         return BillStatementRow::query()->create(array_merge($defaults, $overrides));
     }
 
-    private function createAccount(string $name, string $type): Account
+    private function createAccount(string $name, string $type, ?int $currencyId = null): Account
     {
         $accountType = AccountType::where('type', $type)->firstOrFail();
 
-        return Account::query()->create([
+        $account = Account::query()->create([
             'user_id'         => $this->user->id,
             'user_group_id'   => $this->user->user_group_id,
             'account_type_id' => $accountType->id,
@@ -1158,6 +1276,21 @@ final class BillTaskControllerTest extends TestCase
             'active'          => true,
             'encrypted'       => false,
             'order'           => 0,
+        ]);
+
+        if (null !== $currencyId) {
+            $account->accountMeta()->create(['name' => 'currency_id', 'data' => (string) $currencyId]);
+        }
+
+        return $account;
+    }
+
+    private function createTransactionGroup(): TransactionGroup
+    {
+        return TransactionGroup::query()->create([
+            'user_id'       => $this->user->id,
+            'user_group_id' => $this->user->user_group_id,
+            'title'         => 'Imported bill transaction',
         ]);
     }
 }

@@ -122,7 +122,7 @@ class AlipayBillSourceChannel implements BillSourceChannel
         return '请输入支付宝服务消息中的账单解压密码';
     }
 
-    public function process(BillTask $task, ?string $secret = null): bool
+    public function process(BillTask $task, #[\SensitiveParameter] ?string $secret = null): bool
     {
         $encryptedArchives = $task->artifacts()
             ->where('kind', 'zip')

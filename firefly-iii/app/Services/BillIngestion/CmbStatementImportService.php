@@ -159,9 +159,9 @@ class CmbStatementImportService
 
             if (null !== $currentIndex && '' !== ($rows[$currentIndex]['对手信息'] ?? '')) {
                 $rows[$currentIndex]['对手信息'] = $this->clean($rows[$currentIndex]['对手信息'].$continuation);
-            } else {
-                $pendingBeforeText[] = $continuation;
+                continue;
             }
+            $pendingBeforeText[] = $continuation;
         }
 
         return array_values(array_filter($rows, static fn (array $row): bool => '' !== ($row['记账日期'] ?? '')));

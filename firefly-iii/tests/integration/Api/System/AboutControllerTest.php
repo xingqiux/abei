@@ -48,7 +48,17 @@ final class AboutControllerTest extends TestCase
         $response = $this->getJson(route('api.v1.about.index'));
 
         $response->assertOk();
-        $response->assertJsonStructure(['data' => ['version', 'api_version', 'php_version', 'os', 'driver']]);
+        $response->assertJsonStructure(['data' => [
+            'version',
+            'api_version',
+            'php_version',
+            'os',
+            'driver',
+            'attachment_upload_size',
+            'attachment_mime_types',
+        ]]);
+        $this->assertGreaterThan(0, $response->json('data.attachment_upload_size'));
+        $this->assertContains('application/pdf', $response->json('data.attachment_mime_types'));
     }
 
     public function testGivenAuthenticatedRequestReturnsUserInformation(): void
@@ -70,6 +80,6 @@ final class AboutControllerTest extends TestCase
         if (!$this->user instanceof User) {
             $this->user = $this->createAuthenticatedUser();
         }
-        $this->actingAs($this->user);
+        $this->actingAs($this->user, 'api');
     }
 }

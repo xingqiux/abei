@@ -55,7 +55,7 @@ final class CurrencyControllerTest extends TestCase
     {
         // act as a user
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         // create test data
         $this->createTestCurrencies(10, false);
@@ -71,7 +71,7 @@ final class CurrencyControllerTest extends TestCase
     {
         // act as a user
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         // test API
         $response = $this->get(route('api.v1.autocomplete.currencies'), ['Accept' => 'application/json']);
@@ -83,7 +83,7 @@ final class CurrencyControllerTest extends TestCase
     {
         // act as a user
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         // create test data
         $this->createTestCurrencies(9, true);
@@ -102,7 +102,7 @@ final class CurrencyControllerTest extends TestCase
     public function testGivenAuthenticatedRequestWhenCallingTheCurrenciesEndpointWithQueryThenReturnsCurrenciesThatMatchQuery(): void
     {
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $this->createTestCurrencies(20, true);
         $response = $this->get(route('api.v1.autocomplete.currencies', ['query' => 'Currency 1', 'limit' => 20]), ['Accept' => 'application/json']);
@@ -116,7 +116,7 @@ final class CurrencyControllerTest extends TestCase
     {
         // act as a user
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         // create test data
         $this->createTestCurrencies(5, true);

@@ -7,6 +7,7 @@ namespace FireflyIII\Services\BillIngestion;
 use Carbon\Carbon;
 use FireflyIII\Exceptions\FireflyException;
 use FireflyIII\Models\BillStatementRow;
+use FireflyIII\Models\BillTask;
 use FireflyIII\Models\TransactionGroup;
 use FireflyIII\Repositories\TransactionGroup\TransactionGroupRepositoryInterface;
 use FireflyIII\User;
@@ -19,6 +20,7 @@ class BillStatementRowImportService
     public function __construct(
         private readonly TransactionGroupRepositoryInterface $transactionRepository,
         private readonly BillStatementRowSummaryService $rowSummaryService,
+        private readonly BillStatementCurrencyResolver $currencyResolver,
         private readonly BalanceChainVerifier $balanceChainVerifier = new BalanceChainVerifier(),
     ) {}
 
@@ -57,11 +59,44 @@ class BillStatementRowImportService
             $reports[] = $report;
         }
 
+        if ($confirm && $summary['imported'] > 0) {
+            $this->completeTaskWhenNoActionableRowsRemain($user, $taskId);
+        }
+
         return [
             'summary'       => $summary,
             'rows'          => $reports,
             'balance_chain' => $balanceChain,
         ];
+    }
+
+    private function completeTaskWhenNoActionableRowsRemain(User $user, int $taskId): void
+    {
+        $remaining = BillStatementRow::query()
+            ->where('user_id', $user->id)
+            ->where('bill_task_id', $taskId)
+            ->where(static function ($query): void {
+                $query->whereIn('status', ['needs_split', 'failed'])
+                    ->orWhere(static function ($pending): void {
+                        $pending->where('status', 'pending')->where('duplicate_state', 'unique');
+                    });
+            })
+            ->exists();
+        if ($remaining) {
+            return;
+        }
+
+        /** @var null|BillTask $task */
+        $task = BillTask::query()->where('user_id', $user->id)->find($taskId);
+        if (!$task instanceof BillTask || 'imported' === $task->status) {
+            return;
+        }
+        $task->status = 'imported';
+        $task->save();
+        $task->events()->create([
+            'event_type' => 'task.imported',
+            'message'    => '账单任务中的可入账流水已处理完成',
+        ]);
     }
 
     /**
@@ -70,14 +105,14 @@ class BillStatementRowImportService
     private function importRow(User $user, BillStatementRow $row, bool $confirm, bool $includePayload): array
     {
         if (in_array($row->status, ['needs_split', 'split'], true)) {
-            return $this->reportForRow($row, [
+            return $this->reportForRow($user, $row, [
                 'status' => 'skipped',
                 'error'  => '组合支付需要先拆分真实扣款账户和金额。',
             ]);
         }
 
         if ('imported' === $row->status && null !== $row->transaction_group_id) {
-            return $this->reportForRow($row, [
+            return $this->reportForRow($user, $row, [
                 'status'               => 'skipped',
                 'transaction_group_id' => (string) $row->transaction_group_id,
                 'error'                => '这条流水已经存入 Firefly。',
@@ -85,14 +120,14 @@ class BillStatementRowImportService
         }
 
         if (in_array($row->duplicate_state, ['duplicate', 'conflict'], true)) {
-            return $this->reportForRow($row, [
+            return $this->reportForRow($user, $row, [
                 'status' => 'skipped',
                 'error'  => '这条流水已识别为重复或冲突，不自动导入。',
             ]);
         }
 
         if (null === $row->firefly_type || '' === $row->firefly_type) {
-            return $this->reportForRow($row, [
+            return $this->reportForRow($user, $row, [
                 'status' => 'skipped',
                 'error'  => '这条流水不是可直接导入的收支记录。',
             ]);
@@ -102,13 +137,14 @@ class BillStatementRowImportService
         if (!$confirm) {
             $report = [
                 'status' => 'skipped',
-                'error'  => '未确认导入。',
+                'action' => 'would_import',
+                'error'  => null,
             ];
             if ($includePayload) {
                 $report['payload'] = $this->publicPayload($payload);
             }
 
-            return $this->reportForRow($row, $report);
+            return $this->reportForRow($user, $row, $report);
         }
 
         try {
@@ -126,17 +162,20 @@ class BillStatementRowImportService
                 return $group;
             });
         } catch (Throwable $e) {
+            $errorMessage       = $e instanceof FireflyException
+                ? $e->getMessage()
+                : '导入失败，请检查账户和账单行后重试。';
             $row->status        = 'failed';
-            $row->error_message = $e->getMessage();
+            $row->error_message = $errorMessage;
             $row->save();
 
-            return $this->reportForRow($row, [
+            return $this->reportForRow($user, $row, [
                 'status' => 'failed',
-                'error'  => $e instanceof FireflyException ? $e->getMessage() : sprintf('导入失败：%s', $e->getMessage()),
+                'error'  => $errorMessage,
             ]);
         }
 
-        return $this->reportForRow($row->refresh(), [
+        return $this->reportForRow($user, $row->refresh(), [
             'status'               => 'imported',
             'transaction_group_id' => (string) $group->id,
         ]);
@@ -147,9 +186,15 @@ class BillStatementRowImportService
      *
      * @return array<string,mixed>
      */
-    private function reportForRow(BillStatementRow $row, array $overrides): array
+    private function reportForRow(User $user, BillStatementRow $row, array $overrides): array
     {
-        return array_replace($this->rowSummaryService->rowPreview($row), $overrides);
+        $overrides['action'] ??= match ($overrides['status'] ?? null) {
+            'imported' => 'imported',
+            'failed'   => 'failed',
+            default    => 'skip',
+        };
+
+        return array_replace($this->rowSummaryService->rowPreview($row, $user), $overrides);
     }
 
     /**
@@ -169,7 +214,15 @@ class BillStatementRowImportService
      */
     private function payloadForRow(User $user, BillStatementRow $row): array
     {
-        $date = $row->firefly_date instanceof Carbon ? $row->firefly_date : $row->occurred_at;
+        $date     = $row->firefly_date instanceof Carbon ? $row->firefly_date : $row->occurred_at;
+        $currency = $this->currencyResolver->resolve($user, $row);
+        $description = $row->firefly_description;
+        if (null === $description || '' === $description || '0' === $description) {
+            $description = $row->description;
+        }
+        if (null === $description || '' === $description || '0' === $description) {
+            $description = $row->counterparty;
+        }
 
         return [
             'user'                    => $user,
@@ -181,15 +234,15 @@ class BillStatementRowImportService
             'fire_webhooks'           => true,
             'transactions'            => [[
                 'type'                  => $row->firefly_type,
-                'date'                  => $date ?? Carbon::now('Asia/Shanghai'),
+                'date'                  => $date ?? Carbon::now(config('app.timezone')),
                 'order'                 => 0,
-                'currency_id'           => null,
-                'currency_code'         => 'CNY',
+                'currency_id'           => $currency->id,
+                'currency_code'         => $currency->code,
                 'foreign_currency_id'   => null,
                 'foreign_currency_code' => null,
                 'amount'                => (string) $row->firefly_amount,
                 'foreign_amount'        => null,
-                'description'           => $row->firefly_description ?: $row->description ?: $row->counterparty,
+                'description'           => $description,
                 'source_id'             => null,
                 'source_name'           => $row->source_name,
                 'source_iban'           => null,

@@ -16,7 +16,7 @@ class WechatPayStatementArchiveExtractor
     /**
      * @return array<int, BillArtifact>
      */
-    public function extract(BillArtifact $archive, string $password): array
+    public function extract(BillArtifact $archive, #[\SensitiveParameter] string $password): array
     {
         if ('' === trim($password)) {
             throw new RuntimeException('微信支付账单解压密码不能为空。');
@@ -67,7 +67,10 @@ class WechatPayStatementArchiveExtractor
 
     private function storeExtractedFile(BillArtifact $archive, string $filename, string $content): BillArtifact
     {
-        $safeName = preg_replace('/[\/\\\\]+/', '_', basename($filename)) ?: 'wechat-pay-statement.dat';
+        $safeName = preg_replace('/[\/\\\\]+/', '_', basename($filename));
+        if (null === $safeName || '' === $safeName || '0' === $safeName) {
+            $safeName = 'wechat-pay-statement.dat';
+        }
         $kind     = $this->kindForFilename($safeName);
         $path     = sprintf(
             'bill-inbox/%d/derived/%s-%s',

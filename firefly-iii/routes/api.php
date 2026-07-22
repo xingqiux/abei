@@ -290,6 +290,17 @@ Route::group(
     }
 );
 // SUMMARY CONTROLLER
+Route::group(
+    [
+        'namespace' => 'FireflyIII\Api\V1\Controllers\Insight',
+        'prefix'    => 'v1/insight/report',
+        'as'        => 'api.v1.insight.report.',
+    ],
+    static function (): void {
+        Route::get('overview', ['uses' => 'ReportController@overview', 'as' => 'overview']);
+    }
+);
+
 // BASIC
 Route::group(
     [
@@ -445,6 +456,8 @@ Route::group(
     ],
     static function (): void {
         Route::get('summary', ['uses' => 'SummaryController@summary', 'as' => 'summary']);
+        Route::post('{reconciliationDate}/reconcile', ['uses' => 'ActionController@reconcile', 'as' => 'reconcile'])
+            ->where('reconciliationDate', '(?:19|20)[0-9]{2}-[0-9]{2}-[0-9]{2}');
     }
 );
 
@@ -498,6 +511,7 @@ Route::group(
     static function (): void {
         Route::get('', ['uses' => 'Budget\ShowController@index', 'as' => 'index']);
         Route::post('', ['uses' => 'Budget\StoreController@store', 'as' => 'store']);
+        Route::post('with-limit', ['uses' => 'Budget\StoreController@storeWithLimit', 'as' => 'store-with-limit']);
         Route::get('transactions-without-budget', ['uses' => 'Budget\ListController@withoutBudget', 'as' => 'without-budget']);
         Route::get('{budget}', ['uses' => 'Budget\ShowController@show', 'as' => 'show']);
         Route::put('{budget}', ['uses' => 'Budget\UpdateController@update', 'as' => 'update']);

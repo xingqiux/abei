@@ -173,7 +173,7 @@ class WechatPayBillSourceChannel implements BillSourceChannel
             $metadata['remote_file'] = $remoteFile;
             $task->status            = 'failed';
             $task->error_code        = 'remote_download_failed';
-            $task->error_message     = $e->getMessage();
+            $task->error_message     = '微信账单下载失败，请稍后重试。';
             $task->metadata          = $metadata;
             $task->save();
             $this->appendEvent($task, 'remote_file.failed', '微信支付账单文件下载失败');
@@ -192,7 +192,7 @@ class WechatPayBillSourceChannel implements BillSourceChannel
         return '请输入微信支付公众号收到的账单解压密码';
     }
 
-    public function process(BillTask $task, ?string $secret = null): bool
+    public function process(BillTask $task, #[\SensitiveParameter] ?string $secret = null): bool
     {
         $encryptedArchives = $task->artifacts()
             ->where('kind', 'zip')
@@ -321,7 +321,10 @@ class WechatPayBillSourceChannel implements BillSourceChannel
 
     private function safeFilename(string $filename): string
     {
-        $filename = preg_replace('/[\/\\\\]+/', '_', basename($filename)) ?: 'wechat-pay-statement.zip';
+        $filename = preg_replace('/[\/\\\\]+/', '_', basename($filename));
+        if (null === $filename || '' === $filename || '0' === $filename) {
+            $filename = 'wechat-pay-statement.zip';
+        }
 
         return '' === pathinfo($filename, PATHINFO_EXTENSION) ? $filename.'.zip' : $filename;
     }

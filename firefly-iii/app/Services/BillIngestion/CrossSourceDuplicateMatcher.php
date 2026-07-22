@@ -157,23 +157,20 @@ final class CrossSourceDuplicateMatcher
         $orderId       = $this->orderIdMatch($row, $journal);
         $merchantLevel = $this->merchantMatch($row, $journal);
 
-        if ($orderId) {
-            $matchedOn[] = 'order_id';
-            $confidence  = 'high';
-        } elseif ('exact' === $merchantLevel && $sameDay) {
-            $matchedOn[] = 'merchant_exact';
-            $confidence  = 'high';
-        } elseif ('exact' === $merchantLevel) {
-            $matchedOn[] = 'merchant_exact';
-            $confidence  = 'medium';
-        } elseif ('substring' === $merchantLevel) {
-            $matchedOn[] = 'merchant_similar';
-            $confidence  = 'medium';
-        } else {
+        $match = match (true) {
+            $orderId                                => ['order_id', 'high'],
+            'exact' === $merchantLevel && $sameDay => ['merchant_exact', 'high'],
+            'exact' === $merchantLevel             => ['merchant_exact', 'medium'],
+            'substring' === $merchantLevel         => ['merchant_similar', 'medium'],
+            default                                => null,
+        };
+        if (null === $match) {
             // amount + account + time only, no merchant/order overlap: too weak
             // to claim a cross-source duplicate without risking false positives.
             return null;
         }
+        [$matchedField, $confidence] = $match;
+        $matchedOn[]                 = $matchedField;
 
         return [
             'transaction_group_id'   => (string) ($journal['transaction_group_id'] ?? ''),

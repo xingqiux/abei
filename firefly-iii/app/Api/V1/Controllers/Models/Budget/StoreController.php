@@ -24,14 +24,19 @@ declare(strict_types=1);
 
 namespace FireflyIII\Api\V1\Controllers\Models\Budget;
 
+use Carbon\Carbon;
 use FireflyIII\Api\V1\Controllers\Controller;
 use FireflyIII\Api\V1\Requests\Models\Budget\StoreRequest;
 use FireflyIII\Exceptions\FireflyException;
 use FireflyIII\Repositories\Budget\BudgetRepositoryInterface;
+use FireflyIII\Repositories\Budget\BudgetLimitRepositoryInterface;
+use FireflyIII\Rules\IsValidPositiveAmount;
 use FireflyIII\Support\JsonApi\Enrichments\BudgetEnrichment;
 use FireflyIII\Transformers\BudgetTransformer;
 use FireflyIII\User;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use League\Fractal\Resource\Item;
 
 /**
@@ -85,5 +90,45 @@ final class StoreController extends Controller
         $resource    = new Item($budget, $transformer, 'budgets');
 
         return response()->json($manager->createData($resource)->toArray())->header('Content-Type', self::CONTENT_TYPE);
+    }
+
+    public function storeWithLimit(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'name'         => ['required', 'string', 'min:1', 'max:255', 'uniqueObjectForUser:budgets,name'],
+            'active'       => ['nullable', 'boolean'],
+            'limit'        => ['required', 'array'],
+            'limit.start'  => ['required', 'date', 'before_or_equal:limit.end'],
+            'limit.end'    => ['required', 'date', 'after_or_equal:limit.start'],
+            'limit.amount' => ['required', new IsValidPositiveAmount()],
+            'limit.currency_code' => ['nullable', 'string', 'min:3', 'max:51', 'exists:transaction_currencies,code'],
+        ]);
+
+        $result = DB::transaction(function () use ($validated): array {
+            $budget = $this->repository->store([
+                'name'          => $validated['name'],
+                'active'        => (bool) ($validated['active'] ?? true),
+                'fire_webhooks' => true,
+            ]);
+
+            /** @var BudgetLimitRepositoryInterface $limitRepository */
+            $limitRepository = app(BudgetLimitRepositoryInterface::class);
+            $limitRepository->setUser(auth()->user());
+            $limit = $limitRepository->store([
+                'budget_id'     => $budget->id,
+                'start_date'    => Carbon::parse($validated['limit']['start'], config('app.timezone')),
+                'end_date'      => Carbon::parse($validated['limit']['end'], config('app.timezone')),
+                'amount'        => (string) $validated['limit']['amount'],
+                'currency_code' => $validated['limit']['currency_code'] ?? null,
+                'fire_webhooks' => true,
+            ]);
+
+            return [
+                'budget_id'       => (string) $budget->id,
+                'budget_limit_id' => (string) $limit->id,
+            ];
+        });
+
+        return response()->json(['data' => ['type' => 'budget-with-limit', 'attributes' => $result]], 201);
     }
 }

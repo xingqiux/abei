@@ -91,7 +91,7 @@ class BillTaskActionService
         return $tasks->count();
     }
 
-    public function submitSecret(BillTask $billTask, string $secret): BillTask
+    public function submitSecret(BillTask $billTask, #[\SensitiveParameter] string $secret): BillTask
     {
         if ('' === trim($secret)) {
             throw new RuntimeException('Secret value must not be blank.');
@@ -104,7 +104,7 @@ class BillTaskActionService
 
         DB::transaction(function () use ($billTask, $challenge): void {
             $challenge->status      = 'consumed';
-            $challenge->attempts    = $challenge->attempts + 1;
+            $challenge->attempts    += 1;
             $challenge->consumed_at = Carbon::now();
             $challenge->save();
 

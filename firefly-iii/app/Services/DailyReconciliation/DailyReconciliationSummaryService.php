@@ -8,6 +8,7 @@ use Carbon\Carbon;
 use FireflyIII\Enums\TransactionTypeEnum;
 use FireflyIII\Helpers\Collector\GroupCollectorInterface;
 use FireflyIII\Models\TransactionJournal;
+use FireflyIII\Support\Facades\FireflyConfig;
 use FireflyIII\User;
 
 /**
@@ -46,8 +47,7 @@ class DailyReconciliationSummaryService
      */
     public function singleDayTotals(User $user, Carbon $day): array
     {
-        $start = $day->copy()->startOfDay()->setTimezone('UTC');
-        $end   = $day->copy()->endOfDay()->setTimezone('UTC');
+        [$start, $end] = $this->storageRange($day, $day);
 
         $journals = $this->collectJournals($user, $start, $end, self::TX_TYPES);
 
@@ -77,8 +77,7 @@ class DailyReconciliationSummaryService
         $days       = max(1, min(366, $days));
         $rangeStart = $today->copy()->subDays($days - 1);
 
-        $start = $rangeStart->copy()->setTimezone('UTC');
-        $end   = $today->copy()->endOfDay()->setTimezone('UTC');
+        [$start, $end] = $this->storageRange($rangeStart, $today);
 
         $normalJournals = $this->collectJournals($user, $start, $end, self::TX_TYPES);
         $reconJournals  = $this->collectJournals($user, $start, $end, [TransactionTypeEnum::RECONCILIATION->value]);
@@ -86,8 +85,10 @@ class DailyReconciliationSummaryService
         $buckets = [];
         $cursor  = $rangeStart->copy();
         while ($cursor->lte($today)) {
-            $buckets[$cursor->format('Y-m-d')] = $this->emptyBucket() + [
-                'diff_amount'    => '0',
+            $buckets[$cursor->format('Y-m-d')] = [
+                'count'          => 0,
+                'currency_totals' => [],
+                'diff_totals'    => [],
                 'all_reconciled' => true,
             ];
             $cursor->addDay();
@@ -95,10 +96,10 @@ class DailyReconciliationSummaryService
 
         foreach ($normalJournals as $journal) {
             $key = $journal['date']->copy()->setTimezone($tz)->format('Y-m-d');
-            if (!isset($buckets[$key])) {
+            if (null === ($buckets[$key] ?? null)) {
                 continue;
             }
-            $this->accumulate($buckets[$key], $journal);
+            $this->accumulateByCurrency($buckets[$key], $journal);
             if (true !== $journal['reconciled']) {
                 $buckets[$key]['all_reconciled'] = false;
             }
@@ -106,18 +107,18 @@ class DailyReconciliationSummaryService
 
         foreach ($reconJournals as $journal) {
             $key = $journal['date']->copy()->setTimezone($tz)->format('Y-m-d');
-            if (!isset($buckets[$key])) {
+            if (null === ($buckets[$key] ?? null)) {
                 continue;
             }
-            $amount                        = (string) $journal['amount'];
-            $absAmount                     = str_starts_with($amount, '-') ? substr($amount, 1) : $amount;
-            $buckets[$key]['diff_amount']  = bcadd($buckets[$key]['diff_amount'], $absAmount, 2);
+            $this->accumulateDifferenceByCurrency($buckets[$key], $journal);
         }
 
         $dayList = [];
         foreach (array_reverse(array_keys($buckets)) as $date) {
-            $bucket  = $buckets[$date];
-            $hasDiff = 0 !== bccomp($bucket['diff_amount'], '0', 2);
+            $bucket         = $buckets[$date];
+            $currencyTotals = $this->formatCurrencyTotals($bucket['currency_totals']);
+            $diffTotals     = $this->formatDifferenceTotals($bucket['diff_totals']);
+            $hasDiff        = [] !== $diffTotals;
             $status  = match (true) {
                 0 === $bucket['count'] && !$hasDiff => 'none',
                 $hasDiff                            => 'diff',
@@ -125,14 +126,17 @@ class DailyReconciliationSummaryService
                 default                              => 'pending',
             };
 
-            $dayList[] = [
+            $legacyTotals = 1 === count($currencyTotals) ? $currencyTotals[0] : null;
+            $dayList[]    = [
                 'date'        => $date,
                 'status'      => $status,
-                'income'      => $this->formatAmount($bucket['income']),
-                'expense'     => $this->formatAmount($bucket['expense']),
-                'net'         => $this->formatAmount(bcsub($bucket['income'], $bucket['expense'], 2)),
+                'income'      => $legacyTotals['income'] ?? ([] === $currencyTotals ? '0.00' : null),
+                'expense'     => $legacyTotals['expense'] ?? ([] === $currencyTotals ? '0.00' : null),
+                'net'         => $legacyTotals['net'] ?? ([] === $currencyTotals ? '0.00' : null),
                 'tx_count'    => $bucket['count'],
-                'diff_amount' => $hasDiff ? $this->formatAmount($bucket['diff_amount']) : null,
+                'diff_amount' => 1 === count($diffTotals) ? $diffTotals[0]['amount'] : null,
+                'currency_totals' => $currencyTotals,
+                'diff_totals' => $diffTotals,
             ];
         }
 
@@ -178,7 +182,18 @@ class DailyReconciliationSummaryService
     private function accumulate(array &$bucket, array $journal): void
     {
         ++$bucket['count'];
-        $bucket['currency_id'] ??= ((int) ($journal['currency_id'] ?? 0)) ?: null;
+        $currencyId = (int) ($journal['currency_id'] ?? 0);
+        $bucket['currency_id'] ??= 0 === $currencyId ? null : $currencyId;
+
+        $this->accumulateAmounts($bucket, $journal);
+    }
+
+    /**
+     * @param array{income:string,expense:string} $bucket
+     * @param array<string,mixed>                 $journal
+     */
+    private function accumulateAmounts(array &$bucket, array $journal): void
+    {
 
         // GroupCollector 固定选的是「来源腿」的金额（source.amount as amount），
         // 按 Firefly 复式记账惯例，来源腿永远是负数（不管是取现的资产账户，
@@ -193,6 +208,106 @@ class DailyReconciliationSummaryService
             $bucket['expense'] = bcadd($bucket['expense'], bcmul($amount, '-1'), 2);
         }
         // transfer 类型只计入 count，不计收支（与原 Web 端汇总口径一致）。
+    }
+
+    /**
+     * @param array{count:int,currency_totals:array<string,array<string,mixed>>} $bucket
+     * @param array<string,mixed>                                               $journal
+     */
+    private function accumulateByCurrency(array &$bucket, array $journal): void
+    {
+        ++$bucket['count'];
+        $key = $this->currencyKey($journal);
+        if (null === ($bucket['currency_totals'][$key] ?? null)) {
+            $bucket['currency_totals'][$key] = $this->currencyBucket($journal);
+        }
+        $this->accumulateAmounts($bucket['currency_totals'][$key], $journal);
+    }
+
+    /**
+     * @param array{diff_totals:array<string,array<string,mixed>>} $bucket
+     * @param array<string,mixed>                                  $journal
+     */
+    private function accumulateDifferenceByCurrency(array &$bucket, array $journal): void
+    {
+        $key = $this->currencyKey($journal);
+        if (null === ($bucket['diff_totals'][$key] ?? null)) {
+            $bucket['diff_totals'][$key] = $this->currencyBucket($journal) + ['amount' => '0'];
+        }
+        $amount = (string) $journal['amount'];
+        $absolute = str_starts_with($amount, '-') ? substr($amount, 1) : $amount;
+        $bucket['diff_totals'][$key]['amount'] = bcadd($bucket['diff_totals'][$key]['amount'], $absolute, 2);
+    }
+
+    /** @param array<string,mixed> $journal */
+    private function currencyKey(array $journal): string
+    {
+        $currencyId = (int) ($journal['currency_id'] ?? 0);
+
+        return 0 < $currencyId ? (string) $currencyId : (string) ($journal['currency_code'] ?? 'unknown');
+    }
+
+    /**
+     * @param array<string,mixed> $journal
+     *
+     * @return array{currency_id:int|null,currency_code:string,currency_symbol:string,income:string,expense:string}
+     */
+    private function currencyBucket(array $journal): array
+    {
+        $currencyId = (int) ($journal['currency_id'] ?? 0);
+
+        return [
+            'currency_id'     => 0 < $currencyId ? $currencyId : null,
+            'currency_code'   => (string) ($journal['currency_code'] ?? ''),
+            'currency_symbol' => (string) ($journal['currency_symbol'] ?? $journal['currency_code'] ?? ''),
+            'income'          => '0',
+            'expense'         => '0',
+        ];
+    }
+
+    /**
+     * @param array<string,array<string,mixed>> $totals
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    private function formatCurrencyTotals(array $totals): array
+    {
+        $result = [];
+        foreach ($totals as $total) {
+            $result[] = [
+                'currency_id'     => $total['currency_id'],
+                'currency_code'   => $total['currency_code'],
+                'currency_symbol' => $total['currency_symbol'],
+                'income'          => $this->formatAmount($total['income']),
+                'expense'         => $this->formatAmount($total['expense']),
+                'net'             => $this->formatAmount(bcsub($total['income'], $total['expense'], 2)),
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array<string,array<string,mixed>> $totals
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    private function formatDifferenceTotals(array $totals): array
+    {
+        $result = [];
+        foreach ($totals as $total) {
+            if (0 === bccomp((string) $total['amount'], '0', 2)) {
+                continue;
+            }
+            $result[] = [
+                'currency_id'     => $total['currency_id'],
+                'currency_code'   => $total['currency_code'],
+                'currency_symbol' => $total['currency_symbol'],
+                'amount'          => $this->formatAmount($total['amount']),
+            ];
+        }
+
+        return $result;
     }
 
     /**
@@ -230,8 +345,23 @@ class DailyReconciliationSummaryService
         return ['date' => null, 'days_unreconciled' => $daysUnreconciled];
     }
 
+    /**
+     * @return array{Carbon, Carbon}
+     */
+    private function storageRange(Carbon $startDay, Carbon $endDay): array
+    {
+        $start = $startDay->copy()->startOfDay();
+        $end   = $endDay->copy()->endOfDay();
+        if (true === FireflyConfig::get('utc', false)?->data) {
+            $start->setTimezone('UTC');
+            $end->setTimezone('UTC');
+        }
+
+        return [$start, $end];
+    }
+
     private function formatAmount(string $amount): string
     {
-        return number_format((float) $amount, 2, '.', '');
+        return bcadd($amount, '0', 2);
     }
 }

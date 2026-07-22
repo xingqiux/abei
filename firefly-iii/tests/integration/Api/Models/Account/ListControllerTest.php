@@ -46,7 +46,7 @@ final class ListControllerTest extends TestCase
 
     public function testIndex(): void
     {
-        $this->actingAs($this->user);
+        $this->actingAs($this->user, 'api');
         $response = $this->getJson(route('api.v1.accounts.attachments', ['account' => $this->account->id]));
         $response->assertStatus(200);
         $response->assertJson(['meta' => ['pagination' => ['total' => 2, 'total_pages' => 1]]]);
@@ -54,7 +54,7 @@ final class ListControllerTest extends TestCase
 
     public function testIndexCanChangePageSize(): void
     {
-        $this->actingAs($this->user);
+        $this->actingAs($this->user, 'api');
         $response = $this->getJson(route('api.v1.accounts.attachments', ['account' => $this->account->id, 'limit' => 1]));
         $response->assertStatus(200);
         $response->assertJson(['meta' => ['pagination' => ['total' => 2, 'total_pages' => 2]]]);
@@ -66,7 +66,7 @@ final class ListControllerTest extends TestCase
         parent::setUp();
 
         $this->user    = $this->createAuthenticatedUser();
-        $this->actingAs($this->user);
+        $this->actingAs($this->user, 'api');
 
         $this->account = Account::factory()->for($this->user)->withType(AccountTypeEnum::ASSET)->create();
         app(AttachmentFactory::class)

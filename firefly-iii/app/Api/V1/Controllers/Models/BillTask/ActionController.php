@@ -7,9 +7,12 @@ namespace FireflyIII\Api\V1\Controllers\Models\BillTask;
 use FireflyIII\Api\V1\Controllers\Controller;
 use FireflyIII\Models\BillStatementRow;
 use FireflyIII\Models\BillTask;
+use FireflyIII\Rules\IsValidPositiveAmount;
 use FireflyIII\Services\BillIngestion\BillStatementRowImportService;
+use FireflyIII\Services\BillIngestion\BillStatementCurrencyResolver;
 use FireflyIII\Services\BillIngestion\BillStatementRowSplitService;
 use FireflyIII\Services\BillIngestion\BillTaskActionService;
+use FireflyIII\Services\BillIngestion\BillTaskProcessor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use RuntimeException;
@@ -20,8 +23,10 @@ final class ActionController extends Controller
 
     public function __construct(
         private readonly BillTaskActionService $actionService,
+        private readonly BillTaskProcessor $taskProcessor,
         private readonly BillStatementRowImportService $rowImportService,
         private readonly BillStatementRowSplitService $rowSplitService,
+        private readonly BillStatementCurrencyResolver $currencyResolver,
     ) {}
 
     public function ignore(BillTask $billTask): JsonResponse
@@ -31,7 +36,10 @@ final class ActionController extends Controller
 
     public function retry(BillTask $billTask): JsonResponse
     {
-        return response()->json($this->itemResponse($this->actionService->retry($billTask)));
+        $retried = $this->actionService->retry($billTask);
+        $this->taskProcessor->process($retried);
+
+        return response()->json($this->itemResponse($retried->refresh()));
     }
 
     public function archive(BillTask $billTask): JsonResponse
@@ -86,7 +94,7 @@ final class ActionController extends Controller
             'counterparty_account'  => ['nullable', 'string', 'max:255'],
             'description'           => ['nullable', 'string', 'max:4096'],
             'direction'             => ['nullable', 'string', 'max:255'],
-            'amount'                => ['nullable', 'numeric'],
+            'amount'                => ['nullable', new IsValidPositiveAmount()],
             'payment_method'        => ['nullable', 'string', 'max:255'],
             'transaction_status'    => ['nullable', 'string', 'max:255'],
             'platform_order_no'     => ['nullable', 'string', 'max:255'],
@@ -94,7 +102,7 @@ final class ActionController extends Controller
             'remark'                => ['nullable', 'string', 'max:4096'],
             'firefly_type'          => ['nullable', 'string', 'in:withdrawal,deposit,transfer'],
             'firefly_date'          => ['nullable', 'date'],
-            'firefly_amount'        => ['nullable', 'numeric'],
+            'firefly_amount'        => ['nullable', new IsValidPositiveAmount()],
             'firefly_description'   => ['nullable', 'string', 'max:1000'],
             'source_name'           => ['nullable', 'string', 'max:255'],
             'destination_name'      => ['nullable', 'string', 'max:255'],
@@ -147,7 +155,9 @@ final class ActionController extends Controller
             'splits'                    => ['required', 'array', 'min:2'],
             'splits.*.payment_method'   => ['nullable', 'string', 'max:255'],
             'splits.*.source_name'      => ['nullable', 'string', 'max:255'],
-            'splits.*.amount'           => ['required', 'numeric'],
+            'splits.*.amount'           => ['required', 'numeric', 'gt:0'],
+            'splits.*.description'      => ['required', 'string', 'min:1', 'max:1000'],
+            'splits.*.category_name'    => ['nullable', 'string', 'max:255'],
         ]);
 
         try {

@@ -45,7 +45,7 @@ final class TagControllerTest extends TestCase
     {
         // act as a user
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $response = $this->get(route('api.v1.autocomplete.tags'), ['Accept' => 'application/json']);
         $response->assertStatus(200);
@@ -55,7 +55,7 @@ final class TagControllerTest extends TestCase
     public function testGivenAuthenticatedRequestWithItems(): void
     {
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $this->createTestTags(5, $user);
         $response = $this->get(route('api.v1.autocomplete.tags'), ['Accept' => 'application/json']);
@@ -69,7 +69,7 @@ final class TagControllerTest extends TestCase
     public function testGivenAuthenticatedRequestWithItemsLimited(): void
     {
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $this->createTestTags(5, $user);
         $response = $this->get(route('api.v1.autocomplete.tags', ['query' => 'Tag', 'limit' => 3]), ['Accept' => 'application/json']);
@@ -84,7 +84,7 @@ final class TagControllerTest extends TestCase
     public function testGivenAuthenticatedRequestWithItemsLots(): void
     {
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $this->createTestTags(20, $user);
         $response = $this->get(route('api.v1.autocomplete.tags', ['query' => 'Tag 1', 'limit' => 20]), ['Accept' => 'application/json']);

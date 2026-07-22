@@ -41,7 +41,7 @@ interface BillSourceChannel
 
     public function secretPrompt(BillTask $task): string;
 
-    public function process(BillTask $task, ?string $secret = null): bool;
+    public function process(BillTask $task, #[\SensitiveParameter] ?string $secret = null): bool;
 
     public function shouldProcessAfterSecret(BillTask $task): bool;
 

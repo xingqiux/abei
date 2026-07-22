@@ -8,7 +8,7 @@ use Carbon\Carbon;
 use FireflyIII\Models\BillArtifact;
 use FireflyIII\Models\BillStatementImport;
 use Illuminate\Support\Facades\Storage;
-use RuntimeException;
+
 
 class BocStatementImportService
 {
@@ -140,7 +140,10 @@ class BocStatementImportService
      */
     private function parseTail(string $tail): array
     {
-        $parts = preg_split('/\s{2,}/u', $tail) ?: [];
+        $parts = preg_split('/\s{2,}/u', $tail);
+        if (false === $parts) {
+            $parts = [];
+        }
         $parts = array_values(array_filter(array_map(fn (string $part): string => $this->clean($part), $parts), static fn (string $part): bool => '' !== $part));
 
         $transactionName = $parts[0] ?? '';
@@ -192,7 +195,10 @@ class BocStatementImportService
         $category     = $this->clean($row['交易名称'] ?? '');
         $counterparty = $this->clean($row['对方账户名'] ?? '');
         $accountName  = $this->accountName($parsed['card_no'] ?? null);
-        $description  = $this->clean($row['附言'] ?? '') ?: $category;
+        $description  = $this->clean($row['附言'] ?? '');
+        if ('' === $description || '0' === $description) {
+            $description = $category;
+        }
 
         $editable = [
             '记账日期'     => $row['记账日期'],
@@ -347,7 +353,10 @@ class BocStatementImportService
             return [];
         }
 
-        $parts = preg_split('/\s{2,}/u', $value) ?: [];
+        $parts = preg_split('/\s{2,}/u', $value);
+        if (false === $parts) {
+            $parts = [];
+        }
 
         return array_values(array_filter(array_map(fn (string $part): string => $this->clean($part), $parts), static fn (string $part): bool => '' !== $part));
     }
@@ -382,7 +391,10 @@ class BocStatementImportService
             return null;
         }
 
-        $parts = preg_split('/\s+/u', $value) ?: [];
+        $parts = preg_split('/\s+/u', $value);
+        if (false === $parts) {
+            $parts = [];
+        }
         if (count($parts) < 2) {
             return null;
         }

@@ -25,4 +25,9 @@ if [ "${FIREFLY_RUN_MIGRATIONS:-false}" = "true" ]; then
   php artisan firefly-iii:upgrade-database
 fi
 
+if [ "${FIREFLY_GENERATE_OAUTH_KEYS:-false}" = "true" ] \
+  && { [ ! -s storage/oauth-private.key ] || [ ! -s storage/oauth-public.key ]; }; then
+  php artisan firefly-iii:laravel-passport-keys
+fi
+
 exec docker-php-entrypoint "$@"

@@ -17,7 +17,6 @@ use FireflyIII\Models\BillTaskEvent;
 use FireflyIII\Models\GroupMembership;
 use FireflyIII\Models\UserGroup;
 use FireflyIII\Models\UserRole;
-use FireflyIII\Services\BillIngestion\BillMailboxConfig;
 use FireflyIII\Services\BillIngestion\ImapBillMailboxClient;
 use FireflyIII\Support\Facades\Preferences;
 use FireflyIII\User;
@@ -404,7 +403,7 @@ final class BillInboxControllerTest extends TestCase
             'received_at' => Carbon::parse('2026-06-15 19:14:00', 'Asia/Shanghai'),
             'summary'     => '微信支付账单流水',
         ]);
-        BillArtifact::query()->create([
+        $archive = BillArtifact::query()->create([
             'bill_task_id' => $task->id,
             'kind'         => 'zip',
             'filename'     => '微信支付账单流水文件(20260515-20260615)——【解压密码可在微信支付公众号查看】.zip',
@@ -415,7 +414,7 @@ final class BillInboxControllerTest extends TestCase
         ]);
         BillArtifact::query()->create([
             'bill_task_id'             => $task->id,
-            'derived_from_artifact_id' => 1,
+            'derived_from_artifact_id' => $archive->id,
             'kind'                     => 'xlsx',
             'filename'                 => '微信支付账单流水文件(20260515-20260615)——【解压密码可在微信支付公众号查看】.xlsx',
             'path'                     => 'bill-inbox/1/derived/wechat-long.xlsx',
@@ -502,7 +501,7 @@ final class BillInboxControllerTest extends TestCase
         $row->refresh();
         $this->assertSame('中国联通线上营业厅', $row->counterparty);
         $this->assertSame('中国联通线上营业厅', $row->editable_data['交易对方']);
-        $this->assertSame('20', (string) $row->amount);
+        $this->assertSame('20.00', (string) $row->amount);
         $this->assertSame('手机充值', $row->firefly_description);
     }
 
@@ -963,7 +962,7 @@ final class BillInboxControllerTest extends TestCase
         ]]);
     }
 
-    private function encryptedZipBytes(string $password): string
+    private function encryptedZipBytes(#[\SensitiveParameter] string $password): string
     {
         $path = tempnam(sys_get_temp_dir(), 'alipay-statement-');
         if (false === $path) {
@@ -981,7 +980,7 @@ final class BillInboxControllerTest extends TestCase
         $zip->close();
 
         $bytes = file_get_contents($path);
-        @unlink($path);
+        unlink($path);
 
         if (false === $bytes) {
             throw new \RuntimeException('Could not read temporary zip file.');
@@ -1140,7 +1139,7 @@ final class BillInboxControllerTest extends TestCase
         $zip->close();
 
         $content = file_get_contents($path);
-        @unlink($path);
+        unlink($path);
 
         return false === $content ? '' : $content;
     }
@@ -1165,74 +1164,5 @@ final class BillInboxControllerTest extends TestCase
         }
 
         return $xml.'</sheetData></worksheet>';
-    }
-}
-
-final class FakeBillInboxImapMessage
-{
-    public function __construct(
-        public readonly string $uid,
-        public readonly string $raw,
-    ) {}
-}
-
-final class FakeBillInboxImapClient implements ImapBillMailboxClient
-{
-    public bool $connected = false;
-
-    /** @var array<int,string> */
-    public array $searches = [];
-
-    /** @var array<int, FakeBillInboxImapMessage> */
-    private array $messages;
-
-    /** @var array<int, string> */
-    private array $missingFolders;
-
-    /**
-     * @param array<int, FakeBillInboxImapMessage> $messages
-     * @param array<int, string>                   $missingFolders
-     */
-    public function __construct(array $messages, array $missingFolders = [])
-    {
-        $this->messages       = $messages;
-        $this->missingFolders = $missingFolders;
-    }
-
-    public function close(): void
-    {
-        $this->connected = false;
-    }
-
-    public function connect(BillMailboxConfig $config): void
-    {
-        $this->connected = true;
-    }
-
-    public function fetchRawMessage(string $uid): string
-    {
-        foreach ($this->messages as $message) {
-            if ($message->uid === $uid) {
-                return $message->raw;
-            }
-        }
-
-        return '';
-    }
-
-    public function markSeen(string $uid): void {}
-
-    public function search(string $criteria, int $limit): array
-    {
-        $this->searches[] = $criteria;
-
-        return array_slice(array_map(static fn (FakeBillInboxImapMessage $message): string => $message->uid, $this->messages), 0, $limit);
-    }
-
-    public function selectFolder(string $folder): void
-    {
-        if (in_array($folder, $this->missingFolders, true)) {
-            throw new \RuntimeException(sprintf('IMAP command failed: A0002 NO [NONEXISTENT] Unknown Mailbox: %s (Failure)', $folder));
-        }
     }
 }

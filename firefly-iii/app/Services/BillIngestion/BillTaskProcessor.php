@@ -31,13 +31,21 @@ class BillTaskProcessor
         return new BillTaskBatchResult($processed, $failed);
     }
 
-    public function process(BillTask $task, ?string $secret = null): bool
+    public function process(BillTask $task, #[\SensitiveParameter] ?string $secret = null): bool
     {
         return DB::transaction(function () use ($task, $secret): bool {
             $task->refresh();
 
             if ('received' === $task->status) {
-                return $this->routeReceivedTask($task);
+                if (false === $this->routeReceivedTask($task)) {
+                    return false;
+                }
+                $task->refresh();
+                if ('ready' === $task->status) {
+                    return $this->processReadyTask($task, $secret);
+                }
+
+                return true;
             }
             if ('ready' === $task->status) {
                 return $this->processReadyTask($task, $secret);
@@ -105,7 +113,7 @@ class BillTaskProcessor
         return true;
     }
 
-    private function processReadyTask(BillTask $task, ?string $secret = null): bool
+    private function processReadyTask(BillTask $task, #[\SensitiveParameter] ?string $secret = null): bool
     {
         $channel = $this->channelRegistry->find($task->source, $task->profile_id);
         if (null !== $channel) {

@@ -60,7 +60,7 @@ final class PiggyBankControllerTest extends TestCase
     {
         // act as a user
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $response = $this->get(route('api.v1.autocomplete.piggy-banks'), ['Accept' => 'application/json']);
         $response->assertStatus(200);
@@ -70,7 +70,7 @@ final class PiggyBankControllerTest extends TestCase
     public function testGivenAuthenticatedRequestWhenCallingTheBudgetsEndpointThenReturnsBudgets(): void
     {
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $this->createTestPiggyBanks(5, $user);
         $response = $this->get(route('api.v1.autocomplete.piggy-banks'), ['Accept' => 'application/json']);
@@ -84,7 +84,7 @@ final class PiggyBankControllerTest extends TestCase
     public function testGivenAuthenticatedRequestWhenCallingTheBudgetsEndpointWithQueryThenReturnsBudgetsThatMatchQuery(): void
     {
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $this->createTestPiggyBanks(20, $user);
         $response = $this->get(route('api.v1.autocomplete.piggy-banks', ['query' => 'Piggy bank 1', 'limit' => 20]), ['Accept' => 'application/json']);
@@ -99,7 +99,7 @@ final class PiggyBankControllerTest extends TestCase
     public function testGivenAuthenticatedRequestWhenCallingTheBudgetsEndpointWithQueryThenReturnsBudgetsWithLimit(): void
     {
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $this->createTestPiggyBanks(5, $user);
         $response = $this->get(route('api.v1.autocomplete.piggy-banks', ['query' => 'Piggy', 'limit' => 3]), ['Accept' => 'application/json']);

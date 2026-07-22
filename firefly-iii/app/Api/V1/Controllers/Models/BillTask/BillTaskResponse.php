@@ -13,6 +13,7 @@ use FireflyIII\Models\BillTask;
 use FireflyIII\Models\BillTaskEvent;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Symfony\Component\Mime\MimeTypes;
 
 trait BillTaskResponse
 {
@@ -111,7 +112,7 @@ trait BillTaskResponse
      */
     protected function taskResource(BillTask $task, ?array $rowCounts = null): array
     {
-        $rowCounts = $rowCounts ?? ['total' => 0, 'pending' => 0, 'imported' => 0, 'duplicate' => 0, 'conflict' => 0];
+        $rowCounts ??= ['total' => 0, 'pending' => 0, 'imported' => 0, 'duplicate' => 0, 'conflict' => 0];
 
         return [
             'type'          => 'bill-tasks',
@@ -170,9 +171,6 @@ trait BillTaskResponse
                 'to_address'     => $message->to_address,
                 'subject'        => $message->subject,
                 'received_at'    => optional($message->received_at)->toAtomString(),
-                'raw_path'       => $message->raw_path,
-                'body_text_path' => $message->body_text_path,
-                'body_html_path' => $message->body_html_path,
                 'checksum'       => $message->checksum,
                 'sync_cursor'    => $message->sync_cursor,
             ],
@@ -181,6 +179,15 @@ trait BillTaskResponse
 
     protected function artifactResource(BillArtifact $artifact): array
     {
+        $metadata = $this->publicMetadata($artifact->metadata);
+        $metadata = is_array($metadata) ? $metadata : [];
+        $source   = is_string($metadata['source'] ?? null) ? $metadata['source'] : '';
+        $mimeType = is_string($metadata['content_type'] ?? null) ? $metadata['content_type'] : null;
+        if (null === $mimeType && is_string($artifact->filename)) {
+            $extension = strtolower(pathinfo($artifact->filename, PATHINFO_EXTENSION));
+            $mimeType  = MimeTypes::getDefault()->getMimeTypes($extension)[0] ?? null;
+        }
+
         return [
             'type'       => 'bill-artifacts',
             'id'         => (string) $artifact->id,
@@ -188,11 +195,18 @@ trait BillTaskResponse
                 'bill_task_id'             => (string) $artifact->bill_task_id,
                 'kind'                     => $artifact->kind,
                 'filename'                 => $artifact->filename,
-                'path'                     => $artifact->path,
                 'checksum'                 => $artifact->checksum,
                 'encrypted'                => $artifact->encrypted,
                 'derived_from_artifact_id' => null === $artifact->derived_from_artifact_id ? null : (string) $artifact->derived_from_artifact_id,
-                'metadata'                 => $this->publicMetadata($artifact->metadata),
+                'metadata'                 => $metadata,
+                'mime_type'                => $mimeType ?? 'application/octet-stream',
+                'size'                     => is_numeric($metadata['size'] ?? null) ? (int) $metadata['size'] : null,
+                'generation_stage'         => match (true) {
+                    str_contains($source, 'extract') => 'extracted',
+                    'remote_download' === $source    => 'downloaded',
+                    null !== $artifact->derived_from_artifact_id => 'derived',
+                    default => 'received',
+                },
                 'download_url'             => route('api.v1.bill-artifacts.download', [$artifact->id]),
                 'created_at'               => optional($artifact->created_at)->toAtomString(),
             ],
@@ -254,6 +268,8 @@ trait BillTaskResponse
 
     protected function statementRowResource(BillStatementRow $row): array
     {
+        $currency = $this->currencyResolver->resolve(auth()->user(), $row);
+
         return [
             'type'       => 'bill-statement-rows',
             'id'         => (string) $row->id,
@@ -283,6 +299,8 @@ trait BillTaskResponse
                 'firefly_type'             => $row->firefly_type,
                 'firefly_date'             => optional($row->firefly_date)->toAtomString(),
                 'firefly_amount'           => null === $row->firefly_amount ? null : (string) $row->firefly_amount,
+                'currency_code'            => $currency->code,
+                'currency_symbol'          => $currency->symbol,
                 'firefly_description'      => $row->firefly_description,
                 'source_name'              => $row->source_name,
                 'destination_name'         => $row->destination_name,
@@ -306,7 +324,7 @@ trait BillTaskResponse
 
         $public = [];
         foreach ($metadata as $key => $value) {
-            if (is_string($key) && in_array($key, ['url', 'encrypted_file_data'], true)) {
+            if (is_string($key) && $this->isSensitiveMetadataKey($key)) {
                 continue;
             }
             if (is_string($value) && str_contains($value, 'tenpay.wechatpay.cn/userroll/userbilldownload/downloadfilefromemail')) {
@@ -317,5 +335,17 @@ trait BillTaskResponse
         }
 
         return $public;
+    }
+
+    private function isSensitiveMetadataKey(string $key): bool
+    {
+        $normalized = strtolower(str_replace('-', '_', $key));
+        foreach (['path', 'token', 'secret', 'password', 'credential', 'encrypted_file_data'] as $sensitivePart) {
+            if (str_contains($normalized, $sensitivePart)) {
+                return true;
+            }
+        }
+
+        return 'url' === $normalized || str_ends_with($normalized, '_url');
     }
 }

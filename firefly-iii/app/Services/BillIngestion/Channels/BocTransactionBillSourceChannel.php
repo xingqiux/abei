@@ -137,7 +137,7 @@ class BocTransactionBillSourceChannel implements BillSourceChannel
         return '请输入中国银行APP“交易流水打印”申请记录中的打开密码';
     }
 
-    public function process(BillTask $task, ?string $secret = null): bool
+    public function process(BillTask $task, #[\SensitiveParameter] ?string $secret = null): bool
     {
         if ($this->needsSecret($task) && (null === $secret || '' === trim($secret))) {
             $this->openSecretChallenge($task);
@@ -195,7 +195,7 @@ class BocTransactionBillSourceChannel implements BillSourceChannel
         return '' === $extension ? 'attachment' : $extension;
     }
 
-    private function extractPdfTextArtifacts(BillTask $task, string $secret): int
+    private function extractPdfTextArtifacts(BillTask $task, #[\SensitiveParameter] string $secret): int
     {
         $created = 0;
         $pdfs    = $task->artifacts()
@@ -250,7 +250,7 @@ class BocTransactionBillSourceChannel implements BillSourceChannel
         return $created;
     }
 
-    private function extractPdfText(string $path, string $secret): string
+    private function extractPdfText(string $path, #[\SensitiveParameter] string $secret): string
     {
         $process = new Process(['pdftotext', '-layout', '-upw', $secret, $path, '-']);
         $process->run();
@@ -304,7 +304,10 @@ class BocTransactionBillSourceChannel implements BillSourceChannel
 
     private function safeFilename(string $filename): string
     {
-        $filename = preg_replace('/[\/\\\\]+/', '_', basename($filename)) ?: 'boc-transaction-statement.pdf';
+        $filename = preg_replace('/[\/\\\\]+/', '_', basename($filename));
+        if (null === $filename || '' === $filename || '0' === $filename) {
+            $filename = 'boc-transaction-statement.pdf';
+        }
 
         return '' === pathinfo($filename, PATHINFO_EXTENSION) ? $filename.'.pdf' : $filename;
     }
@@ -312,7 +315,10 @@ class BocTransactionBillSourceChannel implements BillSourceChannel
     private function textFilename(string $filename): string
     {
         $base = pathinfo($filename, PATHINFO_FILENAME);
-        $base = preg_replace('/[\/\\\\]+/', '_', '' === $base ? 'boc-transaction-statement' : $base) ?: 'boc-transaction-statement';
+        $base = preg_replace('/[\/\\\\]+/', '_', '' === $base ? 'boc-transaction-statement' : $base);
+        if (null === $base || '' === $base || '0' === $base) {
+            $base = 'boc-transaction-statement';
+        }
 
         return $base.'.txt';
     }

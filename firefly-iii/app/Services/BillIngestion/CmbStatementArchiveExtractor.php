@@ -16,7 +16,7 @@ class CmbStatementArchiveExtractor
     /**
      * @return array<int, BillArtifact>
      */
-    public function extract(BillArtifact $archive, string $password): array
+    public function extract(BillArtifact $archive, #[\SensitiveParameter] string $password): array
     {
         if ('' === trim($password)) {
             throw new RuntimeException('招商银行账单解压码不能为空。');
@@ -67,7 +67,10 @@ class CmbStatementArchiveExtractor
 
     private function storeExtractedFile(BillArtifact $archive, string $filename, string $content): BillArtifact
     {
-        $safeName = preg_replace('/[\/\\\\]+/', '_', basename($filename)) ?: 'cmb-statement.dat';
+        $safeName = preg_replace('/[\/\\\\]+/', '_', basename($filename));
+        if (null === $safeName || '' === $safeName || '0' === $safeName) {
+            $safeName = 'cmb-statement.dat';
+        }
         $kind     = $this->kindForFilename($safeName);
         $path     = sprintf(
             'bill-inbox/%d/derived/%s-%s',

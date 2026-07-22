@@ -7,13 +7,17 @@ namespace FireflyIII\Api\V1\Controllers\Models\BillTask;
 use FireflyIII\Api\V1\Controllers\Controller;
 use FireflyIII\Models\BillTask;
 use FireflyIII\Services\BillIngestion\BillStatementRowSummaryService;
+use FireflyIII\Services\BillIngestion\BillStatementCurrencyResolver;
 use Illuminate\Http\JsonResponse;
 
 final class ListController extends Controller
 {
     use BillTaskResponse;
 
-    public function __construct(private readonly BillStatementRowSummaryService $rowSummaryService) {}
+    public function __construct(
+        private readonly BillStatementRowSummaryService $rowSummaryService,
+        private readonly BillStatementCurrencyResolver $currencyResolver,
+    ) {}
 
     public function artifacts(BillTask $billTask): JsonResponse
     {

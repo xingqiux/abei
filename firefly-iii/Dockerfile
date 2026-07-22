@@ -70,3 +70,15 @@ RUN chmod +x /usr/local/bin/firefly-entrypoint \
 
 ENTRYPOINT ["firefly-entrypoint"]
 CMD ["apache2-foreground"]
+
+FROM app AS test
+
+COPY tests ./tests
+COPY phpunit.xml ./
+COPY mago.toml ./
+RUN printf 'memory_limit=512M\n' > /usr/local/etc/php/conf.d/zz-test-memory.ini \
+  && composer install --no-scripts --no-interaction --no-progress \
+  && composer dump-autoload --no-interaction --optimize \
+  && vendor/bin/mago --version
+
+FROM app AS production

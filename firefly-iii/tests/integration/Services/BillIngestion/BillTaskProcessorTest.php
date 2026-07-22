@@ -194,7 +194,10 @@ final class BillTaskProcessorTest extends TestCase
             'metadata'     => ['password_source' => 'boc_app_statement_record'],
         ]);
 
-        $oldPath = getenv('PATH') ?: '';
+        $oldPath = getenv('PATH');
+        if (false === $oldPath || '' === $oldPath || '0' === $oldPath) {
+            $oldPath = '';
+        }
         $binDir  = sys_get_temp_dir().'/fake-pdftotext-'.bin2hex(random_bytes(4));
         mkdir($binDir);
         $sampleText = $this->bocStatementPdfText();
@@ -207,7 +210,7 @@ cat <<\'TEXT\'
 '.$sampleText.'
 TEXT
 ');
-        chmod($binDir.'/pdftotext', 0755);
+        chmod($binDir.'/pdftotext', 0o755);
         putenv('PATH='.$binDir.PATH_SEPARATOR.$oldPath);
 
         try {
@@ -281,7 +284,7 @@ TEXT
         $this->assertSame('安徽三联学院', $first->counterparty);
         $this->assertSame('184201139156', $first->counterparty_account);
         $this->assertSame('收入', $first->direction);
-        $this->assertSame('100', (string) $first->amount);
+        $this->assertSame('100.00', (string) $first->amount);
         $this->assertSame('安徽三联学院', $first->source_name);
         $this->assertSame('中国银行借记卡(4045)', $first->destination_name);
 
@@ -289,7 +292,7 @@ TEXT
         $this->assertInstanceOf(BillStatementRow::class, $expense);
         $this->assertSame('支付宝-上海哈啰普惠科技有限公司', $expense->counterparty);
         $this->assertSame('网上快捷支付', $expense->platform_category);
-        $this->assertSame('5.9', (string) $expense->amount);
+        $this->assertSame('5.90', (string) $expense->amount);
         $this->assertSame('中国银行借记卡(4045)', $expense->source_name);
         $this->assertSame('支付宝-上海哈啰普惠科技有限公司', $expense->destination_name);
 
@@ -364,7 +367,7 @@ TEXT
         $this->assertSame('快捷支付', $first->platform_category);
         $this->assertSame('上海公共交通卡股份有限公司', $first->counterparty);
         $this->assertSame('支出', $first->direction);
-        $this->assertSame('5', (string) $first->amount);
+        $this->assertSame('5.00', (string) $first->amount);
         $this->assertSame('招商银行储蓄卡(8705)', $first->source_name);
         $this->assertSame('上海公共交通卡股份有限公司', $first->destination_name);
 
@@ -508,6 +511,8 @@ TEXT
         $this->assertSame(0, bccomp('23.80', (string) $row->amount, 2));
         $this->assertNull($row->firefly_type);
         $this->assertNull($row->firefly_amount);
+        $this->assertNull($row->source_name);
+        $this->assertSame('淘宝闪购', $row->destination_name);
         $this->assertSame('招商银行储蓄卡(8705)&花呗', $row->payment_method);
         $this->assertSame(['招商银行储蓄卡(8705)', '花呗'], $row->metadata['payment_split']['methods']);
         $this->assertSame('支付宝组合支付需要先拆分实际扣款账户和金额', $row->metadata['payment_split']['reason']);
@@ -560,7 +565,7 @@ TEXT
         $this->assertSame('餐饮美食', $first->platform_category);
         $this->assertSame('霸王茶姬', $first->counterparty);
         $this->assertSame('支出', $first->direction);
-        $this->assertSame('16', (string) $first->amount);
+        $this->assertSame('16.00', (string) $first->amount);
         $this->assertSame('招商银行储蓄卡(8705)', $first->payment_method);
         $this->assertSame('withdrawal', $first->firefly_type);
         $this->assertSame('招商银行', $first->source_name);
@@ -636,7 +641,7 @@ TEXT
         $this->assertSame('餐饮美食', $first->platform_category);
         $this->assertSame('霸王茶姬', $first->counterparty);
         $this->assertSame('支出', $first->direction);
-        $this->assertSame('16.8', (string) $first->amount);
+        $this->assertSame('16.80', (string) $first->amount);
         $this->assertSame('招商银行储蓄卡(8705)', $first->payment_method);
         $this->assertSame('withdrawal', $first->firefly_type);
         $this->assertSame('招商银行', $first->source_name);
@@ -820,7 +825,7 @@ TEXT
         $missing = BillStatementRow::query()->where('platform_order_no', '1000050001202606180629033166998')->first();
         $this->assertInstanceOf(BillStatementRow::class, $missing);
         $this->assertSame('unique', $missing->duplicate_state);
-        $this->assertSame('1314', (string) $missing->amount);
+        $this->assertSame('1314.00', (string) $missing->amount);
         $this->assertSame('微信零钱', $missing->destination_name);
     }
 
@@ -965,7 +970,7 @@ TEXT
         ]);
     }
 
-    private function encryptedZipBytes(string $password, ?string $csv = null, string $filename = 'alipay-records.csv'): string
+    private function encryptedZipBytes(#[\SensitiveParameter] string $password, ?string $csv = null, string $filename = 'alipay-records.csv'): string
     {
         $path = tempnam(sys_get_temp_dir(), 'alipay-statement-');
         if (false === $path) {
@@ -983,7 +988,7 @@ TEXT
         $zip->close();
 
         $bytes = file_get_contents($path);
-        @unlink($path);
+        unlink($path);
 
         if (false === $bytes) {
             throw new \RuntimeException('Could not read temporary zip file.');
@@ -992,7 +997,7 @@ TEXT
         return $bytes;
     }
 
-    private function createEncryptedStatementArtifact(BillTask $task, string $zipFilename, string $statementContent, string $password, string $innerFilename = 'alipay-records.csv'): BillArtifact
+    private function createEncryptedStatementArtifact(BillTask $task, string $zipFilename, string $statementContent, #[\SensitiveParameter] string $password, string $innerFilename = 'alipay-records.csv'): BillArtifact
     {
         $zipPath = sprintf('bill-inbox/%d/attachments/%s', $task->id, $zipFilename);
         Storage::disk('local')->put($zipPath, $this->encryptedZipBytes($password, $statementContent, $innerFilename));
@@ -1287,7 +1292,7 @@ TEXT;
         $zip->close();
 
         $bytes = file_get_contents($path);
-        @unlink($path);
+        unlink($path);
 
         if (false === $bytes) {
             throw new \RuntimeException('Could not read temporary xlsx file.');

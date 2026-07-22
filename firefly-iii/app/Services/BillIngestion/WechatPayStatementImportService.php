@@ -100,7 +100,10 @@ class WechatPayStatementImportService
      */
     private function parseCsv(string $content): array
     {
-        $encoding = mb_detect_encoding($content, ['UTF-8', 'GB18030', 'GBK', 'BIG5'], true) ?: 'UTF-8';
+        $encoding = mb_detect_encoding($content, ['UTF-8', 'GB18030', 'GBK', 'BIG5'], true);
+        if (false === $encoding) {
+            $encoding = 'UTF-8';
+        }
         $text     = 'UTF-8' === $encoding ? $content : mb_convert_encoding($content, 'UTF-8', $encoding);
         $text     = str_replace(["\r\n", "\r"], "\n", $text);
         $lines    = explode("\n", $text);
@@ -135,7 +138,7 @@ class WechatPayStatementImportService
 
         $zip = new ZipArchive();
         if (true !== $zip->open($path)) {
-            @unlink($path);
+            unlink($path);
 
             throw new RuntimeException('无法打开微信支付账单 XLSX 文件。');
         }
@@ -145,7 +148,7 @@ class WechatPayStatementImportService
             $table         = $this->readFirstWorksheetTable($zip, $sharedStrings);
         } finally {
             $zip->close();
-            @unlink($path);
+            unlink($path);
         }
 
         $summaryLines            = $this->summaryLines($table);
@@ -447,7 +450,10 @@ class WechatPayStatementImportService
 
         foreach ($root->children() as $item) {
             $parts = [];
-            $texts = $item->xpath('.//*[local-name()="t"]') ?: [];
+            $texts = $item->xpath('.//*[local-name()="t"]');
+            if (false === $texts) {
+                $texts = [];
+            }
             foreach ($texts as $text) {
                 $parts[] = (string) $text;
             }
@@ -474,10 +480,19 @@ class WechatPayStatementImportService
             throw new RuntimeException('微信支付账单 XLSX 工作表无法解析。');
         }
 
+        $rowNodes = $root->xpath('//*[local-name()="sheetData"]/*[local-name()="row"]');
+        if (false === $rowNodes) {
+            $rowNodes = [];
+        }
+
         $rows = [];
-        foreach (($root->xpath('//*[local-name()="sheetData"]/*[local-name()="row"]') ?: []) as $rowNode) {
+        foreach ($rowNodes as $rowNode) {
             $row = [];
-            foreach (($rowNode->xpath('./*[local-name()="c"]') ?: []) as $cellNode) {
+            $cellNodes = $rowNode->xpath('./*[local-name()="c"]');
+            if (false === $cellNodes) {
+                $cellNodes = [];
+            }
+            foreach ($cellNodes as $cellNode) {
                 $reference = (string) ($cellNode['r'] ?? '');
                 $column    = $this->columnIndexFromReference($reference);
                 if (null === $column) {
@@ -521,7 +536,10 @@ class WechatPayStatementImportService
             return $this->clean($sharedStrings[(int) $value] ?? '');
         }
         if ('inlineStr' === $type) {
-            $texts = $cell->xpath('.//*[local-name()="t"]') ?: [];
+            $texts = $cell->xpath('.//*[local-name()="t"]');
+            if (false === $texts) {
+                $texts = [];
+            }
 
             return $this->clean(implode('', array_map(static fn (\SimpleXMLElement $text): string => (string) $text, $texts)));
         }
@@ -549,7 +567,7 @@ class WechatPayStatementImportService
     private function excelSerialDate(float $serial): Carbon
     {
         $days    = (int) floor($serial);
-        $seconds = (int) round(($serial - $days) * 86400);
+        $seconds = (int) round(($serial - $days) * 86_400);
 
         return Carbon::create(1899, 12, 30, 0, 0, 0, 'Asia/Shanghai')
             ->addDays($days)

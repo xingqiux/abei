@@ -26,7 +26,7 @@ namespace FireflyIII\Api\V1\Controllers\Chart;
 
 use Carbon\Carbon;
 use FireflyIII\Api\V1\Controllers\Controller;
-use FireflyIII\Api\V1\Requests\DateRangeRequest;
+use FireflyIII\Api\V1\Requests\Chart\RequiredDateRangeRequest;
 use FireflyIII\Enums\AccountTypeEnum;
 use FireflyIII\Enums\TransactionTypeEnum;
 use FireflyIII\Enums\UserRoleEnum;
@@ -79,7 +79,7 @@ final class CategoryController extends Controller
      *
      * @SuppressWarnings("PHPMD.UnusedFormalParameter")
      */
-    public function overview(DateRangeRequest $request): JsonResponse
+    public function overview(RequiredDateRangeRequest $request): JsonResponse
     {
         /** @var Carbon $start */
         $start      = $request->attributes->get('start');

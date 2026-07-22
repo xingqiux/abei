@@ -134,11 +134,7 @@ class BillMailboxSyncService
     {
         $messageId = $this->messageId($raw);
         $query     = BillMailMessage::query()->where('user_id', $user->id);
-        if (null !== $messageId) {
-            $query->where('message_id', $messageId);
-        } else {
-            $query->where('checksum', hash('sha256', $raw));
-        }
+        $query->where(null === $messageId ? 'checksum' : 'message_id', $messageId ?? hash('sha256', $raw));
 
         if ($query->exists()) {
             return true;
@@ -212,7 +208,10 @@ class BillMailboxSyncService
 
     private function storeAttachment(string $basePath, int $index, string $filename, string $content): string
     {
-        $filename = preg_replace('/[\/\\\\]+/', '_', $filename) ?: sprintf('attachment-%d.bin', $index + 1);
+        $filename = preg_replace('/[\/\\\\]+/', '_', $filename);
+        if (null === $filename || '' === $filename) {
+            $filename = sprintf('attachment-%d.bin', $index + 1);
+        }
         $path     = sprintf('%s/attachments/%02d-%s', $basePath, $index + 1, $filename);
         Storage::disk('local')->put($path, $content);
 

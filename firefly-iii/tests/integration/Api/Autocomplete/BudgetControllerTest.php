@@ -56,7 +56,7 @@ final class BudgetControllerTest extends TestCase
     {
         // act as a user
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $response = $this->get(route('api.v1.autocomplete.budgets'), ['Accept' => 'application/json']);
         $response->assertStatus(200);
@@ -66,7 +66,7 @@ final class BudgetControllerTest extends TestCase
     public function testGivenAuthenticatedRequestWhenCallingTheBudgetsEndpointThenReturnsBudgets(): void
     {
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $this->createTestBudgets(5, $user);
         $response = $this->get(route('api.v1.autocomplete.budgets'), ['Accept' => 'application/json']);
@@ -80,7 +80,7 @@ final class BudgetControllerTest extends TestCase
     public function testGivenAuthenticatedRequestWhenCallingTheBudgetsEndpointWithQueryThenReturnsBudgetsThatMatchQuery(): void
     {
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $this->createTestBudgets(20, $user);
         $response = $this->get(route('api.v1.autocomplete.budgets', ['query' => 'Budget 1', 'limit' => 20]), ['Accept' => 'application/json']);
@@ -95,7 +95,7 @@ final class BudgetControllerTest extends TestCase
     public function testGivenAuthenticatedRequestWhenCallingTheBudgetsEndpointWithQueryThenReturnsBudgetsWithLimit(): void
     {
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $this->createTestBudgets(5, $user);
         $response = $this->get(route('api.v1.autocomplete.budgets', ['query' => 'Budget', 'limit' => 3]), ['Accept' => 'application/json']);

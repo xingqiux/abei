@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace FireflyIII\Services\BillIngestion;
 
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 class NativeImapBillMailboxClient implements ImapBillMailboxClient
@@ -18,8 +19,8 @@ class NativeImapBillMailboxClient implements ImapBillMailboxClient
         if (is_resource($this->stream)) {
             try {
                 $this->writeCommand('LOGOUT');
-            } catch (\Throwable) {
-                // Closing the local stream is still useful when the remote side is already gone.
+            } catch (\Throwable $exception) {
+                Log::debug('IMAP logout failed while closing the local stream.', ['exception_class' => $exception::class]);
             }
             fclose($this->stream);
         }
@@ -65,7 +66,8 @@ class NativeImapBillMailboxClient implements ImapBillMailboxClient
 
         foreach ($lines as $line) {
             if (1 === preg_match('/^\* SEARCH\s*(.*)$/', $line, $matches)) {
-                $found = preg_split('/\s+/', trim($matches[1])) ?: [];
+                $found = preg_split('/\s+/', trim($matches[1]));
+                $found = false === $found ? [] : $found;
                 foreach ($found as $uid) {
                     if ('' !== $uid) {
                         $uids[] = $uid;
@@ -108,7 +110,7 @@ class NativeImapBillMailboxClient implements ImapBillMailboxClient
 
         $scheme       = 'ssl' === $config->encryption ? 'ssl' : 'tcp';
         $remoteSocket = sprintf('%s://%s:%d', $scheme, $config->host, $config->port);
-        $stream       = @stream_socket_client($remoteSocket, $errno, $errstr, 30);
+        $stream       = $this->openSocket($remoteSocket, $errno, $errstr);
         if (false === $stream) {
             throw new RuntimeException(sprintf('Could not connect to IMAP mailbox: %s', '' === $errstr ? (string) $errno : $errstr));
         }
@@ -123,7 +125,7 @@ class NativeImapBillMailboxClient implements ImapBillMailboxClient
      */
     private function openProxyStream(BillMailboxConfig $config, array $proxy)
     {
-        $stream = @stream_socket_client(sprintf('tcp://%s:%d', $proxy['host'], $proxy['port']), $errno, $errstr, 30);
+        $stream = $this->openSocket(sprintf('tcp://%s:%d', $proxy['host'], $proxy['port']), $errno, $errstr);
         if (false === $stream) {
             throw new RuntimeException(sprintf('Could not connect to IMAP proxy: %s', '' === $errstr ? (string) $errno : $errstr));
         }
@@ -138,6 +140,20 @@ class NativeImapBillMailboxClient implements ImapBillMailboxClient
     }
 
     /**
+     * @return false|resource
+     */
+    private function openSocket(string $remoteSocket, ?int &$errno, ?string &$errstr)
+    {
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            return stream_socket_client($remoteSocket, $errno, $errstr, 30);
+        } finally {
+            restore_error_handler();
+        }
+    }
+
+    /**
      * @param resource                                      $stream
      * @param array{host:string,port:int,user?:string,pass?:string} $proxy
      */
@@ -149,7 +165,7 @@ class NativeImapBillMailboxClient implements ImapBillMailboxClient
             sprintf('Host: %s', $target),
             'Proxy-Connection: Keep-Alive',
         ];
-        if (isset($proxy['user'])) {
+        if (null !== ($proxy['user'] ?? null)) {
             $headers[] = 'Proxy-Authorization: Basic '.base64_encode($proxy['user'].':'.($proxy['pass'] ?? ''));
         }
         fwrite($stream, implode("\r\n", $headers)."\r\n\r\n");
@@ -192,7 +208,10 @@ class NativeImapBillMailboxClient implements ImapBillMailboxClient
     private function matchesNoProxy(string $host): bool
     {
         $host = strtolower($host);
-        $list = getenv('NO_PROXY') ?: getenv('no_proxy') ?: '';
+        $list = array_find(
+            [getenv('NO_PROXY'), getenv('no_proxy')],
+            static fn (false|string $value): bool => false !== $value && '' !== $value && '0' !== $value,
+        ) ?? '';
         foreach (explode(',', (string) $list) as $entry) {
             $entry = strtolower(trim($entry));
             if ('' === $entry) {
@@ -219,7 +238,7 @@ class NativeImapBillMailboxClient implements ImapBillMailboxClient
             $url = 'http://'.$url;
         }
         $parts = parse_url($url);
-        if (false === $parts || 'http' !== strtolower((string) ($parts['scheme'] ?? 'http')) || !isset($parts['host'])) {
+        if (false === $parts || 'http' !== strtolower((string) ($parts['scheme'] ?? 'http')) || null === ($parts['host'] ?? null)) {
             return null;
         }
 
@@ -227,7 +246,7 @@ class NativeImapBillMailboxClient implements ImapBillMailboxClient
             'host' => (string) $parts['host'],
             'port' => (int) ($parts['port'] ?? 80),
         ];
-        if (isset($parts['user'])) {
+        if (null !== ($parts['user'] ?? null)) {
             $proxy['user'] = rawurldecode((string) $parts['user']);
             $proxy['pass'] = rawurldecode((string) ($parts['pass'] ?? ''));
         }

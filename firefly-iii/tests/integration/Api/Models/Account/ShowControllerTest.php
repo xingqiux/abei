@@ -44,7 +44,7 @@ final class ShowControllerTest extends TestCase
 
     public function testIndex(): void
     {
-        $this->actingAs($this->user);
+        $this->actingAs($this->user, 'api');
         $response = $this->getJson(route('api.v1.accounts.index'));
         $response->assertStatus(200);
         $response->assertJson(['meta' => ['pagination' => ['total' => 5]]]);
@@ -52,7 +52,7 @@ final class ShowControllerTest extends TestCase
 
     public function testIndexCanFilterOnAccountType(): void
     {
-        $this->actingAs($this->user);
+        $this->actingAs($this->user, 'api');
         $response = $this->getJson(route('api.v1.accounts.index').'?type=asset');
         $response->assertStatus(200);
         $response->assertJson([
@@ -63,7 +63,7 @@ final class ShowControllerTest extends TestCase
 
     public function testIndexFailsOnUnknownAccountType(): void
     {
-        $this->actingAs($this->user);
+        $this->actingAs($this->user, 'api');
         $response = $this->getJson(route('api.v1.accounts.index').'?type=foobar');
         $response->assertStatus(422);
         $response->assertJson(['errors' => ['type' => ['The selected type is invalid.']]]);
@@ -75,7 +75,7 @@ final class ShowControllerTest extends TestCase
         parent::setUp();
 
         $this->user = $this->createAuthenticatedUser();
-        $this->actingAs($this->user);
+        $this->actingAs($this->user, 'api');
 
         Account::factory()->for($this->user)->withType(AccountTypeEnum::ASSET)->create();
         Account::factory()->for($this->user)->withType(AccountTypeEnum::REVENUE)->create();

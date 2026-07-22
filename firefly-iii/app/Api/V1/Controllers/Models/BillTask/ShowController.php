@@ -8,6 +8,7 @@ use FireflyIII\Api\V1\Controllers\Controller;
 use FireflyIII\Api\V1\Requests\PaginationRequest;
 use FireflyIII\Models\BillTask;
 use FireflyIII\Services\BillIngestion\BillStatementRowSummaryService;
+use FireflyIII\Services\BillIngestion\BillStatementCurrencyResolver;
 use FireflyIII\User;
 use Illuminate\Http\JsonResponse;
 
@@ -15,7 +16,10 @@ final class ShowController extends Controller
 {
     use BillTaskResponse;
 
-    public function __construct(private readonly BillStatementRowSummaryService $rowSummaryService) {}
+    public function __construct(
+        private readonly BillStatementRowSummaryService $rowSummaryService,
+        private readonly BillStatementCurrencyResolver $currencyResolver,
+    ) {}
 
     public function index(PaginationRequest $request): JsonResponse
     {

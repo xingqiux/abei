@@ -13,6 +13,7 @@ use Illuminate\Support\Collection;
 class BillStatementRowSummaryService
 {
     public function __construct(
+        private readonly BillStatementCurrencyResolver $currencyResolver,
         private readonly CrossSourceDuplicateMatcher $crossSourceMatcher = new CrossSourceDuplicateMatcher(),
         private readonly BalanceChainVerifier $balanceChainVerifier = new BalanceChainVerifier(),
     ) {}
@@ -35,7 +36,7 @@ class BillStatementRowSummaryService
 
         return [
             'summary' => $this->summaryForRows($allRows),
-            'data'    => $allRows->take($limit)->map(fn (BillStatementRow $row): array => $this->rowPreview($row))->values()->all(),
+            'data'    => $allRows->take($limit)->map(fn (BillStatementRow $row): array => $this->rowPreview($row, $user))->values()->all(),
         ];
     }
 
@@ -112,7 +113,7 @@ class BillStatementRowSummaryService
         $crossSourceCandidates = [];
 
         foreach ($pendingRows as $row) {
-            $preview = $this->rowPreview($row);
+            $preview = $this->rowPreview($row, $user);
             $rowMatches = $crossSourceMatches[$row->id] ?? [];
             $preview['cross_source_matches'] = $rowMatches;
             if ([] !== $rowMatches) {
@@ -203,8 +204,10 @@ class BillStatementRowSummaryService
     /**
      * @return array<string,mixed>
      */
-    public function rowPreview(BillStatementRow $row): array
+    public function rowPreview(BillStatementRow $row, ?User $user = null): array
     {
+        $currency = $this->currencyResolver->resolve($user ?? $row->user, $row);
+
         return [
             'row_id'              => (string) $row->id,
             'row_number'          => $row->row_number,
@@ -214,8 +217,10 @@ class BillStatementRowSummaryService
             'amount'              => null === $row->amount ? null : $this->formatAmount((string) $row->amount),
             'firefly_type'        => $row->firefly_type,
             'firefly_amount'      => null === $row->firefly_amount ? null : $this->formatAmount((string) $row->firefly_amount),
+            'currency_code'       => $currency->code,
+            'currency_symbol'     => $currency->symbol,
             'counterparty'        => $this->redactText($row->counterparty),
-            'description_preview' => $this->redactText($this->truncate((string) ($row->firefly_description ?: $row->description ?: ''))),
+            'description_preview' => $this->redactText($this->truncate($this->firstTruthyString($row->firefly_description, $row->description))),
             'source_name'         => $this->redactText($row->source_name),
             'destination_name'    => $this->redactText($row->destination_name),
             'category_name'       => $row->category_name,
@@ -290,7 +295,7 @@ class BillStatementRowSummaryService
     private function hasExistingReference(BillStatementRow $row, array $existingReferences): bool
     {
         foreach ([$row->platform_order_no, $row->merchant_order_no] as $reference) {
-            if (is_string($reference) && '' !== $reference && isset($existingReferences[$reference])) {
+            if (is_string($reference) && '' !== $reference && true === ($existingReferences[$reference] ?? false)) {
                 return true;
             }
         }
@@ -337,7 +342,7 @@ class BillStatementRowSummaryService
             return true;
         }
 
-        $text = trim((string) ($row->description ?: $row->counterparty ?: ''));
+        $text = trim($this->firstTruthyString($row->description, $row->counterparty));
         if ('' === $text) {
             return true;
         }
@@ -379,7 +384,7 @@ class BillStatementRowSummaryService
 
     private function normalizedCounterparty(BillStatementRow $row): string
     {
-        return trim((string) ($row->counterparty ?: $row->destination_name ?: $row->source_name ?: ''));
+        return trim($this->firstTruthyString($row->counterparty, $row->destination_name, $row->source_name));
     }
 
     /**
@@ -437,7 +442,7 @@ class BillStatementRowSummaryService
 
         return array_values(array_filter($items, static function (array $item) use (&$seen): bool {
             $rowId = (string) ($item['row_id'] ?? '');
-            if ('' === $rowId || isset($seen[$rowId])) {
+            if ('' === $rowId || true === ($seen[$rowId] ?? false)) {
                 return false;
             }
             $seen[$rowId] = true;
@@ -464,6 +469,11 @@ class BillStatementRowSummaryService
     private function formatAmount(string $amount): string
     {
         return number_format((float) $amount, 2, '.', '');
+    }
+
+    private function firstTruthyString(?string ...$values): string
+    {
+        return array_find($values, static fn (?string $value): bool => null !== $value && '' !== $value && '0' !== $value) ?? '';
     }
 
     private function truncate(string $value, int $limit = 60): string

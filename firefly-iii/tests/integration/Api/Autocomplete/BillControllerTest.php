@@ -56,7 +56,7 @@ final class BillControllerTest extends TestCase
     {
         // act as a user
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $response = $this->get(route('api.v1.autocomplete.bills'), ['Accept' => 'application/json']);
         $response->assertStatus(200);
@@ -66,7 +66,7 @@ final class BillControllerTest extends TestCase
     public function testGivenAuthenticatedRequestWhenCallingTheBillsEndpointThenReturnsBills(): void
     {
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $this->createTestBills(5, $user);
         $response = $this->get(route('api.v1.autocomplete.bills'), ['Accept' => 'application/json']);
@@ -80,7 +80,7 @@ final class BillControllerTest extends TestCase
     public function testGivenAuthenticatedRequestWhenCallingTheBillsEndpointWithQueryThenReturnsBillsThatMatchQuery(): void
     {
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $this->createTestBills(20, $user);
         $response = $this->get(route('api.v1.autocomplete.bills', ['query' => 'Bill 1', 'limit' => 20]), ['Accept' => 'application/json']);
@@ -95,7 +95,7 @@ final class BillControllerTest extends TestCase
     public function testGivenAuthenticatedRequestWhenCallingTheBillsEndpointWithQueryThenReturnsBillsWithLimit(): void
     {
         $user     = $this->createAuthenticatedUser();
-        $this->actingAs($user);
+        $this->actingAs($user, 'api');
 
         $this->createTestBills(5, $user);
         $response = $this->get(route('api.v1.autocomplete.bills', ['query' => 'Bill', 'limit' => 3]), ['Accept' => 'application/json']);

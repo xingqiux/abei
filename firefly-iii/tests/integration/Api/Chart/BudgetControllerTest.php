@@ -42,7 +42,7 @@ final class BudgetControllerTest extends TestCase
 
     public function testGetOverviewChart(): void
     {
-        $this->actingAs($this->user);
+        $this->actingAs($this->user, 'api');
         $params   = ['start' => '2024-01-01', 'end' => '2024-01-31'];
         $response = $this->getJson(route('api.v1.chart.budget.overview').'?'.http_build_query($params));
         $response->assertStatus(200);
@@ -50,7 +50,7 @@ final class BudgetControllerTest extends TestCase
 
     public function testGetOverviewChartFails(): void
     {
-        $this->actingAs($this->user);
+        $this->actingAs($this->user, 'api');
         $response = $this->getJson(route('api.v1.chart.budget.overview'));
         $response->assertStatus(422);
     }
@@ -63,6 +63,6 @@ final class BudgetControllerTest extends TestCase
         if (!$this->user instanceof User) {
             $this->user = $this->createAuthenticatedUser();
         }
-        $this->actingAs($this->user);
+        $this->actingAs($this->user, 'api');
     }
 }

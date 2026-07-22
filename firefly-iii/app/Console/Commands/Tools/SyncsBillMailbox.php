@@ -61,12 +61,8 @@ class SyncsBillMailbox extends Command
             return User::query()->orderBy('id')->get()->all();
         }
 
-        $query = User::query();
-        if (ctype_digit($selector)) {
-            $query->where('id', (int) $selector);
-        } else {
-            $query->where('email', $selector);
-        }
+        $isId  = ctype_digit($selector);
+        $query = User::query()->where($isId ? 'id' : 'email', $isId ? (int) $selector : $selector);
 
         $user = $query->first();
         if (!$user instanceof User) {

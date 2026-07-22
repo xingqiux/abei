@@ -79,7 +79,10 @@ class AlipayStatementImportService
      */
     public function parse(string $content): array
     {
-        $encoding = mb_detect_encoding($content, ['UTF-8', 'GB18030', 'GBK', 'BIG5'], true) ?: 'GB18030';
+        $encoding = mb_detect_encoding($content, ['UTF-8', 'GB18030', 'GBK', 'BIG5'], true);
+        if (false === $encoding) {
+            $encoding = 'GB18030';
+        }
         $text     = 'UTF-8' === $encoding ? $content : mb_convert_encoding($content, 'UTF-8', $encoding);
         $text     = str_replace("\r\n", "\n", $text);
         $text     = str_replace("\r", "\n", $text);
@@ -116,20 +119,21 @@ class AlipayStatementImportService
         $description    = $this->clean($row['商品说明'] ?? '');
         $platformOrder  = $this->clean($row['交易订单号'] ?? '');
         $merchantOrder  = $this->clean($row['商家订单号'] ?? '');
-        $fireflyType    = $this->fireflyType($direction);
+        $flowType       = $this->fireflyType($direction);
+        $fireflyType    = $flowType;
         $paymentSplit   = $this->paymentSplit($paymentMethod);
         if (null !== $paymentSplit) {
             $fireflyType = null;
         }
         $sourceName     = null;
         $destinationName = null;
-        if ('withdrawal' === $fireflyType) {
-            $sourceName      = $this->fireflyAccountName($paymentMethod);
+        if ('withdrawal' === $flowType) {
+            $sourceName      = null === $paymentSplit ? $this->fireflyAccountName($paymentMethod) : null;
             $destinationName = $counterparty;
         }
-        if ('deposit' === $fireflyType) {
+        if ('deposit' === $flowType) {
             $sourceName      = $counterparty;
-            $destinationName = $this->fireflyAccountName($paymentMethod);
+            $destinationName = null === $paymentSplit ? $this->fireflyAccountName($paymentMethod) : null;
         }
 
         $editable = [

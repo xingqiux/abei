@@ -33,6 +33,7 @@ use FireflyIII\Models\Attachment;
 use FireflyIII\Repositories\Attachment\AttachmentRepositoryInterface;
 use FireflyIII\Transformers\AttachmentTransformer;
 use FireflyIII\User;
+use FireflyIII\Support\Facades\Steam;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -102,13 +103,22 @@ final class StoreController extends Controller
             throw new NotFoundHttpException();
         }
 
+        $contentType = strtolower(trim(explode(';', (string) $request->header('Content-Type'))[0]));
+        if (!in_array($contentType, config('firefly.allowedMimes'), true)) {
+            return response()->json(['message' => 'Unsupported attachment type.'], 422);
+        }
+
         /** @var AttachmentHelperInterface $helper */
-        $helper = app(AttachmentHelperInterface::class);
-        $body   = $request->getContent();
+        $helper  = app(AttachmentHelperInterface::class);
+        $body    = $request->getContent();
+        $maxSize = min(Steam::phpBytes((string) ini_get('upload_max_filesize')), Steam::phpBytes((string) ini_get('post_max_size')));
         if ('' === $body) {
             Log::error('Body of attachment is empty.');
 
             return response()->json([], 422);
+        }
+        if (strlen($body) > $maxSize) {
+            return response()->json(['message' => 'Attachment exceeds the upload size limit.'], 422);
         }
         $result = $helper->saveAttachmentFromApi($attachment, $body);
         if (false === $result) {

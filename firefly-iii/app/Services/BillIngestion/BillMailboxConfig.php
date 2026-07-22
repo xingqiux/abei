@@ -17,7 +17,7 @@ final readonly class BillMailboxConfig
         public int $port,
         public string $encryption,
         public string $username,
-        public string $password,
+        #[\SensitiveParameter] public string $password,
         public string $folder,
         public array $rules,
         public string $gmailLabel = '',

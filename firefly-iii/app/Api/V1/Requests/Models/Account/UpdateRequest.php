@@ -111,7 +111,7 @@ class UpdateRequest extends FormRequest
             'liability_type'       => 'required_if:type,liability|in:loan,debt,mortgage',
             'liability_direction'  => 'required_if:type,liability|in:credit,debit',
             'interest'             => 'required_if:type,liability|min:0|max:100|numeric',
-            'interest_period'      => 'required_if:type,liability|in:daily,monthly,yearly',
+            'interest_period'      => sprintf('nullable|in:%s', implode(',', config('firefly.interest_periods'))),
             'notes'                => 'min:0|max:32768',
         ];
 
