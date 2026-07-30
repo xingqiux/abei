@@ -13,7 +13,6 @@ type Kind = 'category' | 'tag' | 'counterparty'
 interface Category {
   id: number
   name: string
-  kind: 'income' | 'expense'
   parent_id: number | null
   version: number
 }
@@ -45,7 +44,6 @@ interface EditState {
   id?: number
   version?: number
   name: string
-  categoryKind: Category['kind']
   parentId: string
   tagColor: string
   counterpartyKind: Counterparty['kind']
@@ -62,7 +60,6 @@ function baseState(kind: Kind): EditState {
   return {
     kind,
     name: '',
-    categoryKind: 'expense',
     parentId: '',
     tagColor: '#577590',
     counterpartyKind: 'merchant',
@@ -101,7 +98,6 @@ export function ReferenceDataPanel() {
     next.name = item.name
     if (kind === 'category') {
       const category = item as Category
-      next.categoryKind = category.kind
       next.parentId = category.parent_id == null ? '' : String(category.parent_id)
     } else if (kind === 'tag') {
       next.tagColor = (item as Tag).color ?? '#577590'
@@ -123,7 +119,6 @@ export function ReferenceDataPanel() {
     if (edit.kind === 'category') {
       body = {
         name: edit.name.trim(),
-        kind: edit.categoryKind,
         parent_id: edit.parentId ? Number(edit.parentId) : null,
       }
     } else if (edit.kind === 'tag') {
@@ -209,8 +204,7 @@ export function ReferenceDataPanel() {
         {edit && <div className="flex flex-col gap-3">
           <Field label="名称"><input autoFocus value={edit.name} onChange={(event) => setEdit({ ...edit, name: event.target.value })} className="rounded-[6px] px-2.5 py-1.5" style={inputStyle} /></Field>
           {edit.kind === 'category' && <>
-            <Field label="收支类型"><select value={edit.categoryKind} onChange={(event) => setEdit({ ...edit, categoryKind: event.target.value as Category['kind'], parentId: '' })} className="rounded-[6px] px-2.5 py-1.5" style={inputStyle}><option value="expense">支出</option><option value="income">收入</option></select></Field>
-            <Field label="上级分类"><select value={edit.parentId} onChange={(event) => setEdit({ ...edit, parentId: event.target.value })} className="rounded-[6px] px-2.5 py-1.5" style={inputStyle}><option value="">无</option>{data.categories.filter((category) => category.kind === edit.categoryKind && category.parent_id == null && category.id !== edit.id).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></Field>
+            <Field label="上级分类"><select value={edit.parentId} onChange={(event) => setEdit({ ...edit, parentId: event.target.value })} className="rounded-[6px] px-2.5 py-1.5" style={inputStyle}><option value="">无</option>{data.categories.filter((category) => category.parent_id == null && category.id !== edit.id).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></Field>
           </>}
           {edit.kind === 'tag' && <Field label="颜色"><div className="flex items-center gap-2"><input type="color" value={edit.tagColor} onChange={(event) => setEdit({ ...edit, tagColor: event.target.value })} className="h-8 w-10 rounded-[4px]" /><span className="font-num text-[11px]" style={{ color: 'var(--g-ink-2)' }}>{edit.tagColor}</span></div></Field>}
           {edit.kind === 'counterparty' && <>
@@ -231,7 +225,7 @@ function rowMeta(kind: Kind, item: Category | Tag | Counterparty, categories: Ca
   if (kind === 'category') {
     const category = item as Category
     const parent = categories.find((candidate) => candidate.id === category.parent_id)
-    return `${category.kind === 'expense' ? '支出' : '收入'}${parent ? ` · ${parent.name}` : ''}`
+    return parent ? `上级 · ${parent.name}` : '一级分类'
   }
   if (kind === 'tag') return '标签'
   const counterparty = item as Counterparty

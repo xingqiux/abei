@@ -280,6 +280,7 @@ export function ReconciliationPage() {
                   <TransactionRow
                     key={`${row.groupId}-${row.tx.transaction_journal_id ?? row.splitIndex}`}
                     tx={row.tx}
+                    ids={{ groupId: row.groupId, journalId: String(row.tx.transaction_journal_id ?? row.groupId) }}
                   />
                 ))}
               </div>

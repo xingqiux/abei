@@ -8,9 +8,10 @@ export function formatAmount(value: number | string): string {
   if (typeof value === 'string') {
     const match = /^[+-]?(\d+)(?:\.(\d+))?$/.exec(value.trim())
     if (match) {
-      const whole = match[1].replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-      const fraction = (match[2] ?? '').padEnd(2, '0')
-      return `${whole}.${fraction || '00'}`
+      const mills = BigInt(`${match[1]}${(match[2] ?? '').padEnd(3, '0').slice(0, 3)}`)
+      const cents = ((mills + 5n) / 10n).toString().padStart(3, '0')
+      const whole = cents.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+      return `${whole}.${cents.slice(-2)}`
     }
   }
   const n = typeof value === 'string' ? Number(value) : value

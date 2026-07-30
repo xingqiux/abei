@@ -154,7 +154,6 @@ interface GranaryTransactionPage {
 interface GranaryCategory {
   id: number
   name: string
-  kind: 'income' | 'expense'
   parent_id: number | null
   version: number
   archived_at: string | null
@@ -943,6 +942,14 @@ export async function createTransactionSplits(
     if (destination.currency_code !== account.currency_code) {
       throw new FireflyApiError(422, '跨币种转账需要分别填写两端金额')
     }
+    const category = first.category_id || first.category_name?.trim()
+      ? categories.find((candidate) =>
+          candidate.archived_at == null
+          && (String(candidate.id) === first.category_id || candidate.name === first.category_name?.trim()))
+      : null
+    if ((first.category_id || first.category_name?.trim()) && !category) {
+      throw new FireflyApiError(422, `分类“${first.category_name ?? ''}”不存在，请先在管理页面创建`)
+    }
     body = {
       type: 'transfer',
       occurred_at: `${first.date}T12:00:00Z`,
@@ -954,18 +961,17 @@ export async function createTransactionSplits(
       destination_account_id: Number(first.destination_id),
       destination_amount: first.amount,
       destination_book_amount: first.amount,
+      category_id: category?.id ?? null,
       tag_ids: tagIds,
     }
   } else {
-    const kind = first.type === 'withdrawal' ? 'expense' : 'income'
     const splits = inputs.map((input) => {
       const category = categories.find((candidate) =>
         candidate.archived_at == null
-        && candidate.kind === kind
         && (String(candidate.id) === input.category_id || candidate.name === input.category_name?.trim()),
       )
       if (!category) {
-        throw new FireflyApiError(422, `${kind === 'expense' ? '支出' : '收入'}分类“${input.category_name ?? ''}”不存在，请先在管理页面创建`)
+        throw new FireflyApiError(422, `分类“${input.category_name ?? ''}”不存在，请先在管理页面创建`)
       }
       return {
         category_id: category.id,
@@ -1307,7 +1313,6 @@ export async function getCategories(): Promise<CategoriesResponse> {
       id: String(category.id),
       attributes: {
         name: category.name,
-        kind: category.kind,
         parent_id: category.parent_id,
         version: category.version,
       },
@@ -1485,7 +1490,7 @@ export async function autocompleteCategories(
       && !parentIds.has(category.id)
       && category.name.toLocaleLowerCase().includes(needle))
     .slice(0, opts.limit ?? 10)
-    .map((category) => ({ id: String(category.id), name: category.name, kind: category.kind })))
+    .map((category) => ({ id: String(category.id), name: category.name })))
 }
 
 /**

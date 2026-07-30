@@ -36,8 +36,8 @@ describe('transaction writes', () => {
   it('maps split transactions to the selected Granary book', async () => {
     mocks.granaryGet
       .mockResolvedValueOnce([
-        { id: 7, name: '餐饮', kind: 'expense', parent_id: null, version: 1, archived_at: null },
-        { id: 8, name: '甜点', kind: 'expense', parent_id: null, version: 1, archived_at: null },
+        { id: 7, name: '餐饮', parent_id: null, version: 1, archived_at: null },
+        { id: 8, name: '甜点', parent_id: null, version: 1, archived_at: null },
       ])
       .mockResolvedValueOnce([{ id: 3, name: 'work', color: null, version: 1, archived_at: null }])
       .mockResolvedValueOnce([{ id: 9, name: 'Cafe', kind: 'merchant', review_status: 'confirmed', notes: null, version: 1, archived_at: null }])
@@ -101,6 +101,51 @@ describe('transaction writes', () => {
     expect(result.data.id).toBe('42')
   })
 
+  it('keeps an optional category on a transfer without turning it into income or expense', async () => {
+    mocks.granaryGet
+      .mockResolvedValueOnce([{ id: 7, name: '资金调拨', parent_id: null, version: 1, archived_at: null }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { id: 1, name: 'Checking', class: 'asset', role: 'bank', currency_code: 'CNY', balance: '100.00', version: 1, archived_at: null },
+        { id: 2, name: 'Cash', class: 'asset', role: 'cash', currency_code: 'CNY', balance: '0.00', version: 1, archived_at: null },
+      ])
+      .mockResolvedValueOnce([{ id: 7, base_currency_code: 'CNY' }])
+    mocks.granaryPost.mockResolvedValueOnce({
+      id: 43,
+      status: 'posted',
+      transaction_type: 'transfer',
+      occurred_at: '2026-07-20T12:00:00Z',
+      description: '提现',
+      counterparty_id: null,
+      counterparty_name: null,
+      version: 1,
+      postings: [
+        { id: 1, account_id: 1, account_name: 'Checking', account_class: 'asset', currency_code: 'CNY', category_id: 7, category_name: '资金调拨', budget_id: null, budget_name: null, amount: '-20.00', book_amount: '-20.00', memo: null, cleared_at: null },
+        { id: 2, account_id: 2, account_name: 'Cash', account_class: 'asset', currency_code: 'CNY', category_id: null, category_name: null, budget_id: null, budget_name: null, amount: '20.00', book_amount: '20.00', memo: null, cleared_at: null },
+      ],
+      tags: [],
+    })
+
+    const result = await createTransactionSplits([{
+      type: 'transfer',
+      date: '2026-07-20',
+      amount: '20.00',
+      description: '提现',
+      source_id: '1',
+      destination_id: '2',
+      category_id: '7',
+    }])
+
+    expect(mocks.granaryPost).toHaveBeenCalledWith('/api/v1/books/7/transactions', expect.objectContaining({
+      type: 'transfer',
+      source_account_id: 1,
+      destination_account_id: 2,
+      category_id: 7,
+    }))
+    expect(result.data.attributes.transactions[0]?.category_name).toBe('资金调拨')
+  })
+
   it('keeps the required group title when updating a multi-split transaction', async () => {
     mocks.fireflyPut.mockResolvedValueOnce({ data: { id: '42', attributes: { transactions: [] } } })
 
@@ -122,14 +167,15 @@ describe('transaction writes', () => {
 describe('paginated collection APIs', () => {
   it('loads categories from the selected Granary book', async () => {
     mocks.granaryGet.mockResolvedValueOnce([
-      { id: 1, name: 'Food', kind: 'expense', parent_id: null, version: 1, archived_at: null },
-      { id: 2, name: 'Travel', kind: 'expense', parent_id: null, version: 1, archived_at: null },
+      { id: 1, name: 'Food', parent_id: null, version: 1, archived_at: null },
+      { id: 2, name: 'Travel', parent_id: null, version: 1, archived_at: null },
     ])
 
     const result = await getCategories()
 
     expect(mocks.granaryGet).toHaveBeenCalledWith('/api/v1/books/7/categories')
     expect(result.data.map(({ id }) => id)).toEqual(['1', '2'])
+    expect(result.data[0]?.attributes).not.toHaveProperty('kind')
     expect(result.meta?.pagination?.total).toBe(2)
   })
 

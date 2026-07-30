@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useDateRangeStore } from '../../store/dateRangeStore'
 import { useDeleteTransaction, useInfiniteTransactions } from '../../api/queries'
 import type { TransactionTypeFilter } from '../../api/firefly'
@@ -14,6 +15,7 @@ import { FireflyApiError } from '../../api/client'
 import { isEditableTransactionType } from '../record-transaction/editPayload'
 import { flattenTransactionGroups, signedSplitAmount, type TransactionSplitRow } from '../../lib/transactionGroup'
 import { absoluteDecimalString, compareDecimalStrings, sumDecimalStrings } from '../../lib/decimal'
+import { TransactionDetailModal } from './TransactionDetailModal'
 
 const TABS: { label: string; value: TransactionTypeFilter }[] = [
   { label: '全部', value: 'all' },
@@ -27,9 +29,12 @@ const PAGE_SIZE = 80
 type LoadedRow = TransactionSplitRow
 
 export function TransactionsPage() {
+  const search = useSearch({ from: '/transactions' })
+  const navigate = useNavigate({ from: '/transactions' })
   const range = useDateRangeStore()
   const [type, setType] = useState<TransactionTypeFilter>('all')
   const [pendingDelete, setPendingDelete] = useState<LoadedRow | null>(null)
+  const detailGroupId = search.transaction == null ? null : String(search.transaction)
 
   const deleteMutation = useDeleteTransaction()
   const query = useInfiniteTransactions(range, { limit: PAGE_SIZE, type })
@@ -168,14 +173,7 @@ export function TransactionsPage() {
                       <TransactionRow
                         key={`${row.groupId}-${row.tx.transaction_journal_id ?? row.splitIndex}`}
                         tx={row.tx}
-                        ids={
-                          deletable
-                            ? {
-                                groupId: row.groupId,
-                                journalId: String(row.tx.transaction_journal_id ?? row.groupId),
-                              }
-                            : undefined
-                        }
+                        ids={{ groupId: row.groupId, journalId: String(row.tx.transaction_journal_id ?? row.groupId) }}
                         onDelete={deletable ? () => setPendingDelete(row) : undefined}
                       />
                     )
@@ -207,6 +205,10 @@ export function TransactionsPage() {
         pending={deleteMutation.isPending}
         onClose={() => setPendingDelete(null)}
         onConfirm={confirmDelete}
+      />
+      <TransactionDetailModal
+        groupId={detailGroupId}
+        onClose={() => void navigate({ search: { transaction: undefined }, replace: true })}
       />
     </div>
   )

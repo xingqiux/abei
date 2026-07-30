@@ -262,14 +262,7 @@ export function AccountDetailPage() {
                   <TransactionRow
                     key={`${row.groupId}-${row.tx.transaction_journal_id ?? row.splitIndex}`}
                     tx={row.tx}
-                    ids={
-                      deletable
-                        ? {
-                            groupId: row.groupId,
-                            journalId: String(row.tx.transaction_journal_id ?? row.groupId),
-                          }
-                        : undefined
-                    }
+                    ids={{ groupId: row.groupId, journalId: String(row.tx.transaction_journal_id ?? row.groupId) }}
                     onDelete={deletable ? () => setPendingDelete(row) : undefined}
                   />
                 )
