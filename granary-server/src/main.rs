@@ -19,6 +19,17 @@ enum Command {
         #[arg(long)]
         compact: bool,
     },
+    /// Migrate one Firefly III snapshot into an empty personal Granary book.
+    MigrateFirefly {
+        #[arg(long, env = "FIREFLY_SOURCE_DATABASE_URL")]
+        source_database_url: String,
+        #[arg(long, env = "GRANARY_DATABASE_URL")]
+        target_database_url: String,
+        #[arg(long, env = "GRANARY_TARGET_USER_EMAIL")]
+        target_user_email: String,
+        #[arg(long)]
+        compact: bool,
+    },
     /// Run pending database migrations.
     Migrate,
     /// Serve the HTTP API.
@@ -44,6 +55,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 serde_json::to_string(&inventory)?
             } else {
                 serde_json::to_string_pretty(&inventory)?
+            };
+            println!("{output}");
+        }
+        Command::MigrateFirefly {
+            source_database_url,
+            target_database_url,
+            target_user_email,
+            compact,
+        } => {
+            let mut source = PgConnection::connect(&source_database_url).await?;
+            let target = connect(&target_database_url, 2).await?;
+            migrate(&target).await?;
+            let report =
+                firefly_import::migrate_firefly(&mut source, &target, &target_user_email).await?;
+            let output = if compact {
+                serde_json::to_string(&report)?
+            } else {
+                serde_json::to_string_pretty(&report)?
             };
             println!("{output}");
         }

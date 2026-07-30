@@ -20,7 +20,7 @@ MIGRATION_COMPOSE := docker compose --env-file .env.example -p $(MIGRATION_PROJE
 
 .DEFAULT_GOAL := help
 
-.PHONY: help bootstrap up up-server down clean reset ps logs logs-server build test test-server test-backend test-cli test-web test-e2e test-empty-start lint analyze-backend audit migrate migrate-server migration-source-restore migration-source-inspect migration-source-down shell config release
+.PHONY: help bootstrap up up-server down clean reset ps logs logs-server build test test-server test-backend test-cli test-web test-e2e test-empty-start lint analyze-backend audit migrate migrate-server migration-source-restore migration-source-inspect migration-core-import migration-source-down shell config release
 
 help:
 	@echo "bootstrap      Create .env when missing and build local images"
@@ -47,6 +47,7 @@ help:
 	@echo "migrate-server Run granary-server database migrations"
 	@echo "migration-source-restore  Restore FIREFLY_SOURCE_DUMP into the isolated source database"
 	@echo "migration-source-inspect  Print a value-free Firefly migration inventory"
+	@echo "migration-core-import     Import the snapshot into an empty Granary book"
 	@echo "migration-source-down     Stop the isolated Firefly source database"
 	@echo "shell          Open a shell in the backend container"
 	@echo "config         Render and validate the Compose configuration"
@@ -207,6 +208,16 @@ migration-source-restore: .env
 migration-source-inspect:
 	FIREFLY_SOURCE_DATABASE_URL='postgres://$(or $(FIREFLY_SOURCE_POSTGRES_USER),firefly_source):$(or $(FIREFLY_SOURCE_POSTGRES_PASSWORD),granary-local-migration-only)@127.0.0.1:$(or $(FIREFLY_SOURCE_POSTGRES_PORT),15445)/$(or $(FIREFLY_SOURCE_POSTGRES_DB),firefly_source)' \
 		cargo run --quiet --locked --manifest-path granary-server/Cargo.toml -- inspect-firefly
+
+migration-core-import:
+	@if [ -z "$(GRANARY_TARGET_USER_EMAIL)" ]; then \
+		echo "GRANARY_TARGET_USER_EMAIL is required" >&2; \
+		exit 2; \
+	fi
+	FIREFLY_SOURCE_DATABASE_URL='postgres://$(or $(FIREFLY_SOURCE_POSTGRES_USER),firefly_source):$(or $(FIREFLY_SOURCE_POSTGRES_PASSWORD),granary-local-migration-only)@127.0.0.1:$(or $(FIREFLY_SOURCE_POSTGRES_PORT),15445)/$(or $(FIREFLY_SOURCE_POSTGRES_DB),firefly_source)' \
+	GRANARY_DATABASE_URL='postgres://$(or $(GRANARY_POSTGRES_USER),granary):$(or $(GRANARY_POSTGRES_PASSWORD),granary-local-only)@127.0.0.1:$(or $(GRANARY_POSTGRES_PORT),15433)/$(or $(GRANARY_POSTGRES_DB),granary)' \
+	GRANARY_TARGET_USER_EMAIL='$(GRANARY_TARGET_USER_EMAIL)' \
+		cargo run --quiet --locked --manifest-path granary-server/Cargo.toml -- migrate-firefly
 
 migration-source-down:
 	$(MIGRATION_COMPOSE) stop firefly-source-db
