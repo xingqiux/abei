@@ -31,6 +31,7 @@ impl AuditActorKind {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PostingInput {
     pub account_id: i64,
+    pub category_id: Option<i64>,
     pub budget_id: Option<i64>,
     #[serde(with = "rust_decimal::serde::str")]
     pub amount: Decimal,
@@ -73,6 +74,8 @@ pub enum LedgerError {
     Unbalanced(Decimal),
     #[error("account {0} is not an active postable account in this book")]
     InvalidAccount(i64),
+    #[error("category {0} is not an active leaf category in this book")]
+    InvalidCategory(i64),
     #[error("tag {0} does not belong to this book")]
     InvalidTag(i64),
     #[error("budget {0} is not active in this book")]
@@ -307,9 +310,19 @@ pub(crate) async fn reverse_journal_in_tx(
         return Err(LedgerError::JournalNotPosted);
     }
 
-    let postings = sqlx::query_as::<_, (i64, Option<i64>, Decimal, Decimal, Option<String>)>(
+    let postings = sqlx::query_as::<
+        _,
+        (
+            i64,
+            Option<i64>,
+            Option<i64>,
+            Decimal,
+            Decimal,
+            Option<String>,
+        ),
+    >(
         r#"
-        SELECT account_id, budget_id, amount, book_amount, memo
+        SELECT account_id, category_id, budget_id, amount, book_amount, memo
         FROM postings
         WHERE book_id = $1 AND journal_entry_id = $2
         ORDER BY line_no
@@ -321,8 +334,9 @@ pub(crate) async fn reverse_journal_in_tx(
     .await?
     .into_iter()
     .map(
-        |(account_id, budget_id, amount, book_amount, memo)| PostingInput {
+        |(account_id, category_id, budget_id, amount, book_amount, memo)| PostingInput {
             account_id,
+            category_id,
             budget_id,
             amount: -amount,
             book_amount: -book_amount,
@@ -457,6 +471,35 @@ async fn insert_journal(
     }
 
     if !copies_historical_dimensions {
+        for category_id in command
+            .postings
+            .iter()
+            .filter_map(|posting| posting.category_id)
+            .collect::<BTreeSet<_>>()
+        {
+            let active_leaf = sqlx::query_scalar::<_, bool>(
+                r#"
+                SELECT EXISTS (
+                    SELECT 1 FROM categories c
+                    WHERE c.book_id = $1 AND c.id = $2 AND c.archived_at IS NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM categories child
+                          WHERE child.book_id = c.book_id
+                            AND child.parent_id = c.id
+                            AND child.archived_at IS NULL
+                      )
+                )
+                "#,
+            )
+            .bind(command.book_id)
+            .bind(category_id)
+            .fetch_one(&mut **tx)
+            .await?;
+            if !active_leaf {
+                return Err(LedgerError::InvalidCategory(category_id));
+            }
+        }
+
         for budget_id in command
             .postings
             .iter()
@@ -500,14 +543,15 @@ async fn insert_journal(
         let inserted = sqlx::query(
             r#"
             INSERT INTO postings (
-                book_id, journal_entry_id, line_no, account_id, amount, book_amount, memo, budget_id
+                book_id, journal_entry_id, line_no, account_id, amount, book_amount,
+                memo, budget_id, category_id
             )
-            SELECT $1, $2, $3, a.id, $5, $6, $7, $8
+            SELECT $1, $2, $3, a.id, $5, $6, $7, $8, $9
             FROM ledger_accounts a
             WHERE a.book_id = $1
               AND a.id = $4
               AND a.postable = TRUE
-              AND ($9 OR a.archived_at IS NULL)
+              AND ($10 OR a.archived_at IS NULL)
             "#,
         )
         .bind(command.book_id)
@@ -524,6 +568,7 @@ async fn insert_journal(
                 .filter(|memo| !memo.is_empty()),
         )
         .bind(posting.budget_id)
+        .bind(posting.category_id)
         .bind(copies_historical_dimensions)
         .execute(&mut **tx)
         .await?;
@@ -588,6 +633,7 @@ mod tests {
     fn posting(account_id: i64, amount: i64) -> PostingInput {
         PostingInput {
             account_id,
+            category_id: None,
             budget_id: None,
             amount: Decimal::from(amount),
             book_amount: Decimal::from(amount),

@@ -108,7 +108,6 @@ async fn create_dimensions(
         Some(token),
         json!({
             "name": format!("{prefix} Expense"),
-            "kind": "expense",
             "parent_id": null
         }),
         StatusCode::CREATED,
@@ -121,7 +120,6 @@ async fn create_dimensions(
         Some(token),
         json!({
             "name": format!("{prefix} Income"),
-            "kind": "income",
             "parent_id": null
         }),
         StatusCode::CREATED,

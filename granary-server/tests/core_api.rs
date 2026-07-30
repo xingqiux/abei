@@ -147,7 +147,7 @@ async fn pat_can_post_a_balanced_withdrawal_and_read_the_result(pool: PgPool) {
         "POST",
         &format!("/api/v1/books/{book_id}/categories"),
         Some(token),
-        json!({"name": "餐饮", "kind": "expense", "parent_id": null}),
+        json!({"name": "餐饮", "parent_id": null}),
         StatusCode::CREATED,
     )
     .await;
@@ -326,6 +326,163 @@ async fn pat_can_post_a_balanced_withdrawal_and_read_the_result(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn one_category_classifies_withdrawals_deposits_and_transfers(pool: PgPool) {
+    let app = http::router(pool.clone(), &config());
+    let initialized = bootstrap(&app, "neutral-category@example.test").await;
+    let token = initialized["personal_access_token"].as_str().unwrap();
+    let book_id = initialized["book_id"].as_i64().unwrap();
+
+    let source = send_json(
+        &app,
+        "POST",
+        &format!("/api/v1/books/{book_id}/accounts"),
+        Some(token),
+        json!({
+            "name": "分类测试账户",
+            "class": "asset",
+            "role": "bank",
+            "currency_code": "CNY"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+    let destination = send_json(
+        &app,
+        "POST",
+        &format!("/api/v1/books/{book_id}/accounts"),
+        Some(token),
+        json!({
+            "name": "分类测试现金",
+            "class": "asset",
+            "role": "cash",
+            "currency_code": "CNY"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+    let category = send_json(
+        &app,
+        "POST",
+        &format!("/api/v1/books/{book_id}/categories"),
+        Some(token),
+        json!({"name": "往来测试", "parent_id": null}),
+        StatusCode::CREATED,
+    )
+    .await;
+    assert!(!category.as_object().unwrap().contains_key("kind"));
+
+    let withdrawal = send_json(
+        &app,
+        "POST",
+        &format!("/api/v1/books/{book_id}/transactions"),
+        Some(token),
+        json!({
+            "type": "withdrawal",
+            "occurred_at": "2026-07-22T08:00:00Z",
+            "description": "分类支出",
+            "counterparty_id": null,
+            "account_id": source["id"],
+            "amount": "10.00",
+            "book_amount": "10.00",
+            "splits": [{
+                "category_id": category["id"],
+                "budget_id": null,
+                "amount": "10.00",
+                "book_amount": "10.00",
+                "memo": null
+            }]
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+    let deposit = send_json(
+        &app,
+        "POST",
+        &format!("/api/v1/books/{book_id}/transactions"),
+        Some(token),
+        json!({
+            "type": "deposit",
+            "occurred_at": "2026-07-22T09:00:00Z",
+            "description": "分类收入",
+            "counterparty_id": null,
+            "account_id": source["id"],
+            "amount": "4.00",
+            "book_amount": "4.00",
+            "splits": [{
+                "category_id": category["id"],
+                "budget_id": null,
+                "amount": "4.00",
+                "book_amount": "4.00",
+                "memo": null
+            }]
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+    let transfer = send_json(
+        &app,
+        "POST",
+        &format!("/api/v1/books/{book_id}/transactions"),
+        Some(token),
+        json!({
+            "type": "transfer",
+            "occurred_at": "2026-07-22T10:00:00Z",
+            "description": "分类转账",
+            "counterparty_id": null,
+            "source_account_id": source["id"],
+            "source_amount": "2.00",
+            "source_book_amount": "2.00",
+            "destination_account_id": destination["id"],
+            "destination_amount": "2.00",
+            "destination_book_amount": "2.00",
+            "category_id": category["id"]
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    for transaction in [&withdrawal, &deposit, &transfer] {
+        assert!(
+            transaction["postings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|posting| posting["category_id"] == category["id"])
+        );
+    }
+    assert_eq!(transfer["transaction_type"], "transfer");
+
+    let summary = app
+        .clone()
+        .oneshot(get_request(
+            &format!("/api/v1/books/{book_id}/reports/summary?start=2026-07-01&end=2026-07-31"),
+            token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(summary.status(), StatusCode::OK);
+    let summary = response_json(summary).await;
+    assert_eq!(summary["expense"], "10.00000000");
+    assert_eq!(summary["income"], "4.00000000");
+    assert_eq!(summary["net_cashflow"], "-6.00000000");
+
+    let category_report = app
+        .oneshot(get_request(
+            &format!(
+                "/api/v1/books/{book_id}/reports/expenses/by-category?start=2026-07-01&end=2026-07-31"
+            ),
+            token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(category_report.status(), StatusCode::OK);
+    let category_report = response_json(category_report).await;
+    assert_eq!(category_report.as_array().unwrap().len(), 1);
+    assert_eq!(category_report[0]["id"], category["id"]);
+    assert_eq!(category_report[0]["amount"], "10.00000000");
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn non_member_cannot_read_or_write_another_book(pool: PgPool) {
     let app = http::router(pool.clone(), &config());
     let initialized = bootstrap(&app, "owner@example.test").await;
@@ -481,7 +638,7 @@ async fn managed_resources_use_versions_archive_and_restore(pool: PgPool) {
         "POST",
         &format!("/api/v1/books/{book_id}/categories"),
         Some(token),
-        json!({"name": "日常", "kind": "expense", "parent_id": null}),
+        json!({"name": "日常", "parent_id": null}),
         StatusCode::CREATED,
     )
     .await;
@@ -491,7 +648,7 @@ async fn managed_resources_use_versions_archive_and_restore(pool: PgPool) {
         "POST",
         &format!("/api/v1/books/{book_id}/categories"),
         Some(token),
-        json!({"name": "餐饮", "kind": "expense", "parent_id": parent_id}),
+        json!({"name": "餐饮", "parent_id": parent_id}),
         StatusCode::CREATED,
     )
     .await;
@@ -541,7 +698,6 @@ async fn managed_resources_use_versions_archive_and_restore(pool: PgPool) {
         Some(token),
         json!({
             "name": "工作餐",
-            "kind": "expense",
             "parent_id": parent_id,
             "version": 1
         }),
@@ -635,7 +791,7 @@ async fn transaction_recycle_bin_uses_reversal_and_restoration_journals(pool: Pg
         "POST",
         &format!("/api/v1/books/{book_id}/categories"),
         Some(token),
-        json!({"name": "交通", "kind": "expense", "parent_id": null}),
+        json!({"name": "交通", "parent_id": null}),
         StatusCode::CREATED,
     )
     .await;
@@ -949,7 +1105,7 @@ async fn transaction_clone_and_batch_replacement_preserve_history_and_support_ty
         "POST",
         &format!("/api/v1/books/{book_id}/categories"),
         Some(token),
-        json!({"name": "餐饮", "kind": "expense", "parent_id": null}),
+        json!({"name": "餐饮", "parent_id": null}),
         StatusCode::CREATED,
     )
     .await;
@@ -958,7 +1114,7 @@ async fn transaction_clone_and_batch_replacement_preserve_history_and_support_ty
         "POST",
         &format!("/api/v1/books/{book_id}/categories"),
         Some(token),
-        json!({"name": "退款收入", "kind": "income", "parent_id": null}),
+        json!({"name": "退款收入", "parent_id": null}),
         StatusCode::CREATED,
     )
     .await;
@@ -1192,7 +1348,7 @@ async fn stale_batch_preview_is_atomic_and_batch_trash_populates_the_recycle_bin
         "POST",
         &format!("/api/v1/books/{book_id}/categories"),
         Some(token),
-        json!({"name": "杂项", "kind": "expense", "parent_id": null}),
+        json!({"name": "杂项", "parent_id": null}),
         StatusCode::CREATED,
     )
     .await;

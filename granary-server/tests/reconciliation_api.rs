@@ -103,7 +103,6 @@ async fn dimensions(app: &Router, token: &str, book_id: i64, suffix: &str) -> (V
         Some(token),
         json!({
             "name": format!("Statement Expense {suffix}"),
-            "kind": "expense",
             "parent_id": null
         }),
         StatusCode::CREATED,

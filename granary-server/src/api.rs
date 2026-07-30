@@ -172,31 +172,13 @@ pub struct UpdateAccount {
 #[derive(Deserialize)]
 pub struct CreateCategory {
     name: String,
-    kind: CategoryKind,
     parent_id: Option<i64>,
-}
-
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum CategoryKind {
-    Income,
-    Expense,
-}
-
-impl CategoryKind {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Income => "income",
-            Self::Expense => "expense",
-        }
-    }
 }
 
 #[derive(Serialize, FromRow)]
 pub struct CategoryResponse {
     id: i64,
     name: String,
-    kind: String,
     parent_id: Option<i64>,
     version: i64,
     #[serde(with = "time::serde::rfc3339::option")]
@@ -206,7 +188,6 @@ pub struct CategoryResponse {
 #[derive(Deserialize)]
 pub struct UpdateCategory {
     name: String,
-    kind: CategoryKind,
     parent_id: Option<i64>,
     version: i64,
 }
@@ -345,6 +326,7 @@ pub enum CreateTransaction {
         destination_amount: Decimal,
         #[serde(with = "rust_decimal::serde::str")]
         destination_book_amount: Decimal,
+        category_id: Option<i64>,
         #[serde(default)]
         tag_ids: Vec<i64>,
     },
@@ -1263,38 +1245,12 @@ pub async fn create_category(
     require_book(&state.pool, &principal, book_id, true).await?;
     let name = normalize_name(&request.name, "分类名称")?;
     let mut tx = state.pool.begin().await.map_err(ApiError::database)?;
-    let currency = sqlx::query_scalar::<_, String>(
-        "SELECT base_currency_code FROM books WHERE id = $1 AND archived_at IS NULL",
-    )
-    .bind(book_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(ApiError::database)?
-    .ok_or_else(|| ApiError::not_found("账本不存在"))?;
-    let account_id = sqlx::query_scalar::<_, i64>(
-        r#"
-        INSERT INTO ledger_accounts (book_id, name, class, role, currency_code, hidden)
-        VALUES ($1, $2, $3, 'category', $4, TRUE) RETURNING id
-        "#,
-    )
-    .bind(book_id)
-    .bind(&name)
-    .bind(request.kind.as_str())
-    .bind(currency)
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(ApiError::database)?;
     let id = sqlx::query_scalar::<_, i64>(
-        r#"
-        INSERT INTO categories (book_id, parent_id, ledger_account_id, name, kind)
-        VALUES ($1, $2, $3, $4, $5) RETURNING id
-        "#,
+        "INSERT INTO categories (book_id, parent_id, name) VALUES ($1, $2, $3) RETURNING id",
     )
     .bind(book_id)
     .bind(request.parent_id)
-    .bind(account_id)
     .bind(&name)
-    .bind(request.kind.as_str())
     .fetch_one(&mut *tx)
     .await
     .map_err(ApiError::database)?;
@@ -1315,7 +1271,6 @@ pub async fn create_category(
         Json(CategoryResponse {
             id,
             name,
-            kind: request.kind.as_str().to_owned(),
             parent_id: request.parent_id,
             version: 1,
             archived_at: None,
@@ -1332,11 +1287,11 @@ pub async fn list_categories(
     require_book(&state.pool, &principal, book_id, false).await?;
     let rows = sqlx::query_as::<_, CategoryResponse>(
         r#"
-        SELECT id, name, kind, parent_id, version, archived_at
+        SELECT id, name, parent_id, version, archived_at
         FROM categories
         WHERE book_id = $1
           AND (($2 = FALSE AND archived_at IS NULL) OR ($2 = TRUE AND archived_at IS NOT NULL))
-        ORDER BY kind, parent_id NULLS FIRST, name
+        ORDER BY parent_id NULLS FIRST, name
         "#,
     )
     .bind(book_id)
@@ -1356,19 +1311,9 @@ pub async fn update_category(
     require_book(&state.pool, &principal, book_id, true).await?;
     let name = normalize_name(&request.name, "分类名称")?;
     let mut tx = state.pool.begin().await.map_err(ApiError::database)?;
-    let current = sqlx::query_as::<
-        _,
-        (
-            String,
-            String,
-            Option<i64>,
-            i64,
-            i64,
-            Option<OffsetDateTime>,
-        ),
-    >(
+    let current = sqlx::query_as::<_, (String, Option<i64>, i64, Option<OffsetDateTime>)>(
         r#"
-        SELECT name, kind, parent_id, ledger_account_id, version, archived_at
+        SELECT name, parent_id, version, archived_at
         FROM categories
         WHERE book_id = $1 AND id = $2
         FOR UPDATE
@@ -1380,7 +1325,7 @@ pub async fn update_category(
     .await
     .map_err(ApiError::database)?
     .ok_or_else(|| ApiError::not_found("分类不存在"))?;
-    require_active_version(current.4, request.version, current.5, "分类")?;
+    require_active_version(current.2, request.version, current.3, "分类")?;
     if request.parent_id == Some(category_id) {
         return Err(ApiError::bad_request(
             "category_parent_invalid",
@@ -1389,26 +1334,15 @@ pub async fn update_category(
     }
 
     sqlx::query(
-        "UPDATE ledger_accounts SET name = $3, class = $4, version = version + 1, updated_at = now() WHERE book_id = $1 AND id = $2",
-    )
-    .bind(book_id)
-    .bind(current.3)
-    .bind(&name)
-    .bind(request.kind.as_str())
-    .execute(&mut *tx)
-    .await
-    .map_err(ApiError::database)?;
-    sqlx::query(
         r#"
         UPDATE categories
-        SET name = $3, kind = $4, parent_id = $5, version = version + 1, updated_at = now()
+        SET name = $3, parent_id = $4, version = version + 1, updated_at = now()
         WHERE book_id = $1 AND id = $2
         "#,
     )
     .bind(book_id)
     .bind(category_id)
     .bind(&name)
-    .bind(request.kind.as_str())
     .bind(request.parent_id)
     .execute(&mut *tx)
     .await
@@ -1422,13 +1356,11 @@ pub async fn update_category(
         category_id,
         serde_json::json!({
             "name": current.0,
-            "kind": current.1,
-            "parent_id": current.2,
-            "version": current.4
+            "parent_id": current.1,
+            "version": current.2
         }),
         serde_json::json!({
             "name": name,
-            "kind": request.kind.as_str(),
             "parent_id": request.parent_id,
             "version": request.version + 1
         }),
@@ -1438,7 +1370,6 @@ pub async fn update_category(
     Ok(Json(CategoryResponse {
         id: category_id,
         name,
-        kind: request.kind.as_str().to_owned(),
         parent_id: request.parent_id,
         version: request.version + 1,
         archived_at: None,
@@ -1491,8 +1422,8 @@ async fn set_category_archived(
 ) -> Result<(), ApiError> {
     require_book(&state.pool, principal, book_id, true).await?;
     let mut tx = state.pool.begin().await.map_err(ApiError::database)?;
-    let current = sqlx::query_as::<_, (String, i64, i64, Option<OffsetDateTime>)>(
-        "SELECT name, ledger_account_id, version, archived_at FROM categories WHERE book_id = $1 AND id = $2 FOR UPDATE",
+    let current = sqlx::query_as::<_, (String, i64, Option<OffsetDateTime>)>(
+        "SELECT name, version, archived_at FROM categories WHERE book_id = $1 AND id = $2 FOR UPDATE",
     )
     .bind(book_id)
     .bind(category_id)
@@ -1500,7 +1431,7 @@ async fn set_category_archived(
     .await
     .map_err(ApiError::database)?
     .ok_or_else(|| ApiError::not_found("分类不存在"))?;
-    require_archive_version(current.2, version, current.3, archived, "分类")?;
+    require_archive_version(current.1, version, current.2, archived, "分类")?;
     if archived {
         let has_children = sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS (SELECT 1 FROM categories WHERE book_id = $1 AND parent_id = $2 AND archived_at IS NULL)",
@@ -1519,15 +1450,6 @@ async fn set_category_archived(
     }
 
     let archived_at = archived.then(OffsetDateTime::now_utc);
-    sqlx::query(
-        "UPDATE ledger_accounts SET archived_at = $3, version = version + 1, updated_at = now() WHERE book_id = $1 AND id = $2",
-    )
-    .bind(book_id)
-    .bind(current.1)
-    .bind(archived_at)
-    .execute(&mut *tx)
-    .await
-    .map_err(ApiError::database)?;
     sqlx::query(
         "UPDATE categories SET archived_at = $3, version = version + 1, updated_at = now() WHERE book_id = $1 AND id = $2",
     )
@@ -1548,7 +1470,7 @@ async fn set_category_archived(
         },
         "category",
         category_id,
-        serde_json::json!({ "name": current.0, "archived": !archived, "version": current.2 }),
+        serde_json::json!({ "name": current.0, "archived": !archived, "version": current.1 }),
         serde_json::json!({ "name": current.0, "archived": archived, "version": version + 1 }),
     )
     .await?;
@@ -1839,14 +1761,14 @@ pub(crate) async fn prepare_transaction(
             validate_split_totals(&splits, amount, book_amount)?;
             let mut postings = vec![PostingInput {
                 account_id,
+                category_id: None,
                 budget_id: None,
                 amount: -amount,
                 book_amount: -book_amount,
                 memo: None,
             }];
-            postings.extend(
-                category_postings(pool, book_id, CategoryKind::Expense, splits, false).await?,
-            );
+            postings
+                .extend(category_postings(pool, book_id, "default_expense", splits, false).await?);
             (description, occurred_at, counterparty_id, postings, tag_ids)
         }
         CreateTransaction::Deposit {
@@ -1864,14 +1786,14 @@ pub(crate) async fn prepare_transaction(
             validate_split_totals(&splits, amount, book_amount)?;
             let mut postings = vec![PostingInput {
                 account_id,
+                category_id: None,
                 budget_id: None,
                 amount,
                 book_amount,
                 memo: None,
             }];
-            postings.extend(
-                category_postings(pool, book_id, CategoryKind::Income, splits, true).await?,
-            );
+            postings
+                .extend(category_postings(pool, book_id, "default_income", splits, true).await?);
             (description, occurred_at, counterparty_id, postings, tag_ids)
         }
         CreateTransaction::Transfer {
@@ -1884,6 +1806,7 @@ pub(crate) async fn prepare_transaction(
             destination_account_id,
             destination_amount,
             destination_book_amount,
+            category_id,
             tag_ids,
         } => {
             for (field, value) in [
@@ -1906,6 +1829,9 @@ pub(crate) async fn prepare_transaction(
                     "转账两端的本位币金额必须相等",
                 ));
             }
+            if let Some(category_id) = category_id {
+                require_active_leaf_category(pool, book_id, category_id).await?;
+            }
             (
                 description,
                 occurred_at,
@@ -1913,6 +1839,7 @@ pub(crate) async fn prepare_transaction(
                 vec![
                     PostingInput {
                         account_id: source_account_id,
+                        category_id,
                         budget_id: None,
                         amount: -source_amount,
                         book_amount: -source_book_amount,
@@ -1920,6 +1847,7 @@ pub(crate) async fn prepare_transaction(
                     },
                     PostingInput {
                         account_id: destination_account_id,
+                        category_id: None,
                         budget_id: None,
                         amount: destination_amount,
                         book_amount: destination_book_amount,
@@ -2231,13 +2159,13 @@ async fn hydrate_transactions(
     let rows = sqlx::query_as::<_, PostingRow>(
         r#"
         SELECT p.journal_entry_id, p.id, p.line_no, p.account_id, a.name AS account_name,
-               a.class AS account_class, a.currency_code, c.id AS category_id,
+               a.class AS account_class, a.currency_code, p.category_id,
                c.name AS category_name, p.budget_id,
                bu.name AS budget_name, p.amount, p.book_amount, p.memo, p.cleared_at
         FROM postings p
         JOIN ledger_accounts a ON a.id = p.account_id
         LEFT JOIN categories c
-          ON c.book_id = p.book_id AND c.ledger_account_id = p.account_id
+          ON c.book_id = p.book_id AND c.id = p.category_id
         LEFT JOIN budgets bu ON bu.book_id = p.book_id AND bu.id = p.budget_id
         WHERE p.journal_entry_id = ANY($1)
         ORDER BY p.journal_entry_id, p.line_no
@@ -2374,39 +2302,23 @@ impl From<PostingRow> for PostingResponse {
 async fn category_postings(
     pool: &PgPool,
     book_id: i64,
-    kind: CategoryKind,
+    system_key: &'static str,
     splits: Vec<CategorySplit>,
     negate: bool,
 ) -> Result<Vec<PostingInput>, ApiError> {
+    let account_id = sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM ledger_accounts WHERE book_id = $1 AND system_key = $2 AND archived_at IS NULL",
+    )
+    .bind(book_id)
+    .bind(system_key)
+    .fetch_optional(pool)
+    .await
+    .map_err(ApiError::database)?
+    .ok_or_else(|| ApiError::internal("账本缺少默认收支科目"))?;
     let mut postings = Vec::with_capacity(splits.len());
     for split in splits {
-        let account_id = sqlx::query_scalar::<_, i64>(
-            r#"
-            SELECT category.ledger_account_id
-            FROM categories category
-            WHERE category.book_id = $1
-              AND category.id = $2
-              AND category.kind = $3
-              AND category.archived_at IS NULL
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM categories child
-                  WHERE child.book_id = category.book_id
-                    AND child.parent_id = category.id
-                    AND child.archived_at IS NULL
-              )
-            "#,
-        )
-        .bind(book_id)
-        .bind(split.category_id)
-        .bind(kind.as_str())
-        .fetch_optional(pool)
-        .await
-        .map_err(ApiError::database)?
-        .ok_or_else(|| {
-            ApiError::bad_request("category_invalid", "分类不存在、类型不匹配或不是末级分类")
-        })?;
-        if split.budget_id.is_some() && matches!(kind, CategoryKind::Income) {
+        require_active_leaf_category(pool, book_id, split.category_id).await?;
+        if split.budget_id.is_some() && system_key == "default_income" {
             return Err(ApiError::bad_request(
                 "budget_income_invalid",
                 "预算只能关联支出分类拆分",
@@ -2431,6 +2343,7 @@ async fn category_postings(
         let sign = if negate { -Decimal::ONE } else { Decimal::ONE };
         postings.push(PostingInput {
             account_id,
+            category_id: Some(split.category_id),
             budget_id: split.budget_id,
             amount: sign * split.book_amount,
             book_amount: sign * split.book_amount,
@@ -2438,6 +2351,43 @@ async fn category_postings(
         });
     }
     Ok(postings)
+}
+
+async fn require_active_leaf_category(
+    pool: &PgPool,
+    book_id: i64,
+    category_id: i64,
+) -> Result<(), ApiError> {
+    let valid = sqlx::query_scalar::<_, bool>(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM categories category
+            WHERE category.book_id = $1
+              AND category.id = $2
+              AND category.archived_at IS NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM categories child
+                  WHERE child.book_id = category.book_id
+                    AND child.parent_id = category.id
+                    AND child.archived_at IS NULL
+              )
+        )
+        "#,
+    )
+    .bind(book_id)
+    .bind(category_id)
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::database)?;
+    if !valid {
+        return Err(ApiError::bad_request(
+            "category_invalid",
+            "分类不存在、已归档或不是末级分类",
+        ));
+    }
+    Ok(())
 }
 
 async fn validate_transaction_tags(

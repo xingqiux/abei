@@ -84,6 +84,7 @@ async fn service_posts_a_balanced_journal(pool: PgPool) {
         postings: vec![
             PostingInput {
                 account_id: seed.cash_account_id,
+                category_id: None,
                 budget_id: None,
                 amount: Decimal::from(-100),
                 book_amount: Decimal::from(-100),
@@ -91,6 +92,7 @@ async fn service_posts_a_balanced_journal(pool: PgPool) {
             },
             PostingInput {
                 account_id: seed.expense_account_id,
+                category_id: None,
                 budget_id: None,
                 amount: Decimal::from(100),
                 book_amount: Decimal::from(100),
@@ -181,6 +183,7 @@ async fn database_rejects_changes_to_posted_lines(pool: PgPool) {
         postings: vec![
             PostingInput {
                 account_id: seed.cash_account_id,
+                category_id: None,
                 budget_id: None,
                 amount: Decimal::from(-1),
                 book_amount: Decimal::from(-1),
@@ -188,6 +191,7 @@ async fn database_rejects_changes_to_posted_lines(pool: PgPool) {
             },
             PostingInput {
                 account_id: seed.expense_account_id,
+                category_id: None,
                 budget_id: None,
                 amount: Decimal::ONE,
                 book_amount: Decimal::ONE,
@@ -219,6 +223,7 @@ async fn database_protects_posted_journal_and_account_dimensions(pool: PgPool) {
         postings: vec![
             PostingInput {
                 account_id: seed.cash_account_id,
+                category_id: None,
                 budget_id: None,
                 amount: Decimal::from(-1),
                 book_amount: Decimal::from(-1),
@@ -226,6 +231,7 @@ async fn database_protects_posted_journal_and_account_dimensions(pool: PgPool) {
             },
             PostingInput {
                 account_id: seed.expense_account_id,
+                category_id: None,
                 budget_id: None,
                 amount: Decimal::ONE,
                 book_amount: Decimal::ONE,

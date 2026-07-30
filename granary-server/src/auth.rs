@@ -1110,47 +1110,38 @@ pub(crate) async fn initialize_book_accounts(
     book_id: i64,
     currency_code: &str,
 ) -> Result<(), ApiError> {
-    for (name, class, role) in [
-        ("期初余额", "equity", "opening_balance"),
-        ("对账调整", "equity", "reconciliation"),
-        ("汇兑收益", "income", "fx_gain_loss"),
-        ("汇兑损失", "expense", "fx_gain_loss"),
+    for (name, class, role, system_key) in [
+        ("期初余额", "equity", "opening_balance", None),
+        ("对账调整", "equity", "reconciliation", None),
+        ("汇兑收益", "income", "fx_gain_loss", None),
+        ("汇兑损失", "expense", "fx_gain_loss", None),
+        ("系统默认收入", "income", "category", Some("default_income")),
+        (
+            "系统默认费用",
+            "expense",
+            "category",
+            Some("default_expense"),
+        ),
     ] {
         sqlx::query(
-            "INSERT INTO ledger_accounts (book_id, name, class, role, currency_code, hidden) VALUES ($1, $2, $3, $4, $5, TRUE)",
+            "INSERT INTO ledger_accounts (book_id, name, class, role, currency_code, hidden, system_key) VALUES ($1, $2, $3, $4, $5, TRUE, $6)",
         )
         .bind(book_id)
         .bind(name)
         .bind(class)
         .bind(role)
         .bind(currency_code)
+        .bind(system_key)
         .execute(&mut **tx)
         .await
         .map_err(ApiError::internal)?;
     }
 
-    for (name, kind) in [("未分类支出", "expense"), ("未分类收入", "income")] {
-        let account_id = sqlx::query_scalar::<_, i64>(
-            "INSERT INTO ledger_accounts (book_id, name, class, role, currency_code, hidden) VALUES ($1, $2, $3, 'category', $4, TRUE) RETURNING id",
-        )
+    sqlx::query("INSERT INTO categories (book_id, name) VALUES ($1, '未分类')")
         .bind(book_id)
-        .bind(name)
-        .bind(kind)
-        .bind(currency_code)
-        .fetch_one(&mut **tx)
-        .await
-        .map_err(ApiError::internal)?;
-        sqlx::query(
-            "INSERT INTO categories (book_id, ledger_account_id, name, kind) VALUES ($1, $2, $3, $4)",
-        )
-        .bind(book_id)
-        .bind(account_id)
-        .bind(name)
-        .bind(kind)
         .execute(&mut **tx)
         .await
         .map_err(ApiError::internal)?;
-    }
     Ok(())
 }
 

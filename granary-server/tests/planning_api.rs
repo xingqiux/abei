@@ -264,7 +264,7 @@ async fn natural_month_reports_follow_book_timezone_and_reversal_recovery_chains
         "POST",
         &format!("/api/v1/books/{book_id}/categories"),
         token,
-        json!({ "name": "Travel Expense", "kind": "expense", "parent_id": null }),
+        json!({ "name": "Travel Expense", "parent_id": null }),
         StatusCode::CREATED,
     )
     .await;
@@ -480,7 +480,7 @@ async fn transaction_tags_and_budgets_cannot_cross_book_boundaries(pool: PgPool)
         "POST",
         &format!("/api/v1/books/{second_book_id}/categories"),
         token,
-        json!({ "name": "Second Expense", "kind": "expense", "parent_id": null }),
+        json!({ "name": "Second Expense", "parent_id": null }),
         StatusCode::CREATED,
     )
     .await;
@@ -549,7 +549,7 @@ async fn reversals_preserve_archived_dimensions_but_new_clones_require_active_di
         "POST",
         &format!("/api/v1/books/{book_id}/categories"),
         token,
-        json!({ "name": "Historical Expense", "kind": "expense", "parent_id": null }),
+        json!({ "name": "Historical Expense", "parent_id": null }),
         StatusCode::CREATED,
     )
     .await;

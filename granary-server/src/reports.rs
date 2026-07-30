@@ -115,9 +115,11 @@ pub async fn expense_by_category(
         FROM categories c
         JOIN books b ON b.id = c.book_id
         JOIN postings p
-          ON p.book_id = c.book_id AND p.account_id = c.ledger_account_id
+          ON p.book_id = c.book_id AND p.category_id = c.id
+        JOIN ledger_accounts a
+          ON a.book_id = p.book_id AND a.id = p.account_id
         JOIN journal_entries j ON j.id = p.journal_entry_id
-        WHERE c.book_id = $1 AND c.kind = 'expense'
+        WHERE c.book_id = $1 AND a.class = 'expense'
           AND j.status IN ('posted', 'reversed')
           AND (j.occurred_at AT TIME ZONE b.timezone)::date BETWEEN $2 AND $3
         GROUP BY c.id, c.name, b.base_currency_code

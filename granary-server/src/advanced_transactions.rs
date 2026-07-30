@@ -603,9 +603,19 @@ async fn load_postings(
     book_id: i64,
     transaction_id: i64,
 ) -> Result<Vec<PostingInput>, ApiError> {
-    sqlx::query_as::<_, (i64, Option<i64>, Decimal, Decimal, Option<String>)>(
+    sqlx::query_as::<
+        _,
+        (
+            i64,
+            Option<i64>,
+            Option<i64>,
+            Decimal,
+            Decimal,
+            Option<String>,
+        ),
+    >(
         r#"
-        SELECT account_id, budget_id, amount, book_amount, memo
+        SELECT account_id, category_id, budget_id, amount, book_amount, memo
         FROM postings
         WHERE book_id = $1 AND journal_entry_id = $2
         ORDER BY line_no
@@ -618,8 +628,9 @@ async fn load_postings(
     .map(|rows| {
         rows.into_iter()
             .map(
-                |(account_id, budget_id, amount, book_amount, memo)| PostingInput {
+                |(account_id, category_id, budget_id, amount, book_amount, memo)| PostingInput {
                     account_id,
+                    category_id,
                     budget_id,
                     amount,
                     book_amount,

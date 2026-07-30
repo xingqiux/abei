@@ -400,6 +400,7 @@ pub async fn complete_reconciliation(
                 postings: vec![
                     PostingInput {
                         account_id: current.account_id,
+                        category_id: None,
                         budget_id: None,
                         amount: difference,
                         book_amount: adjustment_book_amount,
@@ -407,6 +408,7 @@ pub async fn complete_reconciliation(
                     },
                     PostingInput {
                         account_id: adjustment_account_id,
+                        category_id: None,
                         budget_id: None,
                         amount: -adjustment_book_amount,
                         book_amount: -adjustment_book_amount,
