@@ -166,12 +166,11 @@ export function Combobox({
     }
   }
 
-  const inputStyle: CSSProperties = {
-    background: 'light-dark(var(--color-gray-100), var(--color-gray-700))',
-    color: 'light-dark(var(--color-gray-900), var(--color-gray-100))',
-    border: `1px solid ${hasError ? 'light-dark(var(--color-red-600), var(--color-red-400))' : 'light-dark(var(--color-gray-200), var(--color-gray-600))'}`,
-    ...style,
-  }
+  const inputClass = [
+    'w-full rounded-md border px-2.5 py-1.5 text-[12.5px] outline-none',
+    'bg-gray-100 text-gray-900 dark:bg-gray-700 dark:text-gray-100',
+    hasError ? 'border-red-600 dark:border-red-400' : 'border-gray-200 dark:border-gray-600',
+  ].join(' ')
 
   return (
     <div ref={rootRef} className={`relative ${className}`}>
@@ -199,8 +198,8 @@ export function Combobox({
           window.setTimeout(() => setOpen(false), 120)
         }}
         onKeyDown={onKeyDown}
-        className="w-full rounded-[6px] px-2.5 py-1.5 text-[12.5px] outline-none"
-        style={inputStyle}
+        className={inputClass}
+        style={style}
       />
 
       {showList && (
@@ -208,17 +207,11 @@ export function Combobox({
           ref={listRef}
           id={listboxId}
           role="listbox"
-          className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-[6px] py-0.5"
-          style={{
-            background: 'light-dark(var(--color-white), var(--color-gray-800))',
-            border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))',
-            boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)',
-          }}
+          className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border border-gray-200 bg-white py-0.5 shadow-sm dark:border-gray-600 dark:bg-gray-800"
         >
           {isLoading && items.length === 0 && (
             <li
-              className="px-2.5 py-1.5 text-[12px]"
-              style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}
+              className="px-2.5 py-1.5 text-[12px] text-gray-500 dark:text-gray-400"
               role="presentation"
             >
               搜索中…
@@ -232,11 +225,9 @@ export function Combobox({
                 id={`${listboxId}-opt-${i}`}
                 role="option"
                 aria-selected={active}
-                className="cursor-pointer px-2.5 py-1.5 text-[12.5px]"
-                style={{
-                  background: active ? 'light-dark(var(--color-gray-100), var(--color-gray-700))' : 'transparent',
-                  color: 'light-dark(var(--color-gray-900), var(--color-gray-100))',
-                }}
+                className={`cursor-pointer px-2.5 py-1.5 text-[12.5px] text-gray-900 dark:text-gray-100 ${
+                  active ? 'bg-gray-100 dark:bg-gray-700' : ''
+                }`}
                 onMouseEnter={() => {
                   setKbdNav(true)
                   setHighlight(i)

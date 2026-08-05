@@ -13,10 +13,10 @@ import { ReferenceDataPanel } from './ReferenceDataPanel'
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-[10px] p-3.5" style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)' }}>
+    <div className="rounded-[10px] p-3.5 bg-white dark:bg-gray-800 shadow-sm">
       <div
-        className="mb-3 text-[12px]"
-        style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))', fontWeight: '600', letterSpacing: '.02em' }}
+        className="mb-3 text-[12px] text-gray-500 dark:text-gray-400 font-semibold"
+        style={{ letterSpacing: '.02em' }}
       >
         {title}
       </div>
@@ -27,7 +27,7 @@ function Card({ title, children }: { title: string; children: ReactNode }) {
 
 function Empty() {
   return (
-    <div className="text-[12.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
+    <div className="text-[12.5px] text-gray-500 dark:text-gray-400">
       暂无
     </div>
   )
@@ -67,7 +67,7 @@ export function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <h1 className="text-[18px]" style={{ fontWeight: '600', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
+      <h1 className="text-[18px] font-semibold text-gray-900 dark:text-gray-100">
         设置
       </h1>
 
@@ -77,7 +77,7 @@ export function SettingsPage() {
         {currenciesQuery.isLoading ? (
           <Skeleton className="h-6" />
         ) : currenciesQuery.isError ? (
-          <div className="text-[12.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
+          <div className="text-[12.5px] text-gray-500 dark:text-gray-400">
             加载失败
           </div>
         ) : currencies.length === 0 ? (
@@ -103,7 +103,7 @@ export function SettingsPage() {
       </Card>
 
       <Card title="访问令牌">
-        <div className="flex flex-col gap-2.5 text-[12.5px]" style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
+        <div className="flex flex-col gap-2.5 text-[12.5px] text-gray-900 dark:text-gray-100">
           <p style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
             前端全靠个人访问令牌（PAT）访问 Firefly API。令牌只显示一次，生成后请立即保存。
           </p>
@@ -112,12 +112,8 @@ export function SettingsPage() {
               type="button"
               disabled={tokenModal.generating}
               onClick={generateToken}
-              className="rounded-[6px] px-2.5 py-1.5 text-[12.5px]"
-              style={{
-                background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))',
-                color: 'var(--color-white)',
-                fontWeight: '600',
-              }}
+              className="rounded-[6px] px-2.5 py-1.5 text-[12.5px] bg-indigo-600 dark:bg-indigo-500 text-white font-semibold"
+
             >
               {tokenModal.generating ? '生成中…' : '生成新令牌'}
             </button>
@@ -126,17 +122,17 @@ export function SettingsPage() {
       </Card>
 
       <Card title="关于">
-        <div className="flex flex-col gap-2.5 text-[12.5px]" style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
+        <div className="flex flex-col gap-2.5 text-[12.5px] text-gray-900 dark:text-gray-100">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <span>
               Firefly 版本：
-              <span className="font-mono tabular-nums" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
+              <span className="font-mono tabular-nums text-gray-500 dark:text-gray-400">
                 {aboutQuery.isLoading ? '…' : aboutQuery.isError ? '获取失败' : (aboutQuery.data?.data.version ?? '暂无')}
               </span>
             </span>
             <span>
               谷仓 Web 版本：
-              <span className="font-mono tabular-nums" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>{pkg.version}</span>
+              <span className="font-mono tabular-nums text-gray-500 dark:text-gray-400">{pkg.version}</span>
             </span>
           </div>
         </div>
@@ -152,24 +148,24 @@ export function SettingsPage() {
             <button
               type="button"
               onClick={() => setTokenModal({ generating: false, token: null, error: null })}
-              className="rounded-[6px] px-2.5 py-1.5 text-[12.5px]"
-              style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}
+              className="rounded-[6px] px-2.5 py-1.5 text-[12.5px] text-gray-500 dark:text-gray-400"
+
             >
               关闭
             </button>
             <button
               type="button"
               onClick={() => navigator.clipboard.writeText(tokenModal.token ?? '')}
-              className="rounded-[6px] px-2.5 py-1.5 text-[12.5px]"
-              style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}
+              className="rounded-[6px] px-2.5 py-1.5 text-[12.5px] text-gray-900 dark:text-gray-100"
+
             >
               复制
             </button>
             <button
               type="button"
               onClick={() => applyNewToken(tokenModal.token!)}
-              className="rounded-[6px] px-2.5 py-1.5 text-[12.5px]"
-              style={{ background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))', color: 'var(--color-white)', fontWeight: '600' }}
+              className="rounded-[6px] px-2.5 py-1.5 text-[12.5px] bg-indigo-600 dark:bg-indigo-500 text-white font-semibold"
+
             >
               保存并使用
             </button>
@@ -180,8 +176,8 @@ export function SettingsPage() {
           <div className="flex flex-col gap-2">
             <p style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>请复制并妥善保存，此令牌不会再次显示。</p>
             <code
-              className="block break-all rounded-[6px] p-2 font-mono text-[11.5px] leading-relaxed"
-              style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
+              className="block break-all rounded-[6px] p-2 font-mono text-[11.5px] leading-relaxed bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+              style={{ border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
             >
               {tokenModal.token}
             </code>

@@ -143,19 +143,19 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
 
   return (
     <div
-      className="mx-2 mb-1 flex flex-col gap-3 rounded-[10px] p-3"
-      style={{ background: 'light-dark(var(--color-gray-50), var(--color-gray-900))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
+      className="mx-2 mb-1 flex flex-col gap-3 rounded-[10px] p-3 bg-gray-50 dark:bg-gray-900"
+      style={{ border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
     >
       {/* needs_secret：行内密码/验证码表单 */}
       {isNeedsSecret && (
         <div
-          className="flex flex-col gap-2 rounded-[8px] p-2.5"
-          style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
+          className="flex flex-col gap-2 rounded-[8px] p-2.5 bg-white dark:bg-gray-800"
+          style={{ border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
         >
-          <div className="text-[12.5px]" style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', fontWeight: '600' }}>
+          <div className="text-[12.5px] text-gray-900 dark:text-gray-100 font-semibold">
             需要解压密码或验证码
           </div>
-          <div className="text-[11.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
+          <div className="text-[11.5px] text-gray-500 dark:text-gray-400">
             提交后任务将重新处理附件
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -171,23 +171,16 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
                 }
               }}
               placeholder="密码 / 验证码"
-              className="min-w-[160px] flex-1 rounded-[6px] px-2.5 py-1.5 text-[12.5px] outline-none"
+              className="min-w-[160px] flex-1 rounded-[6px] px-2.5 py-1.5 text-[12.5px] outline-none bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
               style={{
-                background: 'light-dark(var(--color-gray-100), var(--color-gray-700))',
-                color: 'light-dark(var(--color-gray-900), var(--color-gray-100))',
-                border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))',
-              }}
+                border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))'}}
             />
             <button
               type="button"
               disabled={secretMutation.isPending || !secretValue.trim()}
               onClick={() => void handleSubmitSecret()}
-              className="flex items-center gap-1.5 rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
-              style={{
-                background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))',
-                color: 'var(--color-white)',
-                fontWeight: '600',
-              }}
+              className="flex items-center gap-1.5 rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-indigo-600 dark:bg-indigo-500 text-white font-semibold"
+
             >
               {secretMutation.isPending ? (
                 <>
@@ -205,14 +198,14 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
       {/* failed / unknown：错误信息 + 重试 */}
       {isFailed && (
         <div
-          className="flex flex-col gap-2 rounded-[8px] p-2.5"
-          style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
+          className="flex flex-col gap-2 rounded-[8px] p-2.5 bg-white dark:bg-gray-800"
+          style={{ border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
         >
-          <div className="text-[12.5px]" style={{ color: 'light-dark(var(--color-red-600), var(--color-red-400))', fontWeight: '600' }}>
+          <div className="text-[12.5px] text-red-600 dark:text-red-400 font-semibold">
             处理失败
           </div>
           {errorText && (
-            <div className="text-[12px] leading-relaxed" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
+            <div className="text-[12px] leading-relaxed text-gray-500 dark:text-gray-400">
               {errorText}
             </div>
           )}
@@ -221,12 +214,8 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
               type="button"
               disabled={retryMutation.isPending}
               onClick={() => void handleRetry()}
-              className="flex items-center gap-1.5 rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
-              style={{
-                background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))',
-                color: 'var(--color-white)',
-                fontWeight: '600',
-              }}
+              className="flex items-center gap-1.5 rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-indigo-600 dark:bg-indigo-500 text-white font-semibold"
+
             >
               {retryMutation.isPending ? (
                 <>
@@ -240,8 +229,8 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
             <button
               type="button"
               onClick={() => setIgnoreOpen(true)}
-              className="rounded-[6px] px-2.5 py-1 text-[12px]"
-              style={{ background: 'transparent', color: 'light-dark(var(--color-red-600), var(--color-red-400))' }}
+              className="rounded-[6px] px-2.5 py-1 text-[12px] text-red-600 dark:text-red-400"
+              style={{ background: 'transparent'}}
             >
               忽略此任务
             </button>
@@ -253,16 +242,16 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
       {!isNeedsSecret && !isFailed && (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-[12.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
-              已选 <span className="font-mono tabular-nums" style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>{selected.size}</span> / 可入账{' '}
+            <div className="text-[12.5px] text-gray-500 dark:text-gray-400">
+              已选 <span className="font-mono tabular-nums text-gray-900 dark:text-gray-100">{selected.size}</span> / 可入账{' '}
               {eligibleIds.length} 笔
             </div>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setIgnoreOpen(true)}
-                className="rounded-[6px] px-2.5 py-1 text-[12px]"
-                style={{ background: 'transparent', color: 'light-dark(var(--color-red-600), var(--color-red-400))' }}
+                className="rounded-[6px] px-2.5 py-1 text-[12px] text-red-600 dark:text-red-400"
+                style={{ background: 'transparent'}}
               >
                 忽略此任务
               </button>
@@ -270,12 +259,8 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
                 type="button"
                 disabled={selected.size === 0 || importMutation.isPending}
                 onClick={() => void handleImportClick()}
-                className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
-                style={{
-                  background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))',
-                  color: 'var(--color-white)',
-                  fontWeight: '600',
-                }}
+                className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-indigo-600 dark:bg-indigo-500 text-white font-semibold"
+
               >
                 {importMutation.isPending ? '处理中…' : `入账 ${selected.size} 笔`}
               </button>
@@ -289,7 +274,7 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
               ))}
             </div>
           ) : rowsQuery.isError ? (
-            <div className="flex items-center justify-between py-6 text-[12.5px]" style={{ color: 'light-dark(var(--color-red-600), var(--color-red-400))' }}>
+            <div className="flex items-center justify-between py-6 text-[12.5px] text-red-600 dark:text-red-400">
               <span>账单流水加载失败</span>
               <button type="button" onClick={() => void rowsQuery.refetch()} style={{ color: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' }}>重试</button>
             </div>
@@ -299,8 +284,8 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
             <div className="overflow-x-auto">
               <div className="min-w-[720px]">
                 <div
-                  className="flex h-7 items-center gap-2 px-2 text-[11px]"
-                  style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))', borderBottom: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
+                  className="flex h-7 items-center gap-2 px-2 text-[11px] text-gray-500 dark:text-gray-400"
+                  style={{ borderBottom: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
                 >
                   <input
                     type="checkbox"
@@ -339,8 +324,8 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
               <button
                 type="button"
                 onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-                className="rounded-[6px] px-3 py-1.5 text-[12.5px]"
-                style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}
+                className="rounded-[6px] px-3 py-1.5 text-[12.5px] bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+
               >
                 加载更多（{rows.length - visibleCount} 条剩余）
               </button>

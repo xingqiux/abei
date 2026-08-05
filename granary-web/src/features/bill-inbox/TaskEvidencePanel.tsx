@@ -76,7 +76,7 @@ export function TaskEvidencePanel({ taskId, onReviewRow }: { taskId: string; onR
         <h3 className="mb-2 text-[11px] text-gray-500 dark:text-gray-400">REVIEW</h3>
         <div className="flex flex-wrap gap-1.5">
           {candidateCounts.map(([label, count]) => (
-            <span key={label} className="rounded-[4px] px-1.5 py-1 text-[11.5px]" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: count > 0 ? 'light-dark(var(--color-gray-900), var(--color-gray-100))' : 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
+            <span key={label} className="rounded-[4px] px-1.5 py-1 text-[11.5px] bg-gray-100 dark:bg-gray-700" style={{ color: count > 0 ? 'light-dark(var(--color-gray-900), var(--color-gray-100))' : 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
               {label} <span className="font-mono tabular-nums">{count}</span>
             </span>
           ))}
@@ -84,7 +84,7 @@ export function TaskEvidencePanel({ taskId, onReviewRow }: { taskId: string; onR
         </div>
         <div className="mt-2 flex max-h-[190px] flex-col gap-1 overflow-y-auto">
           {issueGroups.flatMap((group) => group.items.map((candidate) => (
-            <div key={`${group.label}-${candidate.row_id}`} className="flex items-start gap-1.5 rounded-[4px] px-1.5 py-1" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))' }}>
+            <div key={`${group.label}-${candidate.row_id}`} className="flex items-start gap-1.5 rounded-[4px] px-1.5 py-1 bg-gray-100 dark:bg-gray-700">
               <div className="min-w-0 flex-1 text-[11px] leading-relaxed">
                 <div className="truncate text-gray-900 dark:text-gray-100">
                   {group.label} · #{candidate.row_number ?? candidate.row_id} · {candidate.description_preview || candidate.counterparty || '未命名流水'}

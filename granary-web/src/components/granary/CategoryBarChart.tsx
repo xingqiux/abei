@@ -69,10 +69,10 @@ export function CategoryBarChart({ data }: { data: CategoryBarDatum[] }) {
         const color = isOther ? OTHER_COLOR : PALETTE[i % PALETTE.length]
         return (
           <div key={`${d.currencyCode}-${d.name}`} className="flex items-center gap-2">
-            <div className="w-20 shrink-0 truncate text-[11.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
+            <div className="w-20 shrink-0 truncate text-[11.5px] text-gray-500 dark:text-gray-400">
               {d.name}
             </div>
-            <div className="h-2 flex-1 overflow-hidden rounded-[3px]" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))' }}>
+            <div className="h-2 flex-1 overflow-hidden rounded-[3px] bg-gray-100 dark:bg-gray-700">
               <div
                 data-bar
                 data-target-width={`${pct}%`}
@@ -80,7 +80,7 @@ export function CategoryBarChart({ data }: { data: CategoryBarDatum[] }) {
                 style={{ width: 0, background: color }}
               />
             </div>
-            <div className="font-mono tabular-nums w-[84px] shrink-0 text-right text-[11.5px]" style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
+            <div className="font-mono tabular-nums w-[84px] shrink-0 text-right text-[11.5px] text-gray-900 dark:text-gray-100">
               {d.currencyCode} {formatAmount(d.value)}
             </div>
           </div>

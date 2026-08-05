@@ -40,10 +40,10 @@ const TYPE_LABEL: Record<string, string> = {
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-[10px] p-3.5" style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)' }}>
+    <div className="rounded-[10px] p-3.5 bg-white dark:bg-gray-800 shadow-sm">
       <div
-        className="mb-3 text-[12px]"
-        style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))', fontWeight: '600', letterSpacing: '.02em' }}
+        className="mb-3 text-[12px] text-gray-500 dark:text-gray-400 font-semibold"
+        style={{ letterSpacing: '.02em' }}
       >
         {title}
       </div>
@@ -142,8 +142,8 @@ export function AccountDetailPage() {
           ) : (
             <>
               <h1
-                className="truncate text-[18px]"
-                style={{ fontWeight: '600', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}
+                className="truncate text-[18px] font-semibold text-gray-900 dark:text-gray-100"
+
               >
                 {attrs.name}
               </h1>
@@ -162,7 +162,7 @@ export function AccountDetailPage() {
         </div>
         {attrs && (
           <div className="text-right">
-            <div className="text-[11px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))', letterSpacing: '.04em', textTransform: 'uppercase' }}>
+            <div className="text-[11px] text-gray-500 dark:text-gray-400" style={{ letterSpacing: '.04em', textTransform: 'uppercase' }}>
               当前余额
             </div>
             <div
@@ -274,8 +274,8 @@ export function AccountDetailPage() {
                   type="button"
                   disabled={txQuery.isFetchingNextPage}
                   onClick={() => void txQuery.fetchNextPage()}
-                  className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-60"
-                  style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}
+                  className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-60 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+
                 >
                   {txQuery.isFetchingNextPage ? '加载中…' : '加载更多'}
                 </button>
@@ -300,8 +300,8 @@ function BackLink() {
   return (
     <Link
       to="/accounts"
-      className="inline-flex w-fit items-center gap-1 text-[12.5px]"
-      style={{ color: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' }}
+      className="inline-flex w-fit items-center gap-1 text-[12.5px] text-indigo-600 dark:text-indigo-500"
+
     >
       <ArrowLeftIcon aria-hidden className="size-3.5" />
       返回账户

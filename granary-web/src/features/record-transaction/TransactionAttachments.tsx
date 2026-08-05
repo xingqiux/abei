@@ -97,7 +97,7 @@ export function TransactionAttachments({ groupId, journalId }: { groupId: string
       <section className="mt-3 border-t pt-3 border-gray-200 dark:border-gray-700">
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="flex items-center gap-1.5 text-[11.5px] text-gray-500 dark:text-gray-400"><PaperClipIcon aria-hidden className="size-3.5" />附件</span>
-        <label className="cursor-pointer rounded-[5px] px-2 py-1 text-[11.5px]" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' }}>
+        <label className="cursor-pointer rounded-[5px] px-2 py-1 text-[11.5px] bg-gray-100 dark:bg-gray-700 text-indigo-600 dark:text-indigo-500">
           {createMutation.isPending ? '上传中…' : '添加附件'}
           <input type="file" accept={about.data?.data.attachment_mime_types?.join(',')} className="sr-only" disabled={createMutation.isPending} onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.currentTarget.value = '' }} />
         </label>
@@ -133,9 +133,9 @@ export function TransactionAttachments({ groupId, journalId }: { groupId: string
         <button type="button" disabled={updateMutation.isPending} onClick={() => void saveMetadata()} className="rounded-[6px] px-3 py-1.5 text-[12px] disabled:opacity-50 bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-500">{updateMutation.isPending ? '保存中…' : '保存'}</button>
       </>}>
         {draft && <div className="flex flex-col gap-3 text-[12px]">
-          <label className="flex flex-col gap-1 text-gray-500 dark:text-gray-400">文件名<input autoFocus value={draft.filename} onChange={(event) => setDraft({ ...draft, filename: event.target.value })} className="rounded-[6px] px-2.5 py-1.5" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }} /></label>
-          <label className="flex flex-col gap-1 text-gray-500 dark:text-gray-400">标题<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} className="rounded-[6px] px-2.5 py-1.5" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }} /></label>
-          <label className="flex flex-col gap-1 text-gray-500 dark:text-gray-400">备注<textarea rows={3} value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} className="resize-y rounded-[6px] px-2.5 py-1.5" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }} /></label>
+          <label className="flex flex-col gap-1 text-gray-500 dark:text-gray-400">文件名<input autoFocus value={draft.filename} onChange={(event) => setDraft({ ...draft, filename: event.target.value })} className="rounded-[6px] px-2.5 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100" style={{ border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }} /></label>
+          <label className="flex flex-col gap-1 text-gray-500 dark:text-gray-400">标题<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} className="rounded-[6px] px-2.5 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100" style={{ border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }} /></label>
+          <label className="flex flex-col gap-1 text-gray-500 dark:text-gray-400">备注<textarea rows={3} value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} className="resize-y rounded-[6px] px-2.5 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100" style={{ border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }} /></label>
         </div>}
       </Modal>
     </>

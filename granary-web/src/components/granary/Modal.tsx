@@ -1,12 +1,10 @@
-import { useLayoutEffect, useRef, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
-import gsap from 'gsap'
+import type { ReactNode } from 'react'
+import { Dialog, DialogPanel, DialogTitle } from '@headlessui/react'
 import { XMarkIcon } from '@heroicons/react/20/solid'
-import { prefersReducedMotion } from '../../motion/reducedMotion'
-import { useDialogBehavior } from './useDialogBehavior'
 
 /**
- * 通用确认/信息弹层：surface 底、阴影+1px 描边、240ms 入场，Esc 关闭（规范 §5/§6）。
+ * 通用确认/信息弹层。
+ * 传送门、焦点陷阱、滚动锁定、Esc 关闭、点外面关闭都交给 @headlessui/react 的 Dialog。
  * 破坏性操作确认框（忽略任务等）必须在 children 里写明对象名与数量。
  */
 export function Modal({
@@ -24,62 +22,41 @@ export function Modal({
   footer?: ReactNode
   width?: number
 }) {
-  const cardRef = useRef<HTMLDivElement>(null)
-  useDialogBehavior(open, cardRef, onClose)
-
-  useLayoutEffect(() => {
-    if (!open) return
-    const el = cardRef.current
-    if (!el || prefersReducedMotion()) return
-    gsap.fromTo(
-      el,
-      { opacity: 0, y: -8, scale: 0.98 },
-      { opacity: 1, y: 0, scale: 1, duration: 0.24, ease: 'power3.out' },
-    )
-  }, [open])
-
-  if (!open) return null
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[200] flex items-center justify-center p-4"
-      style={{ background: 'rgb(0 0 0 / 0.5)' }}
-      onClick={onClose}
-      role="presentation"
-    >
+  return (
+    <Dialog open={open} onClose={onClose} className="relative z-200">
       <div
-        ref={cardRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        tabIndex={-1}
-        onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[86vh] w-full flex-col rounded-xl bg-white shadow-2xl ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-700"
-        style={{ maxWidth: width }}
-      >
-        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            {title}
+        aria-hidden
+        className="fixed inset-0 bg-black/50 transition-opacity duration-240 ease-out data-closed:opacity-0 motion-reduce:transition-none"
+      />
+      <div className="fixed inset-0 flex items-center justify-center p-4">
+        <DialogPanel
+          transition
+          style={{ maxWidth: width }}
+          className="flex max-h-[86vh] w-full flex-col rounded-xl bg-white shadow-2xl ring-1 ring-gray-200 transition duration-240 ease-out data-closed:-translate-y-2 data-closed:scale-98 data-closed:opacity-0 motion-reduce:transition-none dark:bg-gray-900 dark:ring-gray-700"
+        >
+          <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+            <DialogTitle className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              {title}
+            </DialogTitle>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="关闭"
+              className="rounded p-1 leading-none text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              <XMarkIcon aria-hidden className="size-4" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="关闭"
-            className="rounded p-1 leading-none text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-          >
-            <XMarkIcon aria-hidden className="size-4" />
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-[13px] text-gray-900 dark:text-gray-100">
-          {children}
-        </div>
-        {footer && (
-          <div className="flex justify-end gap-2 border-t border-gray-200 px-4 py-3 dark:border-gray-700">
-            {footer}
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-[13px] text-gray-900 dark:text-gray-100">
+            {children}
           </div>
-        )}
+          {footer && (
+            <div className="flex justify-end gap-2 border-t border-gray-200 px-4 py-3 dark:border-gray-700">
+              {footer}
+            </div>
+          )}
+        </DialogPanel>
       </div>
-    </div>,
-    document.body,
+    </Dialog>
   )
 }

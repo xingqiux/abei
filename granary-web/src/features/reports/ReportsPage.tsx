@@ -14,10 +14,10 @@ import { ErrorState } from '../../components/granary/ErrorState'
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-[10px] p-3.5" style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)' }}>
+    <div className="rounded-[10px] p-3.5 bg-white dark:bg-gray-800 shadow-sm">
       <div
-        className="mb-3 text-[12px]"
-        style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))', fontWeight: '600', letterSpacing: '.02em' }}
+        className="mb-3 text-[12px] text-gray-500 dark:text-gray-400 font-semibold"
+        style={{ letterSpacing: '.02em' }}
       >
         {title}
       </div>
@@ -38,7 +38,7 @@ function RankingCard({ title, isLoading, isError, retry, data }: { title: string
       ) : isError ? (
         <ErrorState message={`${title}加载失败`} onRetry={retry} />
       ) : data.length === 0 ? (
-        <div className="py-6 text-center text-[12.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
+        <div className="py-6 text-center text-[12.5px] text-gray-500 dark:text-gray-400">
           该月无数据
         </div>
       ) : (
@@ -99,7 +99,7 @@ export function ReportsPage() {
   return (
     <div ref={lenisRef} className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-[18px]" style={{ fontWeight: '600', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
+        <h1 className="text-[18px] font-semibold text-gray-900 dark:text-gray-100">
           报表
         </h1>
         <MonthSwitcher
@@ -111,7 +111,7 @@ export function ReportsPage() {
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {summaryQuery.isError ? (
-          <div className="sm:col-span-3 rounded-[10px]" style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))' }}>
+          <div className="sm:col-span-3 rounded-[10px] bg-white dark:bg-gray-800">
             <ErrorState message="月度汇总加载失败" onRetry={() => void summaryQuery.refetch()} />
           </div>
         ) : summaryQuery.isLoading || !kpis ? (
@@ -163,12 +163,12 @@ export function ReportsPage() {
           <div ref={topTxRef} className="flex flex-col">
             {topTx.map((row) => (
               <div key={`${row.group_id}:${row.currency_id}`} className="grid min-h-9 grid-cols-[48px_minmax(0,1fr)_auto] items-center gap-2 border-b border-[light-dark(var(--color-gray-200), var(--color-gray-600))] py-1.5 last:border-b-0">
-                <span className="font-mono tabular-nums text-[12px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>{formatMonthDay(row.date)}</span>
+                <span className="font-mono tabular-nums text-[12px] text-gray-500 dark:text-gray-400">{formatMonthDay(row.date)}</span>
                 <div className="min-w-0">
-                  <div className="truncate text-[12.5px]" style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>{row.title}</div>
-                  {row.split_count > 1 && <div className="text-[10.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>{row.split_count} 条拆分</div>}
+                  <div className="truncate text-[12.5px] text-gray-900 dark:text-gray-100">{row.title}</div>
+                  {row.split_count > 1 && <div className="text-[10.5px] text-gray-500 dark:text-gray-400">{row.split_count} 条拆分</div>}
                 </div>
-                <span className="font-mono tabular-nums shrink-0 text-right text-[12.5px]" style={{ color: 'light-dark(var(--color-red-600), var(--color-red-400))' }}>
+                <span className="font-mono tabular-nums shrink-0 text-right text-[12.5px] text-red-600 dark:text-red-400">
                   -{row.currency_symbol || row.currency_code}{formatAmount(row.amount)}
                 </span>
               </div>

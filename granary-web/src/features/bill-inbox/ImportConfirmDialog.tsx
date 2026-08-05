@@ -42,8 +42,8 @@ export function ImportConfirmDialog({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-[6px] px-3 py-1.5 text-[12.5px]"
-            style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}
+            className="rounded-[6px] px-3 py-1.5 text-[12.5px] bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+
           >
             取消
           </button>
@@ -51,8 +51,8 @@ export function ImportConfirmDialog({
             type="button"
             disabled={willImport.length === 0 || pending}
             onClick={onConfirm}
-            className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
-            style={{ background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))', color: 'var(--color-white)', fontWeight: '600' }}
+            className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-indigo-600 dark:bg-indigo-500 text-white font-semibold"
+
           >
             {pending ? '入账中…' : `确认入账 ${willImport.length} 笔`}
           </button>
@@ -62,7 +62,7 @@ export function ImportConfirmDialog({
       <div className="flex flex-col gap-3">
         <div>
           选中 <span className="font-mono tabular-nums">{dryRun.summary.total}</span> 笔 → 将入账{' '}
-          <span className="font-mono tabular-nums" style={{ color: 'light-dark(var(--color-emerald-600), var(--color-emerald-400))' }}>
+          <span className="font-mono tabular-nums text-emerald-600 dark:text-emerald-400">
             {willImport.length}
           </span>{' '}
           笔，跳过{' '}
@@ -73,14 +73,14 @@ export function ImportConfirmDialog({
         </div>
 
         {reasonGroups.length > 0 && (
-          <div className="flex flex-col gap-1 rounded-[6px] p-2" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))' }}>
-            <div className="text-[11px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
+          <div className="flex flex-col gap-1 rounded-[6px] p-2 bg-gray-100 dark:bg-gray-700">
+            <div className="text-[11px] text-gray-500 dark:text-gray-400">
               跳过原因
             </div>
             {reasonGroups.map(([reason, count]) => (
               <div key={reason} className="flex items-center justify-between text-[12px]">
                 <span style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>{reason}</span>
-                <span className="font-mono tabular-nums" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
+                <span className="font-mono tabular-nums text-gray-500 dark:text-gray-400">
                   × {count}
                 </span>
               </div>
@@ -90,19 +90,19 @@ export function ImportConfirmDialog({
 
         {willImport.length > 0 && (
           <div className="flex flex-col gap-1">
-            <div className="text-[11px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
+            <div className="text-[11px] text-gray-500 dark:text-gray-400">
               将入账（预览前 5 条）
             </div>
             {willImport.slice(0, 5).map((r) => (
-              <div key={r.row_id} className="flex items-center justify-between gap-2 text-[12px]" style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
+              <div key={r.row_id} className="flex items-center justify-between gap-2 text-[12px] text-gray-900 dark:text-gray-100">
                 <span className="min-w-0 flex-1 truncate">{r.description_preview ?? r.counterparty ?? '--'}</span>
-                <span className="font-mono tabular-nums shrink-0" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
+                <span className="font-mono tabular-nums shrink-0 text-gray-500 dark:text-gray-400">
                   {r.currency_symbol ?? r.currency_code ?? ''}{formatAmount(r.firefly_amount ?? r.amount ?? 0)}
                 </span>
               </div>
             ))}
             {willImport.length > 5 && (
-              <div className="text-[11px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
+              <div className="text-[11px] text-gray-500 dark:text-gray-400">
                 以及其余 {willImport.length - 5} 笔…
               </div>
             )}

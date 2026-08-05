@@ -20,7 +20,7 @@ export function CelebrateOverlay({ onDone }: { onDone: () => void }) {
 
   return (
     <div ref={overlayRef} className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center overflow-hidden">
-      <CakeIcon aria-hidden className="size-16 animate-pulse" style={{ color: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' }} />
+      <CakeIcon aria-hidden className="size-16 animate-pulse text-indigo-600 dark:text-indigo-500"  />
     </div>
   )
 }

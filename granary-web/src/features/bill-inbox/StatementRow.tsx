@@ -128,8 +128,8 @@ export function StatementRow({
     return (
       <div
         id={`bill-row-${row.id}`}
-        className="flex min-h-8 flex-wrap items-center gap-2 rounded-[4px] px-2 py-1.5 text-[12.5px]"
-        style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))' }}
+        className="flex min-h-8 flex-wrap items-center gap-2 rounded-[4px] px-2 py-1.5 text-[12.5px] bg-gray-100 dark:bg-gray-700"
+
       >
         <span className="w-4 shrink-0" aria-hidden />
         <select
@@ -208,8 +208,8 @@ export function StatementRow({
             aria-label="保存"
             disabled={updateMutation.isPending}
             onClick={() => void saveEdit()}
-            className="rounded p-1 disabled:opacity-50"
-            style={{ color: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' }}
+            className="rounded p-1 disabled:opacity-50 text-indigo-600 dark:text-indigo-500"
+
           >
             <CheckIcon aria-hidden className="size-3.5" />
           </button>
@@ -218,8 +218,8 @@ export function StatementRow({
             aria-label="取消"
             disabled={updateMutation.isPending}
             onClick={cancelEdit}
-            className="rounded p-1 disabled:opacity-50"
-            style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}
+            className="rounded p-1 disabled:opacity-50 text-gray-500 dark:text-gray-400"
+
           >
             <XMarkIcon aria-hidden className="size-3.5" />
           </button>
@@ -265,8 +265,8 @@ export function StatementRow({
             type="button"
             aria-label="编辑行"
             onClick={startEdit}
-            className="rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
-            style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}
+            className="rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 text-gray-500 dark:text-gray-400"
+
           >
             <PencilIcon aria-hidden className="size-3.5" />
           </button>

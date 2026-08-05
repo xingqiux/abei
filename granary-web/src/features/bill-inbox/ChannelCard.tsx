@@ -29,12 +29,9 @@ export function ChannelCard({
 
   return (
     <div
-      className="relative flex flex-col gap-2 rounded-[10px] p-3"
+      className="relative flex flex-col gap-2 rounded-[10px] p-3 bg-white dark:bg-gray-800 shadow-sm"
       style={{
-        background: 'light-dark(var(--color-white), var(--color-gray-800))',
-        boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)',
-        border: active ? '1px solid light-dark(var(--color-indigo-600), var(--color-indigo-500))' : '1px solid transparent',
-      }}
+        border: active ? '1px solid light-dark(var(--color-indigo-600), var(--color-indigo-500))' : '1px solid transparent'}}
     >
       {onSync && (
         <button
@@ -46,8 +43,8 @@ export function ChannelCard({
           }}
           aria-label={syncing ? '同步中' : '同步邮箱'}
           title="同步邮箱"
-          className="absolute top-2.5 right-2.5 flex h-7 w-7 items-center justify-center rounded-[6px] disabled:opacity-60"
-          style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}
+          className="absolute top-2.5 right-2.5 flex h-7 w-7 items-center justify-center rounded-[6px] disabled:opacity-60 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
+
         >
           {syncing ? (
             <LottieIcon kind="loading" size={16} color="light-dark(var(--color-indigo-600), var(--color-indigo-500))" />
@@ -60,8 +57,8 @@ export function ChannelCard({
       <button type="button" onClick={onToggle} className="flex flex-col gap-2 pr-8 text-left">
         <div className="flex items-center justify-between gap-2">
           <span
-            className="truncate text-[12.5px]"
-            style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', fontWeight: '600' }}
+            className="truncate text-[12.5px] text-gray-900 dark:text-gray-100 font-semibold"
+
           >
             {channel.name}
           </span>

@@ -26,8 +26,8 @@ const DAYS_WINDOW = 30
 
 function MiniKpi({ label, value, colorVar, mono = true }: { label: string; value: ReactNode; colorVar: string; mono?: boolean }) {
   return (
-    <div className="rounded-[10px] p-3" style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)' }}>
-      <div className="text-[11px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))', letterSpacing: '.04em', textTransform: 'uppercase' }}>
+    <div className="rounded-[10px] p-3 bg-white dark:bg-gray-800 shadow-sm">
+      <div className="text-[11px] text-gray-500 dark:text-gray-400" style={{ letterSpacing: '.04em', textTransform: 'uppercase' }}>
         {label}
       </div>
       <div className={mono ? 'font-mono tabular-nums mt-1' : 'mt-1'} style={{ fontSize: 16, fontWeight: 600, color: colorVar }}>
@@ -181,7 +181,7 @@ export function ReconciliationPage() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-[18px]" style={{ fontWeight: '600', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
+        <h1 className="text-[18px] font-semibold text-gray-900 dark:text-gray-100">
           按天对账
         </h1>
         <div className="text-[12.5px] text-gray-500 dark:text-gray-400">
@@ -189,7 +189,7 @@ export function ReconciliationPage() {
         </div>
       </div>
 
-      <div className="rounded-[10px] p-3.5" style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)' }}>
+      <div className="rounded-[10px] p-3.5 bg-white dark:bg-gray-800 shadow-sm">
         {summaryQuery.isLoading ? (
           <Skeleton className="h-[80px]" />
         ) : summaryQuery.isError ? (
@@ -203,7 +203,7 @@ export function ReconciliationPage() {
         <>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-baseline gap-2">
-              <span className="text-[14px]" style={{ fontWeight: '600', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
+              <span className="text-[14px] font-semibold text-gray-900 dark:text-gray-100">
                 {formatMonthDay(selectedDay.date)}
               </span>
               <span className="text-[11.5px] text-gray-500 dark:text-gray-400">
@@ -214,8 +214,8 @@ export function ReconciliationPage() {
               <button
                 type="button"
                 onClick={openAdjustmentDialog}
-                className="rounded-[6px] px-3 py-1.5 text-[12.5px]"
-                style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}
+                className="rounded-[6px] px-3 py-1.5 text-[12.5px] bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+
               >
                 生成调整交易
               </button>
@@ -224,12 +224,8 @@ export function ReconciliationPage() {
                   type="button"
                   disabled={markDay.isPending}
                   onClick={() => void handleMarkDay()}
-                  className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
-                  style={{
-                    background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))',
-                    color: 'var(--color-white)',
-                    fontWeight: '600',
-                  }}
+                  className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-indigo-600 dark:bg-indigo-500 text-white font-semibold"
+
                 >
                   {markDay.isPending ? '标记中…' : '标记本日已对账'}
                 </button>
@@ -239,8 +235,8 @@ export function ReconciliationPage() {
 
           {hasDiff && (
             <div
-              className="flex flex-wrap items-center justify-between gap-2 rounded-[6px] py-2.5 pl-3 pr-3.5"
-              style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', borderLeft: '3px solid light-dark(var(--color-red-600), var(--color-red-400))' }}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-[6px] py-2.5 pl-3 pr-3.5 bg-white dark:bg-gray-800"
+              style={{ borderLeft: '3px solid light-dark(var(--color-red-600), var(--color-red-400))' }}
             >
               <span className="text-[12.5px] text-gray-900 dark:text-gray-100">
                 该日存在对账差异{' '}
@@ -263,7 +259,7 @@ export function ReconciliationPage() {
             <MiniKpi label="笔数" value={String(selectedDay.tx_count)} colorVar="light-dark(var(--color-gray-900), var(--color-gray-100))" />
           </div>
 
-          <div className="rounded-[10px] p-2" style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)' }}>
+          <div className="rounded-[10px] p-2 bg-white dark:bg-gray-800 shadow-sm">
             {txQuery.isLoading ? (
               <div className="flex flex-col gap-1 p-2">
                 {Array.from({ length: 6 }).map((_, i) => (
@@ -299,8 +295,8 @@ export function ReconciliationPage() {
             <button
               type="button"
               onClick={() => setAdjOpen(false)}
-              className="rounded-[6px] px-3 py-1.5 text-[12.5px]"
-              style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}
+              className="rounded-[6px] px-3 py-1.5 text-[12.5px] bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+
             >
               取消
             </button>
@@ -308,12 +304,8 @@ export function ReconciliationPage() {
               type="button"
               disabled={createAdj.isPending || adjustmentAccounts.length === 0}
               onClick={() => void handleCreateAdj()}
-              className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
-              style={{
-                background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))',
-                color: 'var(--color-white)',
-                fontWeight: '600',
-              }}
+              className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-indigo-600 dark:bg-indigo-500 text-white font-semibold"
+
             >
               {createAdj.isPending ? '创建中…' : '创建'}
             </button>
@@ -357,8 +349,8 @@ export function ReconciliationPage() {
             <input
               value={adjAmount}
               onChange={(e) => setAdjAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-              className="font-mono tabular-nums rounded-[6px] px-2.5 py-1.5 outline-none"
-              style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
+              className="font-mono tabular-nums rounded-[6px] px-2.5 py-1.5 outline-none bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+              style={{ border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
             />
           </label>
           <label className="flex flex-col gap-1">
@@ -366,8 +358,8 @@ export function ReconciliationPage() {
             <select
               value={adjAccountId}
               onChange={(e) => setAdjAccountId(e.target.value)}
-              className="rounded-[6px] px-2.5 py-1.5 outline-none"
-              style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
+              className="rounded-[6px] px-2.5 py-1.5 outline-none bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+              style={{ border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
             >
               {adjustmentAccounts.length === 0 && <option value="">{hasDiff ? '没有匹配差异币种的资产账户' : '没有可用的资产账户'}</option>}
               {adjustmentAccounts.map((a) => (

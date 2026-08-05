@@ -76,15 +76,14 @@ export function TokenGate({ children }: { children?: ReactNode }) {
 
   return (
     <div
-      className="fixed inset-0 z-[300] flex items-center justify-center p-4"
-      style={{ background: 'light-dark(var(--color-gray-50), var(--color-gray-900))' }}
+      className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-gray-50 dark:bg-gray-900"
       role="dialog"
       aria-modal="true"
       aria-label="设置 API 令牌"
     >
       <div ref={cardRef} tabIndex={-1} className="flex w-full max-w-[420px] flex-col gap-4 rounded-[10px] p-5" style={cardStyle}>
         <div className="flex flex-col gap-1.5">
-          <div className="text-[15px]" style={{ fontWeight: '600', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
+          <div className="text-[15px] font-semibold text-gray-900 dark:text-gray-100">
             谷仓 Granary
           </div>
           <div className="text-[12.5px] leading-relaxed text-gray-500 dark:text-gray-400">
@@ -119,8 +118,8 @@ export function TokenGate({ children }: { children?: ReactNode }) {
         <button
           type="button"
           onClick={() => void handleSave()}
-          className="w-full rounded-[6px] px-3 py-2 text-[12.5px]"
-          style={{ background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))', color: 'var(--color-white)', fontWeight: '600' }}
+          className="w-full rounded-[6px] px-3 py-2 text-[12.5px] bg-indigo-600 dark:bg-indigo-500 text-white font-semibold"
+
         >
           保存并继续
         </button>

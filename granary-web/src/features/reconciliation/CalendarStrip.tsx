@@ -87,7 +87,7 @@ export function CalendarStrip({
         })}
       </div>
 
-      <div className="flex flex-wrap items-center gap-4 text-[11.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
+      <div className="flex flex-wrap items-center gap-4 text-[11.5px] text-gray-500 dark:text-gray-400">
         {LEGEND.map((item) => (
           <span key={item.status} className="flex items-center gap-1.5">
             <span

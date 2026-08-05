@@ -39,8 +39,8 @@ export function IgnoreConfirmDialog({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-[6px] px-3 py-1.5 text-[12.5px]"
-            style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}
+            className="rounded-[6px] px-3 py-1.5 text-[12.5px] bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+
           >
             取消
           </button>
@@ -48,8 +48,8 @@ export function IgnoreConfirmDialog({
             type="button"
             disabled={ignoreMutation.isPending}
             onClick={handleConfirm}
-            className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
-            style={{ background: 'light-dark(var(--color-red-600), var(--color-red-400))', color: '#fff', fontWeight: '600' }}
+            className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-red-600 dark:bg-red-400 font-semibold"
+            style={{ color: '#fff'}}
           >
             {ignoreMutation.isPending ? '处理中…' : '确认忽略'}
           </button>

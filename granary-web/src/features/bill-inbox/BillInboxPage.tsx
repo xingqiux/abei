@@ -102,7 +102,7 @@ export function BillInboxPage() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-[18px]" style={{ fontWeight: '600', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
+        <h1 className="text-[18px] font-semibold text-gray-900 dark:text-gray-100">
           账单收件箱
         </h1>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -118,7 +118,7 @@ export function BillInboxPage() {
       </div>
 
       {summaryQuery.isError && (
-        <div className="flex items-center justify-between rounded-[6px] px-3 py-2 text-[12px]" style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', color: 'light-dark(var(--color-red-600), var(--color-red-400))' }}>
+        <div className="flex items-center justify-between rounded-[6px] px-3 py-2 text-[12px] bg-white dark:bg-gray-800 text-red-600 dark:text-red-400">
           <span>收件箱汇总加载失败</span>
           <button type="button" onClick={() => void summaryQuery.refetch()} style={{ color: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' }}>重试</button>
         </div>
@@ -154,13 +154,13 @@ export function BillInboxPage() {
               }}
             >
               {tab.label}
-              {active && <span className="absolute inset-x-0 -bottom-px h-[2px]" style={{ background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' }} />}
+              {active && <span className="absolute inset-x-0 -bottom-px h-[2px] bg-indigo-600 dark:bg-indigo-500"  />}
             </button>
           )
         })}
       </div>
 
-      <div className="rounded-[10px] p-2" style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)' }}>
+      <div className="rounded-[10px] p-2 bg-white dark:bg-gray-800 shadow-sm">
         {isLoading ? (
           <div className="flex flex-col gap-1 p-2">
             {Array.from({ length: 8 }).map((_, i) => (

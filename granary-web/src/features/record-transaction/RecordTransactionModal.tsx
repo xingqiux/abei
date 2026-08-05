@@ -366,8 +366,8 @@ export function RecordTransactionModal() {
     <button
       type="button"
       onClick={handleRequestClose}
-      className="rounded-[6px] px-3 py-1.5 text-[12.5px]"
-      style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}
+      className="rounded-[6px] px-3 py-1.5 text-[12.5px] bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+
     >
       关闭
     </button>
@@ -377,8 +377,8 @@ export function RecordTransactionModal() {
         type="button"
         disabled={mutationPending}
         onClick={() => handleSave()}
-        className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
-        style={{ background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))', color: 'var(--color-white)', fontWeight: '600' }}
+        className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-indigo-600 dark:bg-indigo-500 text-white font-semibold"
+
       >
         {mutationPending ? '保存中…' : isEdit ? '保存修改' : '保存'}
       </button>
@@ -388,7 +388,7 @@ export function RecordTransactionModal() {
   return (
     <Modal open={open} onClose={handleRequestClose} title={title} width={520} footer={footer}>
       {!isEdit && (
-        <div className="mb-3 flex gap-0.5 rounded-[6px] p-0.5" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))' }} role="tablist" aria-label="记账模式">
+        <div className="mb-3 flex gap-0.5 rounded-[6px] p-0.5 bg-gray-100 dark:bg-gray-700"  role="tablist" aria-label="记账模式">
           {([['single', '单笔'], ['split', '多拆分']] as const).map(([value, label]) => (
             <button key={value} type="button" role="tab" aria-selected={createMode === value} onClick={() => selectCreateMode(value)} className="flex-1 rounded-[4px] py-1.5 text-[12.5px]" style={{ background: createMode === value ? 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' : 'transparent', color: createMode === value ? 'var(--color-white)' : 'light-dark(var(--color-gray-500), var(--color-gray-400))', fontWeight: createMode === value ? '600' : '400' }}>{label}</button>
           ))}
@@ -399,8 +399,7 @@ export function RecordTransactionModal() {
       ) : (
         <div className="flex flex-col gap-3.5">
           <div
-            className="flex gap-0.5 rounded-[6px] p-0.5"
-            style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))' }}
+            className="flex gap-0.5 rounded-[6px] p-0.5 bg-gray-100 dark:bg-gray-700"
             role="tablist"
             aria-label="交易类型"
           >
@@ -556,8 +555,8 @@ export function RecordTransactionModal() {
             <button
               type="button"
               onClick={() => setMoreOpen((v) => !v)}
-              className="flex items-center gap-1 text-[11.5px]"
-              style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}
+              className="flex items-center gap-1 text-[11.5px] text-gray-500 dark:text-gray-400"
+
             >
               更多选项
               <ChevronDownIcon

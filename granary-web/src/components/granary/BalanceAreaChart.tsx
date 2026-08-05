@@ -162,7 +162,7 @@ export function BalanceAreaChart({
               aria-hidden
             />
             <span style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>{p.name}</span>
-            <span className="font-mono tabular-nums" style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
+            <span className="font-mono tabular-nums text-gray-900 dark:text-gray-100">
               {p.symbol}
               {formatAmount(p.last)}
             </span>
