@@ -26,11 +26,11 @@ const DAYS_WINDOW = 30
 
 function MiniKpi({ label, value, colorVar, mono = true }: { label: string; value: ReactNode; colorVar: string; mono?: boolean }) {
   return (
-    <div className="rounded-[10px] p-3" style={{ background: 'var(--g-surface)', boxShadow: 'var(--g-shadow)' }}>
-      <div className="text-[11px]" style={{ color: 'var(--g-ink-2)', letterSpacing: '.04em', textTransform: 'uppercase' }}>
+    <div className="rounded-[10px] p-3" style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)' }}>
+      <div className="text-[11px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))', letterSpacing: '.04em', textTransform: 'uppercase' }}>
         {label}
       </div>
-      <div className={mono ? 'font-num mt-1' : 'mt-1'} style={{ fontSize: 16, fontWeight: 600, color: colorVar }}>
+      <div className={mono ? 'font-mono tabular-nums mt-1' : 'mt-1'} style={{ fontSize: 16, fontWeight: 600, color: colorVar }}>
         {value}
       </div>
     </div>
@@ -181,7 +181,7 @@ export function ReconciliationPage() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-[18px]" style={{ fontWeight: 'var(--g-weight-demibold)', color: 'var(--g-ink)' }}>
+        <h1 className="text-[18px]" style={{ fontWeight: '600', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
           按天对账
         </h1>
         <div className="text-[12.5px] text-gray-500 dark:text-gray-400">
@@ -189,7 +189,7 @@ export function ReconciliationPage() {
         </div>
       </div>
 
-      <div className="rounded-[10px] p-3.5" style={{ background: 'var(--g-surface)', boxShadow: 'var(--g-shadow)' }}>
+      <div className="rounded-[10px] p-3.5" style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)' }}>
         {summaryQuery.isLoading ? (
           <Skeleton className="h-[80px]" />
         ) : summaryQuery.isError ? (
@@ -203,7 +203,7 @@ export function ReconciliationPage() {
         <>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-baseline gap-2">
-              <span className="text-[14px]" style={{ fontWeight: 'var(--g-weight-demibold)', color: 'var(--g-ink)' }}>
+              <span className="text-[14px]" style={{ fontWeight: '600', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
                 {formatMonthDay(selectedDay.date)}
               </span>
               <span className="text-[11.5px] text-gray-500 dark:text-gray-400">
@@ -215,7 +215,7 @@ export function ReconciliationPage() {
                 type="button"
                 onClick={openAdjustmentDialog}
                 className="rounded-[6px] px-3 py-1.5 text-[12.5px]"
-                style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)' }}
+                style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}
               >
                 生成调整交易
               </button>
@@ -226,9 +226,9 @@ export function ReconciliationPage() {
                   onClick={() => void handleMarkDay()}
                   className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
                   style={{
-                    background: 'var(--g-accent)',
-                    color: 'var(--g-accent-ink)',
-                    fontWeight: 'var(--g-weight-demibold)',
+                    background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))',
+                    color: 'var(--color-white)',
+                    fontWeight: '600',
                   }}
                 >
                   {markDay.isPending ? '标记中…' : '标记本日已对账'}
@@ -240,11 +240,11 @@ export function ReconciliationPage() {
           {hasDiff && (
             <div
               className="flex flex-wrap items-center justify-between gap-2 rounded-[6px] py-2.5 pl-3 pr-3.5"
-              style={{ background: 'var(--g-surface)', borderLeft: '3px solid var(--g-danger)' }}
+              style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', borderLeft: '3px solid light-dark(var(--color-red-600), var(--color-red-400))' }}
             >
               <span className="text-[12.5px] text-gray-900 dark:text-gray-100">
                 该日存在对账差异{' '}
-                <span className="font-num text-red-600 dark:text-red-400">
+                <span className="font-mono tabular-nums text-red-600 dark:text-red-400">
                   {selectedDiffTotals.map((total) => <span key={total.currency_code || total.currency_symbol} className="mr-2">{total.currency_symbol}{formatAmount(total.amount)}{total.currency_code ? ` ${total.currency_code}` : ''}</span>)}
                 </span>
                 （已有 Reconciliation 调整流水）
@@ -253,17 +253,17 @@ export function ReconciliationPage() {
           )}
 
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <MiniKpi label="收入" value={<>{selectedTotals.map((total) => <div key={total.currency_code || total.currency_symbol}>+{total.currency_symbol}{formatAmount(total.income)} <small>{total.currency_code}</small></div>)}</>} colorVar="var(--g-income)" />
-            <MiniKpi label="支出" value={<>{selectedTotals.map((total) => <div key={total.currency_code || total.currency_symbol}>-{total.currency_symbol}{formatAmount(total.expense)} <small>{total.currency_code}</small></div>)}</>} colorVar="var(--g-expense)" />
+            <MiniKpi label="收入" value={<>{selectedTotals.map((total) => <div key={total.currency_code || total.currency_symbol}>+{total.currency_symbol}{formatAmount(total.income)} <small>{total.currency_code}</small></div>)}</>} colorVar="light-dark(var(--color-emerald-600), var(--color-emerald-400))" />
+            <MiniKpi label="支出" value={<>{selectedTotals.map((total) => <div key={total.currency_code || total.currency_symbol}>-{total.currency_symbol}{formatAmount(total.expense)} <small>{total.currency_code}</small></div>)}</>} colorVar="light-dark(var(--color-red-600), var(--color-red-400))" />
             <MiniKpi
               label="净额"
               value={<>{selectedTotals.map((total) => { const comparison = compareDecimalStrings(total.net, '0'); return <div key={total.currency_code || total.currency_symbol}>{comparison > 0 ? '+' : comparison < 0 ? '-' : ''}{total.currency_symbol}{formatAmount(absoluteDecimalString(total.net))} <small>{total.currency_code}</small></div> })}</>}
-              colorVar="var(--g-ink)"
+              colorVar="light-dark(var(--color-gray-900), var(--color-gray-100))"
             />
-            <MiniKpi label="笔数" value={String(selectedDay.tx_count)} colorVar="var(--g-ink)" />
+            <MiniKpi label="笔数" value={String(selectedDay.tx_count)} colorVar="light-dark(var(--color-gray-900), var(--color-gray-100))" />
           </div>
 
-          <div className="rounded-[10px] p-2" style={{ background: 'var(--g-surface)', boxShadow: 'var(--g-shadow)' }}>
+          <div className="rounded-[10px] p-2" style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)' }}>
             {txQuery.isLoading ? (
               <div className="flex flex-col gap-1 p-2">
                 {Array.from({ length: 6 }).map((_, i) => (
@@ -300,7 +300,7 @@ export function ReconciliationPage() {
               type="button"
               onClick={() => setAdjOpen(false)}
               className="rounded-[6px] px-3 py-1.5 text-[12.5px]"
-              style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)' }}
+              style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}
             >
               取消
             </button>
@@ -310,9 +310,9 @@ export function ReconciliationPage() {
               onClick={() => void handleCreateAdj()}
               className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
               style={{
-                background: 'var(--g-accent)',
-                color: 'var(--g-accent-ink)',
-                fontWeight: 'var(--g-weight-demibold)',
+                background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))',
+                color: 'var(--color-white)',
+                fontWeight: '600',
               }}
             >
               {createAdj.isPending ? '创建中…' : '创建'}
@@ -321,11 +321,11 @@ export function ReconciliationPage() {
         }
       >
         <div className="flex flex-col gap-3 text-[12.5px]">
-          <p style={{ color: 'var(--g-ink-2)' }}>
+          <p style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
             type=reconciliation，自动标记 reconciled。减少=资产作来源；增加=资产作目标；对侧由后端挂对账账户。
           </p>
           <div className="flex flex-col gap-1.5">
-            <span style={{ color: 'var(--g-ink-2)' }}>方向</span>
+            <span style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>方向</span>
             <div className="flex gap-1">
               {(
                 [
@@ -341,9 +341,9 @@ export function ReconciliationPage() {
                     onClick={() => setAdjDirection(opt.id)}
                     className="rounded-[4px] px-2.5 py-1 text-[12px]"
                     style={{
-                      background: active ? 'var(--g-accent)' : 'var(--g-surface-2)',
-                      color: active ? 'var(--g-accent-ink)' : 'var(--g-ink)',
-                      fontWeight: active ? 'var(--g-weight-demibold)' : undefined,
+                      background: active ? 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' : 'light-dark(var(--color-gray-100), var(--color-gray-700))',
+                      color: active ? 'var(--color-white)' : 'light-dark(var(--color-gray-900), var(--color-gray-100))',
+                      fontWeight: active ? '600' : undefined,
                     }}
                   >
                     {opt.label}
@@ -353,21 +353,21 @@ export function ReconciliationPage() {
             </div>
           </div>
           <label className="flex flex-col gap-1">
-            <span style={{ color: 'var(--g-ink-2)' }}>金额</span>
+            <span style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>金额</span>
             <input
               value={adjAmount}
               onChange={(e) => setAdjAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-              className="font-num rounded-[6px] px-2.5 py-1.5 outline-none"
-              style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }}
+              className="font-mono tabular-nums rounded-[6px] px-2.5 py-1.5 outline-none"
+              style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span style={{ color: 'var(--g-ink-2)' }}>资产账户</span>
+            <span style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>资产账户</span>
             <select
               value={adjAccountId}
               onChange={(e) => setAdjAccountId(e.target.value)}
               className="rounded-[6px] px-2.5 py-1.5 outline-none"
-              style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }}
+              style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
             >
               {adjustmentAccounts.length === 0 && <option value="">{hasDiff ? '没有匹配差异币种的资产账户' : '没有可用的资产账户'}</option>}
               {adjustmentAccounts.map((a) => (

@@ -102,13 +102,13 @@ export function BillInboxPage() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-[18px]" style={{ fontWeight: 'var(--g-weight-demibold)', color: 'var(--g-ink)' }}>
+        <h1 className="text-[18px]" style={{ fontWeight: '600', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
           账单收件箱
         </h1>
         <div className="flex flex-wrap items-center gap-1.5">
           {summaryQuery.data && (
             <div className="mr-2 text-[12.5px] text-gray-500 dark:text-gray-400">
-              共 <span className="font-num">{summaryQuery.data.pending_total}</span> 条待处理
+              共 <span className="font-mono tabular-nums">{summaryQuery.data.pending_total}</span> 条待处理
             </div>
           )}
           <button type="button" title="处理待处理任务" aria-label="处理待处理任务" disabled={processMutation.isPending} onClick={() => void handleProcess()} className="rounded p-1.5 disabled:opacity-50 text-indigo-600 dark:text-indigo-400"><PlayIcon aria-hidden className="size-4" /></button>
@@ -118,9 +118,9 @@ export function BillInboxPage() {
       </div>
 
       {summaryQuery.isError && (
-        <div className="flex items-center justify-between rounded-[6px] px-3 py-2 text-[12px]" style={{ background: 'var(--g-surface)', color: 'var(--g-danger)' }}>
+        <div className="flex items-center justify-between rounded-[6px] px-3 py-2 text-[12px]" style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', color: 'light-dark(var(--color-red-600), var(--color-red-400))' }}>
           <span>收件箱汇总加载失败</span>
-          <button type="button" onClick={() => void summaryQuery.refetch()} style={{ color: 'var(--g-accent)' }}>重试</button>
+          <button type="button" onClick={() => void summaryQuery.refetch()} style={{ color: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' }}>重试</button>
         </div>
       )}
 
@@ -149,18 +149,18 @@ export function BillInboxPage() {
               onClick={() => setActiveTab(tab.key)}
               className="relative px-3 py-2 text-[12.5px]"
               style={{
-                color: active ? 'var(--g-ink)' : 'var(--g-ink-2)',
-                fontWeight: active ? 'var(--g-weight-demibold)' : 'var(--g-weight-regular)',
+                color: active ? 'light-dark(var(--color-gray-900), var(--color-gray-100))' : 'light-dark(var(--color-gray-500), var(--color-gray-400))',
+                fontWeight: active ? '600' : '400',
               }}
             >
               {tab.label}
-              {active && <span className="absolute inset-x-0 -bottom-px h-[2px]" style={{ background: 'var(--g-accent)' }} />}
+              {active && <span className="absolute inset-x-0 -bottom-px h-[2px]" style={{ background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' }} />}
             </button>
           )
         })}
       </div>
 
-      <div className="rounded-[10px] p-2" style={{ background: 'var(--g-surface)', boxShadow: 'var(--g-shadow)' }}>
+      <div className="rounded-[10px] p-2" style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)' }}>
         {isLoading ? (
           <div className="flex flex-col gap-1 p-2">
             {Array.from({ length: 8 }).map((_, i) => (

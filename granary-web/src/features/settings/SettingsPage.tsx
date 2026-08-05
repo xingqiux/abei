@@ -13,10 +13,10 @@ import { ReferenceDataPanel } from './ReferenceDataPanel'
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-[10px] p-3.5" style={{ background: 'var(--g-surface)', boxShadow: 'var(--g-shadow)' }}>
+    <div className="rounded-[10px] p-3.5" style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)' }}>
       <div
         className="mb-3 text-[12px]"
-        style={{ color: 'var(--g-ink-2)', fontWeight: 'var(--g-weight-demibold)', letterSpacing: '.02em' }}
+        style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))', fontWeight: '600', letterSpacing: '.02em' }}
       >
         {title}
       </div>
@@ -27,7 +27,7 @@ function Card({ title, children }: { title: string; children: ReactNode }) {
 
 function Empty() {
   return (
-    <div className="text-[12.5px]" style={{ color: 'var(--g-ink-2)' }}>
+    <div className="text-[12.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
       暂无
     </div>
   )
@@ -67,7 +67,7 @@ export function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <h1 className="text-[18px]" style={{ fontWeight: 'var(--g-weight-demibold)', color: 'var(--g-ink)' }}>
+      <h1 className="text-[18px]" style={{ fontWeight: '600', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
         设置
       </h1>
 
@@ -77,7 +77,7 @@ export function SettingsPage() {
         {currenciesQuery.isLoading ? (
           <Skeleton className="h-6" />
         ) : currenciesQuery.isError ? (
-          <div className="text-[12.5px]" style={{ color: 'var(--g-ink-2)' }}>
+          <div className="text-[12.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
             加载失败
           </div>
         ) : currencies.length === 0 ? (
@@ -89,9 +89,9 @@ export function SettingsPage() {
                 key={c.id}
                 className="inline-flex h-[18px] items-center gap-1 rounded-[4px] px-1.5 text-[11px]"
                 style={{
-                  background: c.attributes.default ? 'var(--g-accent)' : 'var(--g-surface-2)',
-                  color: c.attributes.default ? 'var(--g-accent-ink)' : c.attributes.enabled ? 'var(--g-ink)' : 'var(--g-ink-2)',
-                  fontWeight: c.attributes.default ? 'var(--g-weight-demibold)' : 'var(--g-weight-regular)',
+                  background: c.attributes.default ? 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' : 'light-dark(var(--color-gray-100), var(--color-gray-700))',
+                  color: c.attributes.default ? 'var(--color-white)' : c.attributes.enabled ? 'light-dark(var(--color-gray-900), var(--color-gray-100))' : 'light-dark(var(--color-gray-500), var(--color-gray-400))',
+                  fontWeight: c.attributes.default ? '600' : '400',
                 }}
               >
                 {c.attributes.code}
@@ -103,8 +103,8 @@ export function SettingsPage() {
       </Card>
 
       <Card title="访问令牌">
-        <div className="flex flex-col gap-2.5 text-[12.5px]" style={{ color: 'var(--g-ink)' }}>
-          <p style={{ color: 'var(--g-ink-2)' }}>
+        <div className="flex flex-col gap-2.5 text-[12.5px]" style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
+          <p style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
             前端全靠个人访问令牌（PAT）访问 Firefly API。令牌只显示一次，生成后请立即保存。
           </p>
           <div>
@@ -114,9 +114,9 @@ export function SettingsPage() {
               onClick={generateToken}
               className="rounded-[6px] px-2.5 py-1.5 text-[12.5px]"
               style={{
-                background: 'var(--g-accent)',
-                color: 'var(--g-accent-ink)',
-                fontWeight: 'var(--g-weight-demibold)',
+                background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))',
+                color: 'var(--color-white)',
+                fontWeight: '600',
               }}
             >
               {tokenModal.generating ? '生成中…' : '生成新令牌'}
@@ -126,17 +126,17 @@ export function SettingsPage() {
       </Card>
 
       <Card title="关于">
-        <div className="flex flex-col gap-2.5 text-[12.5px]" style={{ color: 'var(--g-ink)' }}>
+        <div className="flex flex-col gap-2.5 text-[12.5px]" style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <span>
               Firefly 版本：
-              <span className="font-num" style={{ color: 'var(--g-ink-2)' }}>
+              <span className="font-mono tabular-nums" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
                 {aboutQuery.isLoading ? '…' : aboutQuery.isError ? '获取失败' : (aboutQuery.data?.data.version ?? '暂无')}
               </span>
             </span>
             <span>
               谷仓 Web 版本：
-              <span className="font-num" style={{ color: 'var(--g-ink-2)' }}>{pkg.version}</span>
+              <span className="font-mono tabular-nums" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>{pkg.version}</span>
             </span>
           </div>
         </div>
@@ -153,7 +153,7 @@ export function SettingsPage() {
               type="button"
               onClick={() => setTokenModal({ generating: false, token: null, error: null })}
               className="rounded-[6px] px-2.5 py-1.5 text-[12.5px]"
-              style={{ color: 'var(--g-ink-2)' }}
+              style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}
             >
               关闭
             </button>
@@ -161,7 +161,7 @@ export function SettingsPage() {
               type="button"
               onClick={() => navigator.clipboard.writeText(tokenModal.token ?? '')}
               className="rounded-[6px] px-2.5 py-1.5 text-[12.5px]"
-              style={{ color: 'var(--g-ink)' }}
+              style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}
             >
               复制
             </button>
@@ -169,7 +169,7 @@ export function SettingsPage() {
               type="button"
               onClick={() => applyNewToken(tokenModal.token!)}
               className="rounded-[6px] px-2.5 py-1.5 text-[12.5px]"
-              style={{ background: 'var(--g-accent)', color: 'var(--g-accent-ink)', fontWeight: 'var(--g-weight-demibold)' }}
+              style={{ background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))', color: 'var(--color-white)', fontWeight: '600' }}
             >
               保存并使用
             </button>
@@ -178,16 +178,16 @@ export function SettingsPage() {
       >
         {tokenModal.token ? (
           <div className="flex flex-col gap-2">
-            <p style={{ color: 'var(--g-ink-2)' }}>请复制并妥善保存，此令牌不会再次显示。</p>
+            <p style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>请复制并妥善保存，此令牌不会再次显示。</p>
             <code
               className="block break-all rounded-[6px] p-2 font-mono text-[11.5px] leading-relaxed"
-              style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }}
+              style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
             >
               {tokenModal.token}
             </code>
           </div>
         ) : (
-          <p style={{ color: 'var(--g-danger)' }}>{tokenModal.error ?? '未知错误'}</p>
+          <p style={{ color: 'light-dark(var(--color-red-600), var(--color-red-400))' }}>{tokenModal.error ?? '未知错误'}</p>
         )}
       </Modal>
     </div>

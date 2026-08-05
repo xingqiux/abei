@@ -32,12 +32,12 @@ export const SOURCE_FALLBACK_LABELS: Record<string, string> = {
   boc: '中国银行',
 }
 
-/** 原始 direction 字段（中文）映射语义色：支出/收入/转账，其余（不计收支等）中性 */
-export function directionColorVar(direction: string | null | undefined): string {
-  if (direction === '支出') return 'var(--g-expense)'
-  if (direction === '收入') return 'var(--g-income)'
-  if (direction === '转账') return 'var(--g-transfer)'
-  return 'var(--g-ink-2)'
+/** 原始 direction 字段（中文）映射语义色的 Tailwind 文字类：支出/收入/转账，其余（不计收支等）中性 */
+export function directionColorClass(direction: string | null | undefined): string {
+  if (direction === '支出') return 'text-red-600 dark:text-red-400'
+  if (direction === '收入') return 'text-emerald-600 dark:text-emerald-400'
+  if (direction === '转账') return 'text-indigo-600 dark:text-indigo-400'
+  return 'text-gray-500 dark:text-gray-400'
 }
 
 export function directionSign(direction: string | null | undefined): '' | '+' | '-' {

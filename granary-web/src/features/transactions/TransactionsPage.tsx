@@ -137,7 +137,7 @@ export function TransactionsPage() {
                     className="flex h-7 items-center justify-between rounded-md bg-gray-50 px-2 text-[11.5px] text-gray-500 dark:bg-gray-800 dark:text-gray-400"
                   >
                     <span>{formatDayGroupLabel(day)}</span>
-                    <span className="font-num flex gap-2">
+                    <span className="font-mono tabular-nums flex gap-2">
                       {subtotals.map((subtotal) => {
                         const comparison = compareDecimalStrings(subtotal.amount, '0')
                         return (

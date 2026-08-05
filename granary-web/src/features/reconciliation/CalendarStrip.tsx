@@ -14,14 +14,14 @@ const STATUS_LABEL: Record<ReconciliationDay['status'], string> = {
 function statusBackground(status: ReconciliationDay['status']): string {
   switch (status) {
     case 'reconciled':
-      return 'color-mix(in srgb, var(--g-income) 38%, var(--g-surface-2))'
+      return 'color-mix(in srgb, light-dark(var(--color-emerald-600), var(--color-emerald-400)) 38%, light-dark(var(--color-gray-100), var(--color-gray-700)))'
     case 'diff':
-      return 'color-mix(in srgb, var(--g-warn) 48%, var(--g-surface-2))'
+      return 'color-mix(in srgb, light-dark(var(--color-amber-600), var(--color-amber-400)) 48%, light-dark(var(--color-gray-100), var(--color-gray-700)))'
     case 'pending':
-      return 'color-mix(in srgb, var(--g-danger) 40%, var(--g-surface-2))'
+      return 'color-mix(in srgb, light-dark(var(--color-red-600), var(--color-red-400)) 40%, light-dark(var(--color-gray-100), var(--color-gray-700)))'
     case 'none':
     default:
-      return 'var(--g-surface-2)'
+      return 'light-dark(var(--color-gray-100), var(--color-gray-700))'
   }
 }
 
@@ -76,7 +76,7 @@ export function CalendarStrip({
                 aspectRatio: '1 / 1',
                 borderRadius: 4,
                 background: statusBackground(day.status),
-                outline: isSelected ? '2px solid var(--g-accent)' : 'none',
+                outline: isSelected ? '2px solid light-dark(var(--color-indigo-600), var(--color-indigo-500))' : 'none',
                 outlineOffset: isSelected ? -2 : 0,
                 border: 'none',
                 cursor: 'pointer',
@@ -87,7 +87,7 @@ export function CalendarStrip({
         })}
       </div>
 
-      <div className="flex flex-wrap items-center gap-4 text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>
+      <div className="flex flex-wrap items-center gap-4 text-[11.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
         {LEGEND.map((item) => (
           <span key={item.status} className="flex items-center gap-1.5">
             <span

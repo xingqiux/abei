@@ -11,14 +11,14 @@ export interface CategoryBarDatum {
 }
 
 const PALETTE = [
-  'var(--g-chart-1)',
-  'var(--g-chart-2)',
-  'var(--g-chart-3)',
-  'var(--g-chart-4)',
-  'var(--g-chart-5)',
-  'var(--g-chart-6)',
+  'var(--color-indigo-500)',
+  'var(--color-sky-500)',
+  'var(--color-emerald-500)',
+  'var(--color-amber-500)',
+  'var(--color-red-500)',
+  'var(--color-violet-500)',
 ]
-const OTHER_COLOR = 'var(--g-chart-other)'
+const OTHER_COLOR = 'var(--color-gray-400)'
 
 export function CategoryBarChart({ data }: { data: CategoryBarDatum[] }) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -69,10 +69,10 @@ export function CategoryBarChart({ data }: { data: CategoryBarDatum[] }) {
         const color = isOther ? OTHER_COLOR : PALETTE[i % PALETTE.length]
         return (
           <div key={`${d.currencyCode}-${d.name}`} className="flex items-center gap-2">
-            <div className="w-20 shrink-0 truncate text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>
+            <div className="w-20 shrink-0 truncate text-[11.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
               {d.name}
             </div>
-            <div className="h-2 flex-1 overflow-hidden rounded-[3px]" style={{ background: 'var(--g-surface-2)' }}>
+            <div className="h-2 flex-1 overflow-hidden rounded-[3px]" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))' }}>
               <div
                 data-bar
                 data-target-width={`${pct}%`}
@@ -80,7 +80,7 @@ export function CategoryBarChart({ data }: { data: CategoryBarDatum[] }) {
                 style={{ width: 0, background: color }}
               />
             </div>
-            <div className="font-num w-[84px] shrink-0 text-right text-[11.5px]" style={{ color: 'var(--g-ink)' }}>
+            <div className="font-mono tabular-nums w-[84px] shrink-0 text-right text-[11.5px]" style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
               {d.currencyCode} {formatAmount(d.value)}
             </div>
           </div>

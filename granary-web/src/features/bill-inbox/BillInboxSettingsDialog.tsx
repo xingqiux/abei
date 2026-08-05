@@ -6,9 +6,9 @@ import { FireflyApiError } from '../../api/client'
 import { showToast } from '../../store/toastStore'
 
 const fieldStyle = {
-  background: 'var(--g-surface-2)',
-  color: 'var(--g-ink)',
-  border: '1px solid var(--g-border)',
+  background: 'light-dark(var(--color-gray-100), var(--color-gray-700))',
+  color: 'light-dark(var(--color-gray-900), var(--color-gray-100))',
+  border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))',
 } as const
 
 const EMPTY: BillInboxSettingsInput = {
@@ -83,7 +83,7 @@ export function BillInboxSettingsDialog({ open, onClose }: { open: boolean; onCl
       width={560}
       footer={
         <>
-          <button type="button" onClick={onClose} className="rounded-[6px] px-3 py-1.5 text-[12.5px]" style={{ color: 'var(--g-ink-2)' }}>
+          <button type="button" onClick={onClose} className="rounded-[6px] px-3 py-1.5 text-[12.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
             取消
           </button>
           <button
@@ -91,7 +91,7 @@ export function BillInboxSettingsDialog({ open, onClose }: { open: boolean; onCl
             disabled={mutation.isPending || !initialized || query.isLoading || query.isError || !query.data}
             onClick={() => void save()}
             className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
-            style={{ background: 'var(--g-accent)', color: 'var(--g-accent-ink)' }}
+            style={{ background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))', color: 'var(--color-white)' }}
           >
             {mutation.isPending ? '保存中…' : '保存'}
           </button>
@@ -99,15 +99,15 @@ export function BillInboxSettingsDialog({ open, onClose }: { open: boolean; onCl
       }
     >
       {query.isError ? (
-        <div className="flex items-center justify-between gap-3 py-4 text-[12.5px]" style={{ color: 'var(--g-danger)' }}>
+        <div className="flex items-center justify-between gap-3 py-4 text-[12.5px]" style={{ color: 'light-dark(var(--color-red-600), var(--color-red-400))' }}>
           <span>邮箱设置加载失败</span>
-          <button type="button" onClick={() => void query.refetch()} style={{ color: 'var(--g-accent)' }}>重试</button>
+          <button type="button" onClick={() => void query.refetch()} style={{ color: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' }}>重试</button>
         </div>
       ) : !initialized ? (
-        <div role="status" className="py-4 text-[12.5px]" style={{ color: 'var(--g-ink-2)' }}>邮箱设置加载中…</div>
+        <div role="status" className="py-4 text-[12.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>邮箱设置加载中…</div>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <label className="flex items-center gap-2 sm:col-span-2 text-[12.5px]" style={{ color: 'var(--g-ink)' }}>
+          <label className="flex items-center gap-2 sm:col-span-2 text-[12.5px]" style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
             <input type="checkbox" checked={form.enabled ?? false} onChange={(event) => set('enabled', event.target.checked)} />
             启用账单邮箱
           </label>
@@ -124,7 +124,7 @@ export function BillInboxSettingsDialog({ open, onClose }: { open: boolean; onCl
             <input value={form.host ?? ''} onChange={(event) => set('host', event.target.value)} disabled={form.provider === 'gmail'} className="rounded-[6px] px-2.5 py-1.5 disabled:opacity-60" style={fieldStyle} />
           </Field>
           <Field label="端口">
-            <input type="number" min={1} max={65535} value={form.port ?? ''} onChange={(event) => set('port', Number(event.target.value))} disabled={form.provider === 'gmail'} className="font-num rounded-[6px] px-2.5 py-1.5 disabled:opacity-60" style={fieldStyle} />
+            <input type="number" min={1} max={65535} value={form.port ?? ''} onChange={(event) => set('port', Number(event.target.value))} disabled={form.provider === 'gmail'} className="font-mono tabular-nums rounded-[6px] px-2.5 py-1.5 disabled:opacity-60" style={fieldStyle} />
           </Field>
           <Field label="加密">
             <select value={form.encryption} onChange={(event) => set('encryption', event.target.value as 'none' | 'ssl' | 'tls' | 'starttls')} disabled={form.provider === 'gmail'} className="rounded-[6px] px-2.5 py-1.5 disabled:opacity-60" style={fieldStyle}>
@@ -151,7 +151,7 @@ export function BillInboxSettingsDialog({ open, onClose }: { open: boolean; onCl
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="flex flex-col gap-1 text-[12px]" style={{ color: 'var(--g-ink-2)' }}>
+    <label className="flex flex-col gap-1 text-[12px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
       <span>{label}</span>
       {children}
     </label>

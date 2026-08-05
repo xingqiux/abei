@@ -97,7 +97,7 @@ export function TransactionAttachments({ groupId, journalId }: { groupId: string
       <section className="mt-3 border-t pt-3 border-gray-200 dark:border-gray-700">
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="flex items-center gap-1.5 text-[11.5px] text-gray-500 dark:text-gray-400"><PaperClipIcon aria-hidden className="size-3.5" />附件</span>
-        <label className="cursor-pointer rounded-[5px] px-2 py-1 text-[11.5px]" style={{ background: 'var(--g-surface-2)', color: 'var(--g-accent)' }}>
+        <label className="cursor-pointer rounded-[5px] px-2 py-1 text-[11.5px]" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' }}>
           {createMutation.isPending ? '上传中…' : '添加附件'}
           <input type="file" accept={about.data?.data.attachment_mime_types?.join(',')} className="sr-only" disabled={createMutation.isPending} onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.currentTarget.value = '' }} />
         </label>
@@ -105,19 +105,19 @@ export function TransactionAttachments({ groupId, journalId }: { groupId: string
       {query.isLoading ? (
         <span className="text-[11.5px] text-gray-500 dark:text-gray-400">附件加载中…</span>
       ) : query.isError ? (
-        <div className="flex items-center justify-between text-[11.5px] text-red-600 dark:text-red-400"><span>附件加载失败</span><button type="button" onClick={() => void query.refetch()} style={{ color: 'var(--g-accent)' }}>重试</button></div>
+        <div className="flex items-center justify-between text-[11.5px] text-red-600 dark:text-red-400"><span>附件加载失败</span><button type="button" onClick={() => void query.refetch()} style={{ color: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' }}>重试</button></div>
       ) : (
         <div className="flex flex-col gap-1">
           {(query.data?.data ?? []).map((attachment) => {
             const attrs = attachment.attributes
             const name = attrs.title || attrs.filename
             return (
-              <div key={attachment.id} className="flex min-h-7 items-center gap-2 rounded-[4px] px-1.5 hover:bg-[var(--g-surface-2)]">
+              <div key={attachment.id} className="flex min-h-7 items-center gap-2 rounded-[4px] px-1.5 hover:bg-[light-dark(var(--color-gray-100), var(--color-gray-700))]">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[11.5px] text-gray-900 dark:text-gray-100">{name}</div>
                   {(attrs.title && attrs.title !== attrs.filename || attrs.notes) && <div className="truncate text-[10.5px] text-gray-500 dark:text-gray-400">{attrs.filename}{attrs.notes ? ` · ${attrs.notes}` : ''}</div>}
                 </div>
-                <span className="font-num text-[10.5px] text-gray-500 dark:text-gray-400">{attrs.size > 0 ? `${Math.ceil(attrs.size / 1024)} KB` : '待上传'}</span>
+                <span className="font-mono tabular-nums text-[10.5px] text-gray-500 dark:text-gray-400">{attrs.size > 0 ? `${Math.ceil(attrs.size / 1024)} KB` : '待上传'}</span>
                 <button type="button" title="下载附件" aria-label={`下载 ${name}`} onClick={() => void download(attachment.id, attrs.filename)} className="rounded p-1 text-indigo-600 dark:text-indigo-400"><ArrowDownTrayIcon aria-hidden className="size-3" /></button>
                 <button type="button" title="编辑附件信息" aria-label={`编辑 ${name}`} onClick={() => setDraft({ id: attachment.id, filename: attrs.filename, title: attrs.title || attrs.filename, notes: attrs.notes || '' })} className="rounded p-1 text-gray-500 dark:text-gray-400"><PencilIcon aria-hidden className="size-3" /></button>
                 <button type="button" title="删除附件" aria-label={`删除 ${name}`} onClick={() => void remove(attachment.id, name)} className="rounded p-1 text-red-600 dark:text-red-400"><TrashIcon aria-hidden className="size-3" /></button>
@@ -133,9 +133,9 @@ export function TransactionAttachments({ groupId, journalId }: { groupId: string
         <button type="button" disabled={updateMutation.isPending} onClick={() => void saveMetadata()} className="rounded-[6px] px-3 py-1.5 text-[12px] disabled:opacity-50 bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-500">{updateMutation.isPending ? '保存中…' : '保存'}</button>
       </>}>
         {draft && <div className="flex flex-col gap-3 text-[12px]">
-          <label className="flex flex-col gap-1 text-gray-500 dark:text-gray-400">文件名<input autoFocus value={draft.filename} onChange={(event) => setDraft({ ...draft, filename: event.target.value })} className="rounded-[6px] px-2.5 py-1.5" style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }} /></label>
-          <label className="flex flex-col gap-1 text-gray-500 dark:text-gray-400">标题<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} className="rounded-[6px] px-2.5 py-1.5" style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }} /></label>
-          <label className="flex flex-col gap-1 text-gray-500 dark:text-gray-400">备注<textarea rows={3} value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} className="resize-y rounded-[6px] px-2.5 py-1.5" style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }} /></label>
+          <label className="flex flex-col gap-1 text-gray-500 dark:text-gray-400">文件名<input autoFocus value={draft.filename} onChange={(event) => setDraft({ ...draft, filename: event.target.value })} className="rounded-[6px] px-2.5 py-1.5" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }} /></label>
+          <label className="flex flex-col gap-1 text-gray-500 dark:text-gray-400">标题<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} className="rounded-[6px] px-2.5 py-1.5" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }} /></label>
+          <label className="flex flex-col gap-1 text-gray-500 dark:text-gray-400">备注<textarea rows={3} value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} className="resize-y rounded-[6px] px-2.5 py-1.5" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }} /></label>
         </div>}
       </Modal>
     </>

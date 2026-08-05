@@ -28,7 +28,7 @@ export function TodoCard() {
   return (
     <div
       className="flex items-center justify-between rounded-xl bg-white py-3 pl-4 pr-4 shadow-sm ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-700"
-      style={{ borderLeft: '3px solid var(--g-accent)' }}
+      style={{ borderLeft: '3px solid light-dark(var(--color-indigo-600), var(--color-indigo-500))' }}
     >
       <div className="flex flex-wrap items-center gap-1.5 text-[13px] text-gray-900 dark:text-gray-100">
         {items.map((item, i) => {

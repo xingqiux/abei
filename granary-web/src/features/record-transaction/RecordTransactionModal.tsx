@@ -67,14 +67,14 @@ function todayInput(): string {
   return toDateInputValue(new Date())
 }
 
-const fieldLabelStyle = { color: 'var(--g-ink-2)', fontSize: 11 } as const
-const errorStyle = { color: 'var(--g-danger)', fontSize: 11 } as const
+const fieldLabelStyle = { color: 'light-dark(var(--color-gray-500), var(--color-gray-400))', fontSize: 11 } as const
+const errorStyle = { color: 'light-dark(var(--color-red-600), var(--color-red-400))', fontSize: 11 } as const
 
 function inputStyle(hasError?: string) {
   return {
-    background: 'var(--g-surface-2)',
-    color: 'var(--g-ink)',
-    border: `1px solid ${hasError ? 'var(--g-danger)' : 'var(--g-border)'}`,
+    background: 'light-dark(var(--color-gray-100), var(--color-gray-700))',
+    color: 'light-dark(var(--color-gray-900), var(--color-gray-100))',
+    border: `1px solid ${hasError ? 'light-dark(var(--color-red-600), var(--color-red-400))' : 'light-dark(var(--color-gray-200), var(--color-gray-600))'}`,
   }
 }
 
@@ -367,7 +367,7 @@ export function RecordTransactionModal() {
       type="button"
       onClick={handleRequestClose}
       className="rounded-[6px] px-3 py-1.5 text-[12.5px]"
-      style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)' }}
+      style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}
     >
       关闭
     </button>
@@ -378,7 +378,7 @@ export function RecordTransactionModal() {
         disabled={mutationPending}
         onClick={() => handleSave()}
         className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
-        style={{ background: 'var(--g-accent)', color: 'var(--g-accent-ink)', fontWeight: 'var(--g-weight-demibold)' }}
+        style={{ background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))', color: 'var(--color-white)', fontWeight: '600' }}
       >
         {mutationPending ? '保存中…' : isEdit ? '保存修改' : '保存'}
       </button>
@@ -388,9 +388,9 @@ export function RecordTransactionModal() {
   return (
     <Modal open={open} onClose={handleRequestClose} title={title} width={520} footer={footer}>
       {!isEdit && (
-        <div className="mb-3 flex gap-0.5 rounded-[6px] p-0.5" style={{ background: 'var(--g-surface-2)' }} role="tablist" aria-label="记账模式">
+        <div className="mb-3 flex gap-0.5 rounded-[6px] p-0.5" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))' }} role="tablist" aria-label="记账模式">
           {([['single', '单笔'], ['split', '多拆分']] as const).map(([value, label]) => (
-            <button key={value} type="button" role="tab" aria-selected={createMode === value} onClick={() => selectCreateMode(value)} className="flex-1 rounded-[4px] py-1.5 text-[12.5px]" style={{ background: createMode === value ? 'var(--g-accent)' : 'transparent', color: createMode === value ? 'var(--g-accent-ink)' : 'var(--g-ink-2)', fontWeight: createMode === value ? 'var(--g-weight-demibold)' : 'var(--g-weight-regular)' }}>{label}</button>
+            <button key={value} type="button" role="tab" aria-selected={createMode === value} onClick={() => selectCreateMode(value)} className="flex-1 rounded-[4px] py-1.5 text-[12.5px]" style={{ background: createMode === value ? 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' : 'transparent', color: createMode === value ? 'var(--color-white)' : 'light-dark(var(--color-gray-500), var(--color-gray-400))', fontWeight: createMode === value ? '600' : '400' }}>{label}</button>
           ))}
         </div>
       )}
@@ -400,7 +400,7 @@ export function RecordTransactionModal() {
         <div className="flex flex-col gap-3.5">
           <div
             className="flex gap-0.5 rounded-[6px] p-0.5"
-            style={{ background: 'var(--g-surface-2)' }}
+            style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))' }}
             role="tablist"
             aria-label="交易类型"
           >
@@ -422,9 +422,9 @@ export function RecordTransactionModal() {
                   }}
                   className="flex-1 rounded-[4px] py-1.5 text-[12.5px] transition-colors"
                   style={{
-                    background: active ? 'var(--g-accent)' : 'transparent',
-                    color: active ? 'var(--g-accent-ink)' : 'var(--g-ink-2)',
-                    fontWeight: active ? 'var(--g-weight-demibold)' : 'var(--g-weight-regular)',
+                    background: active ? 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' : 'transparent',
+                    color: active ? 'var(--color-white)' : 'light-dark(var(--color-gray-500), var(--color-gray-400))',
+                    fontWeight: active ? '600' : '400',
                   }}
                 >
                   {opt.label}
@@ -446,7 +446,7 @@ export function RecordTransactionModal() {
                 }}
                 placeholder="0.00"
                 aria-label="金额"
-                className="font-num w-full rounded-[6px] px-3 py-2 text-right outline-none"
+                className="font-mono tabular-nums w-full rounded-[6px] px-3 py-2 text-right outline-none"
                 style={{ ...inputStyle(errors.amount), fontSize: 24, fontWeight: 600 }}
               />
               {errors.amount && <div style={errorStyle}>{errors.amount}</div>}
@@ -546,7 +546,7 @@ export function RecordTransactionModal() {
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="font-num rounded-[6px] px-2.5 py-1.5 text-[12.5px] outline-none"
+                className="font-mono tabular-nums rounded-[6px] px-2.5 py-1.5 text-[12.5px] outline-none"
                 style={inputStyle()}
               />
             </div>
@@ -557,7 +557,7 @@ export function RecordTransactionModal() {
               type="button"
               onClick={() => setMoreOpen((v) => !v)}
               className="flex items-center gap-1 text-[11.5px]"
-              style={{ color: 'var(--g-ink-2)' }}
+              style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}
             >
               更多选项
               <ChevronDownIcon

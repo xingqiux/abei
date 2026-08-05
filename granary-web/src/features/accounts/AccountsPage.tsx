@@ -17,9 +17,9 @@ import { sumDecimalStrings } from '../../lib/decimal'
 const LIMIT_STEP = 40
 
 const TABS: { key: AccountType; label: string; emptyMessage: string; balanceColorVar: string }[] = [
-  { key: 'asset', label: '资产', emptyMessage: '还没有资产账户', balanceColorVar: 'var(--g-ink)' },
-  { key: 'cash', label: '现金', emptyMessage: '还没有现金账户', balanceColorVar: 'var(--g-ink)' },
-  { key: 'liabilities', label: '负债', emptyMessage: '还没有负债账户', balanceColorVar: 'var(--g-expense)' },
+  { key: 'asset', label: '资产', emptyMessage: '还没有资产账户', balanceColorVar: 'light-dark(var(--color-gray-900), var(--color-gray-100))' },
+  { key: 'cash', label: '现金', emptyMessage: '还没有现金账户', balanceColorVar: 'light-dark(var(--color-gray-900), var(--color-gray-100))' },
+  { key: 'liabilities', label: '负债', emptyMessage: '还没有负债账户', balanceColorVar: 'light-dark(var(--color-red-600), var(--color-red-400))' },
 ]
 
 export function AccountsPage() {

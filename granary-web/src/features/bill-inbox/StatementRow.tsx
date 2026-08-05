@@ -7,14 +7,14 @@ import { StatusChip } from '../../components/granary/StatusChip'
 import { showToast } from '../../store/toastStore'
 import { formatAmount, formatMonthDay } from '../../lib/format'
 import { FireflyApiError } from '../../api/client'
-import { directionColorVar, directionSign, isRowSelectable, rowBadge } from './billInboxHelpers'
+import { directionColorClass, directionSign, isRowSelectable, rowBadge } from './billInboxHelpers'
 import { SplitBillRowDialog } from './SplitBillRowDialog'
 import { isPositiveDecimal, normalizeDecimalString } from '../../lib/decimal'
 
 const inputStyle = {
-  background: 'var(--g-surface)',
-  color: 'var(--g-ink)',
-  border: '1px solid var(--g-border)',
+  background: 'light-dark(var(--color-white), var(--color-gray-800))',
+  color: 'light-dark(var(--color-gray-900), var(--color-gray-100))',
+  border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))',
 } as const
 
 function asText(v: unknown): string {
@@ -129,7 +129,7 @@ export function StatementRow({
       <div
         id={`bill-row-${row.id}`}
         className="flex min-h-8 flex-wrap items-center gap-2 rounded-[4px] px-2 py-1.5 text-[12.5px]"
-        style={{ background: 'var(--g-surface-2)' }}
+        style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))' }}
       >
         <span className="w-4 shrink-0" aria-hidden />
         <select
@@ -195,7 +195,7 @@ export function StatementRow({
           value={amount}
           onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
           aria-label="金额"
-          className="font-num w-[90px] shrink-0 rounded-[4px] px-1.5 py-0.5 text-right text-[12.5px] outline-none"
+          className="font-mono tabular-nums w-[90px] shrink-0 rounded-[4px] px-1.5 py-0.5 text-right text-[12.5px] outline-none"
           style={inputStyle}
           onKeyDown={(e) => {
             if (e.key === 'Enter') void saveEdit()
@@ -209,7 +209,7 @@ export function StatementRow({
             disabled={updateMutation.isPending}
             onClick={() => void saveEdit()}
             className="rounded p-1 disabled:opacity-50"
-            style={{ color: 'var(--g-accent)' }}
+            style={{ color: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' }}
           >
             <CheckIcon aria-hidden className="size-3.5" />
           </button>
@@ -219,7 +219,7 @@ export function StatementRow({
             disabled={updateMutation.isPending}
             onClick={cancelEdit}
             className="rounded p-1 disabled:opacity-50"
-            style={{ color: 'var(--g-ink-2)' }}
+            style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}
           >
             <XMarkIcon aria-hidden className="size-3.5" />
           </button>
@@ -229,7 +229,7 @@ export function StatementRow({
   }
 
   return (
-    <div id={`bill-row-${row.id}`} className="group flex h-8 items-center gap-2 rounded-[4px] px-2 text-[12.5px] transition-colors hover:bg-[var(--g-surface-2)]">
+    <div id={`bill-row-${row.id}`} className="group flex h-8 items-center gap-2 rounded-[4px] px-2 text-[12.5px] transition-colors hover:bg-[light-dark(var(--color-gray-100), var(--color-gray-700))]">
       <input
         type="checkbox"
         aria-label="选择此行"
@@ -238,7 +238,7 @@ export function StatementRow({
         onChange={onToggle}
         className="shrink-0 disabled:opacity-30"
       />
-      <span className="font-num w-[48px] shrink-0 text-gray-500 dark:text-gray-400">
+      <span className="font-mono tabular-nums w-[48px] shrink-0 text-gray-500 dark:text-gray-400">
         {effectiveDate ? formatMonthDay(effectiveDate) : '--'}
       </span>
       <span className="min-w-0 flex-1 truncate text-gray-900 dark:text-gray-100">
@@ -250,7 +250,7 @@ export function StatementRow({
       <span className="w-[180px] shrink-0 truncate text-[11.5px] text-gray-500 dark:text-gray-400">
         {a.source_name ?? '?'} → {a.destination_name ?? '?'}
       </span>
-      <span className="font-num w-[110px] shrink-0 text-right" style={{ color: directionColorVar(a.direction) }}>
+      <span className={`font-mono tabular-nums w-[110px] shrink-0 text-right ${directionColorClass(a.direction)}`}>
         {directionSign(a.direction)}{a.currency_symbol ?? a.currency_code ?? ''}{formatAmount(rowAmount(a))}
       </span>
       <span className="flex w-[64px] shrink-0 items-center justify-end gap-0.5">
@@ -266,7 +266,7 @@ export function StatementRow({
             aria-label="编辑行"
             onClick={startEdit}
             className="rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
-            style={{ color: 'var(--g-ink-2)' }}
+            style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}
           >
             <PencilIcon aria-hidden className="size-3.5" />
           </button>

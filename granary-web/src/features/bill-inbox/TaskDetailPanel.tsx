@@ -144,18 +144,18 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
   return (
     <div
       className="mx-2 mb-1 flex flex-col gap-3 rounded-[10px] p-3"
-      style={{ background: 'var(--g-bg)', border: '1px solid var(--g-border)' }}
+      style={{ background: 'light-dark(var(--color-gray-50), var(--color-gray-900))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
     >
       {/* needs_secret：行内密码/验证码表单 */}
       {isNeedsSecret && (
         <div
           className="flex flex-col gap-2 rounded-[8px] p-2.5"
-          style={{ background: 'var(--g-surface)', border: '1px solid var(--g-border)' }}
+          style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
         >
-          <div className="text-[12.5px]" style={{ color: 'var(--g-ink)', fontWeight: 'var(--g-weight-demibold)' }}>
+          <div className="text-[12.5px]" style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', fontWeight: '600' }}>
             需要解压密码或验证码
           </div>
-          <div className="text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>
+          <div className="text-[11.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
             提交后任务将重新处理附件
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -173,9 +173,9 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
               placeholder="密码 / 验证码"
               className="min-w-[160px] flex-1 rounded-[6px] px-2.5 py-1.5 text-[12.5px] outline-none"
               style={{
-                background: 'var(--g-surface-2)',
-                color: 'var(--g-ink)',
-                border: '1px solid var(--g-border)',
+                background: 'light-dark(var(--color-gray-100), var(--color-gray-700))',
+                color: 'light-dark(var(--color-gray-900), var(--color-gray-100))',
+                border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))',
               }}
             />
             <button
@@ -184,14 +184,14 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
               onClick={() => void handleSubmitSecret()}
               className="flex items-center gap-1.5 rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
               style={{
-                background: 'var(--g-accent)',
-                color: 'var(--g-accent-ink)',
-                fontWeight: 'var(--g-weight-demibold)',
+                background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))',
+                color: 'var(--color-white)',
+                fontWeight: '600',
               }}
             >
               {secretMutation.isPending ? (
                 <>
-                  <LottieIcon kind="loading" size={14} colorVar="--g-accent-ink" />
+                  <LottieIcon kind="loading" size={14} color="var(--color-white)" />
                   提交中…
                 </>
               ) : (
@@ -206,13 +206,13 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
       {isFailed && (
         <div
           className="flex flex-col gap-2 rounded-[8px] p-2.5"
-          style={{ background: 'var(--g-surface)', border: '1px solid var(--g-border)' }}
+          style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
         >
-          <div className="text-[12.5px]" style={{ color: 'var(--g-danger)', fontWeight: 'var(--g-weight-demibold)' }}>
+          <div className="text-[12.5px]" style={{ color: 'light-dark(var(--color-red-600), var(--color-red-400))', fontWeight: '600' }}>
             处理失败
           </div>
           {errorText && (
-            <div className="text-[12px] leading-relaxed" style={{ color: 'var(--g-ink-2)' }}>
+            <div className="text-[12px] leading-relaxed" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
               {errorText}
             </div>
           )}
@@ -223,14 +223,14 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
               onClick={() => void handleRetry()}
               className="flex items-center gap-1.5 rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
               style={{
-                background: 'var(--g-accent)',
-                color: 'var(--g-accent-ink)',
-                fontWeight: 'var(--g-weight-demibold)',
+                background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))',
+                color: 'var(--color-white)',
+                fontWeight: '600',
               }}
             >
               {retryMutation.isPending ? (
                 <>
-                  <LottieIcon kind="loading" size={14} colorVar="--g-accent-ink" />
+                  <LottieIcon kind="loading" size={14} color="var(--color-white)" />
                   重试中…
                 </>
               ) : (
@@ -241,7 +241,7 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
               type="button"
               onClick={() => setIgnoreOpen(true)}
               className="rounded-[6px] px-2.5 py-1 text-[12px]"
-              style={{ background: 'transparent', color: 'var(--g-danger)' }}
+              style={{ background: 'transparent', color: 'light-dark(var(--color-red-600), var(--color-red-400))' }}
             >
               忽略此任务
             </button>
@@ -253,8 +253,8 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
       {!isNeedsSecret && !isFailed && (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-[12.5px]" style={{ color: 'var(--g-ink-2)' }}>
-              已选 <span className="font-num" style={{ color: 'var(--g-ink)' }}>{selected.size}</span> / 可入账{' '}
+            <div className="text-[12.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
+              已选 <span className="font-mono tabular-nums" style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>{selected.size}</span> / 可入账{' '}
               {eligibleIds.length} 笔
             </div>
             <div className="flex items-center gap-2">
@@ -262,7 +262,7 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
                 type="button"
                 onClick={() => setIgnoreOpen(true)}
                 className="rounded-[6px] px-2.5 py-1 text-[12px]"
-                style={{ background: 'transparent', color: 'var(--g-danger)' }}
+                style={{ background: 'transparent', color: 'light-dark(var(--color-red-600), var(--color-red-400))' }}
               >
                 忽略此任务
               </button>
@@ -272,9 +272,9 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
                 onClick={() => void handleImportClick()}
                 className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
                 style={{
-                  background: 'var(--g-accent)',
-                  color: 'var(--g-accent-ink)',
-                  fontWeight: 'var(--g-weight-demibold)',
+                  background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))',
+                  color: 'var(--color-white)',
+                  fontWeight: '600',
                 }}
               >
                 {importMutation.isPending ? '处理中…' : `入账 ${selected.size} 笔`}
@@ -289,9 +289,9 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
               ))}
             </div>
           ) : rowsQuery.isError ? (
-            <div className="flex items-center justify-between py-6 text-[12.5px]" style={{ color: 'var(--g-danger)' }}>
+            <div className="flex items-center justify-between py-6 text-[12.5px]" style={{ color: 'light-dark(var(--color-red-600), var(--color-red-400))' }}>
               <span>账单流水加载失败</span>
-              <button type="button" onClick={() => void rowsQuery.refetch()} style={{ color: 'var(--g-accent)' }}>重试</button>
+              <button type="button" onClick={() => void rowsQuery.refetch()} style={{ color: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' }}>重试</button>
             </div>
           ) : rows.length === 0 ? (
             <EmptyState icon="✅" message="该任务没有待处理的流水" />
@@ -300,7 +300,7 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
               <div className="min-w-[720px]">
                 <div
                   className="flex h-7 items-center gap-2 px-2 text-[11px]"
-                  style={{ color: 'var(--g-ink-2)', borderBottom: '1px solid var(--g-border)' }}
+                  style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))', borderBottom: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
                 >
                   <input
                     type="checkbox"
@@ -340,7 +340,7 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
                 type="button"
                 onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
                 className="rounded-[6px] px-3 py-1.5 text-[12.5px]"
-                style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)' }}
+                style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}
               >
                 加载更多（{rows.length - visibleCount} 条剩余）
               </button>

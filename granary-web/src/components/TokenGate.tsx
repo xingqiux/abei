@@ -12,15 +12,15 @@ import { REQUEST_TOKEN_EVENT } from './tokenEvents'
 import { resetUserScopedState } from '../store/resetUserScopedState'
 
 const cardStyle = {
-  background: 'var(--g-surface)',
-  boxShadow: 'var(--g-shadow)',
-  border: '1px solid var(--g-border)',
+  background: 'light-dark(var(--color-white), var(--color-gray-800))',
+  boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)',
+  border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))',
 } as const
 
 const inputStyle = {
-  background: 'var(--g-surface-2)',
-  color: 'var(--g-ink)',
-  border: '1px solid var(--g-border)',
+  background: 'light-dark(var(--color-gray-100), var(--color-gray-700))',
+  color: 'light-dark(var(--color-gray-900), var(--color-gray-100))',
+  border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))',
 } as const
 
 export function TokenGate({ children }: { children?: ReactNode }) {
@@ -77,14 +77,14 @@ export function TokenGate({ children }: { children?: ReactNode }) {
   return (
     <div
       className="fixed inset-0 z-[300] flex items-center justify-center p-4"
-      style={{ background: 'var(--g-bg)' }}
+      style={{ background: 'light-dark(var(--color-gray-50), var(--color-gray-900))' }}
       role="dialog"
       aria-modal="true"
       aria-label="设置 API 令牌"
     >
       <div ref={cardRef} tabIndex={-1} className="flex w-full max-w-[420px] flex-col gap-4 rounded-[10px] p-5" style={cardStyle}>
         <div className="flex flex-col gap-1.5">
-          <div className="text-[15px]" style={{ fontWeight: 'var(--g-weight-demibold)', color: 'var(--g-ink)' }}>
+          <div className="text-[15px]" style={{ fontWeight: '600', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
             谷仓 Granary
           </div>
           <div className="text-[12.5px] leading-relaxed text-gray-500 dark:text-gray-400">
@@ -103,8 +103,8 @@ export function TokenGate({ children }: { children?: ReactNode }) {
             placeholder="粘贴个人访问令牌…"
             rows={5}
             autoFocus
-            className="font-num w-full resize-none rounded-[6px] px-2.5 py-2 text-[11.5px] outline-none"
-            style={{ ...inputStyle, border: `1px solid ${error ? 'var(--g-danger)' : 'var(--g-border)'}` }}
+            className="font-mono tabular-nums w-full resize-none rounded-[6px] px-2.5 py-2 text-[11.5px] outline-none"
+            style={{ ...inputStyle, border: `1px solid ${error ? 'light-dark(var(--color-red-600), var(--color-red-400))' : 'light-dark(var(--color-gray-200), var(--color-gray-600))'}` }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void handleSave()
             }}
@@ -120,7 +120,7 @@ export function TokenGate({ children }: { children?: ReactNode }) {
           type="button"
           onClick={() => void handleSave()}
           className="w-full rounded-[6px] px-3 py-2 text-[12.5px]"
-          style={{ background: 'var(--g-accent)', color: 'var(--g-accent-ink)', fontWeight: 'var(--g-weight-demibold)' }}
+          style={{ background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))', color: 'var(--color-white)', fontWeight: '600' }}
         >
           保存并继续
         </button>

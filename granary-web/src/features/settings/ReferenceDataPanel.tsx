@@ -23,9 +23,9 @@ interface EditState {
 }
 
 const inputStyle = {
-  background: 'var(--g-surface-2)',
-  color: 'var(--g-ink)',
-  border: '1px solid var(--g-border)',
+  background: 'light-dark(var(--color-gray-100), var(--color-gray-700))',
+  color: 'light-dark(var(--color-gray-900), var(--color-gray-100))',
+  border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))',
 } as const
 
 function baseState(kind: Kind): EditState {
@@ -107,8 +107,8 @@ export function ReferenceDataPanel() {
     <>
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex gap-0.5 rounded-[6px] p-0.5" style={{ background: 'var(--g-surface-2)' }}>
-            {([['category', '分类'], ['tag', '标签']] as const).map(([value, label]) => <button key={value} type="button" onClick={() => setTab(value)} className="rounded-[4px] px-3 py-1.5 text-[12px]" style={{ background: tab === value ? 'var(--g-accent)' : 'transparent', color: tab === value ? 'var(--g-accent-ink)' : 'var(--g-ink-2)' }}>{label}</button>)}
+          <div className="flex gap-0.5 rounded-[6px] p-0.5" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))' }}>
+            {([['category', '分类'], ['tag', '标签']] as const).map(([value, label]) => <button key={value} type="button" onClick={() => setTab(value)} className="rounded-[4px] px-3 py-1.5 text-[12px]" style={{ background: tab === value ? 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' : 'transparent', color: tab === value ? 'var(--color-white)' : 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>{label}</button>)}
           </div>
           <button type="button" title="新建" aria-label="新建" onClick={() => openCreate(tab)} className="rounded p-1.5 text-indigo-600 dark:text-indigo-400"><PlusIcon aria-hidden className="size-4" /></button>
         </div>

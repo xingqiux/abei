@@ -1,4 +1,4 @@
-import { formatSignedAmount, kindColorVar, type TransactionKind } from '../../lib/format'
+import { formatSignedAmount, kindColorClass, type TransactionKind } from '../../lib/format'
 
 export function MoneyText({
   value,
@@ -12,7 +12,7 @@ export function MoneyText({
   className?: string
 }) {
   return (
-    <span className={`font-num ${className}`} style={{ color: kindColorVar(kind) }}>
+    <span className={`font-mono tabular-nums ${kindColorClass(kind)} ${className}`}>
       {formatSignedAmount(value, kind, symbol)}
     </span>
   )

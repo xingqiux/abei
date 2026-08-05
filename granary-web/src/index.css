@@ -1,6 +1,8 @@
 @import 'tailwindcss';
 
-@import './styles/tokens.css';
+:root {
+  color-scheme: light dark;
+}
 
 * {
   box-sizing: border-box;
@@ -12,25 +14,16 @@ body,
   height: 100%;
 }
 
-body {
-  margin: 0;
-  background-color: var(--g-bg);
-  color: var(--g-ink);
-  font-family: var(--g-font-ui);
-  font-weight: var(--g-weight-regular);
-  font-size: 13.5px;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-  position: relative;
-}
-
-.font-num {
-  font-family: var(--g-font-num);
-  font-variant-numeric: tabular-nums;
+@layer base {
+  body {
+    @apply relative m-0 bg-gray-50 text-gray-900 antialiased dark:bg-gray-900 dark:text-gray-100;
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--g-accent) 35%, transparent);
+  background: color-mix(in srgb, var(--color-indigo-600) 35%, transparent);
 }
 
 /* 滚动条：细、低调 */
@@ -39,7 +32,7 @@ body {
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--g-border);
+  background: var(--color-gray-300);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-track {
@@ -59,13 +52,31 @@ body {
 .g-skeleton {
   background: linear-gradient(
     90deg,
-    var(--g-surface-2) 25%,
-    color-mix(in srgb, var(--g-surface-2) 60%, var(--g-ink-2) 15%) 50%,
-    var(--g-surface-2) 75%
+    var(--color-gray-100) 25%,
+    var(--color-gray-200) 50%,
+    var(--color-gray-100) 75%
   );
   background-size: 200% 100%;
   animation: g-shimmer 1.4s ease-in-out infinite;
   border-radius: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  ::selection {
+    background: color-mix(in srgb, var(--color-indigo-400) 35%, transparent);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-gray-600);
+  }
+  .g-skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--color-gray-700) 25%,
+      var(--color-gray-600) 50%,
+      var(--color-gray-700) 75%
+    );
+    background-size: 200% 100%;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

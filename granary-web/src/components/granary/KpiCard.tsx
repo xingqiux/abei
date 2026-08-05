@@ -23,7 +23,7 @@ export function KpiCard({
       >
         {label}
       </div>
-      <div className="font-num mt-1.5 flex min-h-[30px] flex-wrap items-baseline gap-x-3 gap-y-1" style={{ color: colorVar }}>
+      <div className="font-mono tabular-nums mt-1.5 flex min-h-[30px] flex-wrap items-baseline gap-x-3 gap-y-1" style={{ color: colorVar }}>
         {amounts.map((amount) => {
           const negative = amount.value.trim().startsWith('-')
           const zero = /^[-+]?0(?:\.0*)?$/.test(amount.value.trim())

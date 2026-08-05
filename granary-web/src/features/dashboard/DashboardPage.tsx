@@ -102,28 +102,28 @@ export function DashboardPage() {
             <KpiCard
               label="本期支出"
               amounts={kpis.spent}
-              colorVar="var(--g-expense)"
+              colorVar="light-dark(var(--color-red-600), var(--color-red-400))"
               sublabel={rangeLabel}
               signed
             />
             <KpiCard
               label="本期收入"
               amounts={kpis.earned}
-              colorVar="var(--g-income)"
+              colorVar="light-dark(var(--color-emerald-600), var(--color-emerald-400))"
               sublabel={rangeLabel}
               signed
             />
             <KpiCard
               label="净现金流"
               amounts={kpis.netCashflow}
-              colorVar="var(--g-ink)"
+              colorVar="light-dark(var(--color-gray-900), var(--color-gray-100))"
               sublabel={rangeLabel}
               signed
             />
             <KpiCard
               label="总净资产"
               amounts={kpis.netWorth}
-              colorVar="var(--g-ink)"
+              colorVar="light-dark(var(--color-gray-900), var(--color-gray-100))"
               sublabel={rangeLabel}
               signed
             />

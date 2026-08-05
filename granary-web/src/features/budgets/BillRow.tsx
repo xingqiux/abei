@@ -17,16 +17,16 @@ export function BillRow({ bill }: { bill: Bill }) {
 
   return (
     <div className="flex h-8 items-center gap-3 rounded-[4px] px-2 text-[12.5px]">
-      <div className="min-w-0 flex-1 truncate" style={{ color: 'var(--g-ink)' }}>
+      <div className="min-w-0 flex-1 truncate" style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
         {a.name}
       </div>
-      <div className="font-num w-[170px] shrink-0 text-right text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>
+      <div className="font-mono tabular-nums w-[170px] shrink-0 text-right text-[11.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
         {amountRange}
       </div>
-      <div className="w-[64px] shrink-0 text-center text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>
+      <div className="w-[64px] shrink-0 text-center text-[11.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
         {periodLabel}
       </div>
-      <div className="font-num w-[90px] shrink-0 text-right text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>
+      <div className="font-mono tabular-nums w-[90px] shrink-0 text-right text-[11.5px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
         {dateOnly(a.next_expected_match)}
       </div>
       <div className="w-[56px] shrink-0 text-right">

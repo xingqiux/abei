@@ -76,20 +76,20 @@ export function TaskEvidencePanel({ taskId, onReviewRow }: { taskId: string; onR
         <h3 className="mb-2 text-[11px] text-gray-500 dark:text-gray-400">REVIEW</h3>
         <div className="flex flex-wrap gap-1.5">
           {candidateCounts.map(([label, count]) => (
-            <span key={label} className="rounded-[4px] px-1.5 py-1 text-[11.5px]" style={{ background: 'var(--g-surface-2)', color: count > 0 ? 'var(--g-ink)' : 'var(--g-ink-2)' }}>
-              {label} <span className="font-num">{count}</span>
+            <span key={label} className="rounded-[4px] px-1.5 py-1 text-[11.5px]" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: count > 0 ? 'light-dark(var(--color-gray-900), var(--color-gray-100))' : 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
+              {label} <span className="font-mono tabular-nums">{count}</span>
             </span>
           ))}
           {review.isLoading && <span className="text-[11.5px] text-gray-500 dark:text-gray-400">加载中…</span>}
         </div>
         <div className="mt-2 flex max-h-[190px] flex-col gap-1 overflow-y-auto">
           {issueGroups.flatMap((group) => group.items.map((candidate) => (
-            <div key={`${group.label}-${candidate.row_id}`} className="flex items-start gap-1.5 rounded-[4px] px-1.5 py-1" style={{ background: 'var(--g-surface-2)' }}>
+            <div key={`${group.label}-${candidate.row_id}`} className="flex items-start gap-1.5 rounded-[4px] px-1.5 py-1" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))' }}>
               <div className="min-w-0 flex-1 text-[11px] leading-relaxed">
                 <div className="truncate text-gray-900 dark:text-gray-100">
                   {group.label} · #{candidate.row_number ?? candidate.row_id} · {candidate.description_preview || candidate.counterparty || '未命名流水'}
                 </div>
-                <div style={{ color: 'var(--g-ink-2)' }}>
+                <div style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
                   {candidate.reason ?? '需要人工复核'}
                   {(candidate.firefly_amount || candidate.amount) && ` · ${candidate.currency_symbol || candidate.currency_code || ''}${formatAmount(candidate.firefly_amount || candidate.amount || '0')}`}
                 </div>
@@ -124,9 +124,9 @@ export function TaskEvidencePanel({ taskId, onReviewRow }: { taskId: string; onR
         <div className="flex max-h-[140px] flex-col gap-1 overflow-y-auto">
           {(events.data?.data ?? []).map((event) => (
             <div key={event.id} className="text-[11.5px] leading-relaxed">
-              <span className="font-num text-gray-500 dark:text-gray-400">{event.attributes.created_at ? formatDateTime(event.attributes.created_at) : '--'}</span>{' '}
-              <span style={{ color: 'var(--g-ink)' }}>{event.attributes.event_type}</span>
-              {event.attributes.message && <span style={{ color: 'var(--g-ink-2)' }}> · {event.attributes.message}</span>}
+              <span className="font-mono tabular-nums text-gray-500 dark:text-gray-400">{event.attributes.created_at ? formatDateTime(event.attributes.created_at) : '--'}</span>{' '}
+              <span style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>{event.attributes.event_type}</span>
+              {event.attributes.message && <span style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}> · {event.attributes.message}</span>}
             </div>
           ))}
           {events.isSuccess && events.data.data.length === 0 && <span className="text-[11.5px] text-gray-500 dark:text-gray-400">暂无事件</span>}
@@ -136,7 +136,7 @@ export function TaskEvidencePanel({ taskId, onReviewRow }: { taskId: string; onR
       {hasError && (
         <div className="lg:col-span-3 flex items-center justify-between text-[11.5px] text-red-600 dark:text-red-400">
           <span>任务附加信息加载不完整</span>
-          <button type="button" onClick={() => { void artifacts.refetch(); void events.refetch(); void review.refetch() }} style={{ color: 'var(--g-accent)' }}>重试</button>
+          <button type="button" onClick={() => { void artifacts.refetch(); void events.refetch(); void review.refetch() }} style={{ color: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' }}>重试</button>
         </div>
       )}
     </div>

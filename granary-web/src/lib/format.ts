@@ -28,12 +28,12 @@ export function formatSignedAmount(value: number | string, kind: TransactionKind
   return body
 }
 
-/** 语义色 CSS 变量名（withdrawal=expense / deposit=income / transfer=transfer） */
-export function kindColorVar(kind: TransactionKind): string {
-  if (kind === 'withdrawal') return 'var(--g-expense)'
-  if (kind === 'deposit') return 'var(--g-income)'
-  if (kind === 'transfer') return 'var(--g-transfer)'
-  return 'var(--g-ink)'
+/** 语义色的 Tailwind 文字类（withdrawal=支出红 / deposit=收入绿 / transfer=转账靛） */
+export function kindColorClass(kind: TransactionKind): string {
+  if (kind === 'withdrawal') return 'text-red-600 dark:text-red-400'
+  if (kind === 'deposit') return 'text-emerald-600 dark:text-emerald-400'
+  if (kind === 'transfer') return 'text-indigo-600 dark:text-indigo-400'
+  return 'text-gray-900 dark:text-gray-100'
 }
 
 /** YYYY-MM-DD，本地时区 */

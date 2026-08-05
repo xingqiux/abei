@@ -40,10 +40,10 @@ const TYPE_LABEL: Record<string, string> = {
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-[10px] p-3.5" style={{ background: 'var(--g-surface)', boxShadow: 'var(--g-shadow)' }}>
+    <div className="rounded-[10px] p-3.5" style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)' }}>
       <div
         className="mb-3 text-[12px]"
-        style={{ color: 'var(--g-ink-2)', fontWeight: 'var(--g-weight-demibold)', letterSpacing: '.02em' }}
+        style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))', fontWeight: '600', letterSpacing: '.02em' }}
       >
         {title}
       </div>
@@ -55,7 +55,7 @@ function Card({ title, children }: { title: string; children: ReactNode }) {
 function InfoRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-1 text-[12.5px]">
-      <span style={{ color: 'var(--g-ink-2)' }}>{label}</span>
+      <span style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>{label}</span>
       <span className="min-w-0 text-right text-gray-900 dark:text-gray-100">
         {children}
       </span>
@@ -143,15 +143,15 @@ export function AccountDetailPage() {
             <>
               <h1
                 className="truncate text-[18px]"
-                style={{ fontWeight: 'var(--g-weight-demibold)', color: 'var(--g-ink)' }}
+                style={{ fontWeight: '600', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}
               >
                 {attrs.name}
               </h1>
               <div className="flex flex-wrap items-center gap-2 text-[12px] text-gray-500 dark:text-gray-400">
                 <span>{typeLabel}</span>
-                {attrs.active === false && <span style={{ color: 'var(--g-warn)' }}>已停用</span>}
+                {attrs.active === false && <span style={{ color: 'light-dark(var(--color-amber-600), var(--color-amber-400))' }}>已停用</span>}
                 {tail && (
-                  <span className="font-num">
+                  <span className="font-mono tabular-nums">
                     •••• {tail}
                   </span>
                 )}
@@ -162,15 +162,15 @@ export function AccountDetailPage() {
         </div>
         {attrs && (
           <div className="text-right">
-            <div className="text-[11px]" style={{ color: 'var(--g-ink-2)', letterSpacing: '.04em', textTransform: 'uppercase' }}>
+            <div className="text-[11px]" style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))', letterSpacing: '.04em', textTransform: 'uppercase' }}>
               当前余额
             </div>
             <div
-              className="font-num mt-0.5"
+              className="font-mono tabular-nums mt-0.5"
               style={{
                 fontSize: 20,
                 fontWeight: 600,
-                color: compareDecimalStrings(balance, '0') < 0 ? 'var(--g-expense)' : 'var(--g-ink)',
+                color: compareDecimalStrings(balance, '0') < 0 ? 'light-dark(var(--color-red-600), var(--color-red-400))' : 'light-dark(var(--color-gray-900), var(--color-gray-100))',
               }}
             >
               {symbol}
@@ -192,17 +192,17 @@ export function AccountDetailPage() {
             <div className="flex flex-col">
               <InfoRow label="类型">{typeLabel}</InfoRow>
               <InfoRow label="币种">
-                <span className="font-num">
+                <span className="font-mono tabular-nums">
                   {attrs.currency_code ?? '—'} {symbol}
                 </span>
               </InfoRow>
               {attrs.opening_balance != null && attrs.opening_balance !== '' && (
                 <InfoRow label="初始余额">
-                  <span className="font-num">
+                  <span className="font-mono tabular-nums">
                     {symbol}
                     {formatAmount(attrs.opening_balance)}
                     {attrs.opening_balance_date && (
-                      <span style={{ color: 'var(--g-ink-2)' }}>
+                      <span style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
                         {' '}
                         · {attrs.opening_balance_date.slice(0, 10)}
                       </span>
@@ -211,13 +211,13 @@ export function AccountDetailPage() {
                 </InfoRow>
               )}
               <InfoRow label="最近活动">
-                <span className="font-num">
+                <span className="font-mono tabular-nums">
                   {attrs.last_activity ? attrs.last_activity.slice(0, 10) : '—'}
                 </span>
               </InfoRow>
               {attrs.account_role && (
                 <InfoRow label="角色">
-                  <span className="font-num text-[11.5px]">{attrs.account_role}</span>
+                  <span className="font-mono tabular-nums text-[11.5px]">{attrs.account_role}</span>
                 </InfoRow>
               )}
               {attrs.notes && (
@@ -275,7 +275,7 @@ export function AccountDetailPage() {
                   disabled={txQuery.isFetchingNextPage}
                   onClick={() => void txQuery.fetchNextPage()}
                   className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-60"
-                  style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)' }}
+                  style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}
                 >
                   {txQuery.isFetchingNextPage ? '加载中…' : '加载更多'}
                 </button>
@@ -301,7 +301,7 @@ function BackLink() {
     <Link
       to="/accounts"
       className="inline-flex w-fit items-center gap-1 text-[12.5px]"
-      style={{ color: 'var(--g-accent)' }}
+      style={{ color: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' }}
     >
       <ArrowLeftIcon aria-hidden className="size-3.5" />
       返回账户

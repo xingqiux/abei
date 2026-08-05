@@ -52,7 +52,7 @@ export function BottomTabBar() {
         type="button"
         onClick={openMoreSheet}
         className="flex flex-1 flex-col items-center justify-center gap-1 text-[10px] font-medium"
-        style={{ color: isMoreActive ? 'var(--g-accent)' : 'var(--g-ink-2)' }}
+        style={{ color: isMoreActive ? 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' : 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}
       >
         <UserIcon aria-hidden className="size-6" />
         我的
@@ -80,14 +80,14 @@ function TabLink({
     <Link
       to={to}
       className="relative flex flex-1 flex-col items-center justify-center gap-1 text-[10px] font-medium"
-      style={{ color: active ? 'var(--g-accent)' : 'var(--g-ink-2)' }}
+      style={{ color: active ? 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' : 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}
     >
       <span className="relative">
         <Icon aria-hidden className="size-6" />
         {showDot && (
           <span
             className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full"
-            style={{ background: dotKind === 'danger' ? 'var(--g-danger)' : 'var(--g-warn)' }}
+            style={{ background: dotKind === 'danger' ? 'light-dark(var(--color-red-600), var(--color-red-400))' : 'light-dark(var(--color-amber-600), var(--color-amber-400))' }}
           />
         )}
       </span>

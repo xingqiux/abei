@@ -12,10 +12,10 @@ const ICON_KIND: Record<ToastItem['kind'], LottieIconKind> = {
 }
 
 const BORDER_COLOR: Record<ToastItem['kind'], string> = {
-  success: 'var(--g-income)',
-  error: 'var(--g-danger)',
-  loading: 'var(--g-accent)',
-  inbox: 'var(--g-warn)',
+  success: 'light-dark(var(--color-emerald-600), var(--color-emerald-400))',
+  error: 'light-dark(var(--color-red-600), var(--color-red-400))',
+  loading: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))',
+  inbox: 'light-dark(var(--color-amber-600), var(--color-amber-400))',
 }
 
 function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }) {

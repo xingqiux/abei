@@ -31,9 +31,9 @@ export function ChannelCard({
     <div
       className="relative flex flex-col gap-2 rounded-[10px] p-3"
       style={{
-        background: 'var(--g-surface)',
-        boxShadow: 'var(--g-shadow)',
-        border: active ? '1px solid var(--g-accent)' : '1px solid transparent',
+        background: 'light-dark(var(--color-white), var(--color-gray-800))',
+        boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)',
+        border: active ? '1px solid light-dark(var(--color-indigo-600), var(--color-indigo-500))' : '1px solid transparent',
       }}
     >
       {onSync && (
@@ -47,10 +47,10 @@ export function ChannelCard({
           aria-label={syncing ? '同步中' : '同步邮箱'}
           title="同步邮箱"
           className="absolute top-2.5 right-2.5 flex h-7 w-7 items-center justify-center rounded-[6px] disabled:opacity-60"
-          style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink-2)' }}
+          style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}
         >
           {syncing ? (
-            <LottieIcon kind="loading" size={16} colorVar="--g-accent" />
+            <LottieIcon kind="loading" size={16} color="light-dark(var(--color-indigo-600), var(--color-indigo-500))" />
           ) : (
             <ArrowPathIcon aria-hidden className="size-3.5" />
           )}
@@ -61,7 +61,7 @@ export function ChannelCard({
         <div className="flex items-center justify-between gap-2">
           <span
             className="truncate text-[12.5px]"
-            style={{ color: 'var(--g-ink)', fontWeight: 'var(--g-weight-demibold)' }}
+            style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', fontWeight: '600' }}
           >
             {channel.name}
           </span>

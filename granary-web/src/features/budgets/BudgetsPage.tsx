@@ -28,12 +28,12 @@ function TabBar({ active, onChange }: { active: BudgetsTab; onChange: (tab: Budg
             onClick={() => onChange(tab.key)}
             className="relative px-3 py-2 text-[12.5px]"
             style={{
-              color: isActive ? 'var(--g-ink)' : 'var(--g-ink-2)',
-              fontWeight: isActive ? 'var(--g-weight-demibold)' : 'var(--g-weight-regular)',
+              color: isActive ? 'light-dark(var(--color-gray-900), var(--color-gray-100))' : 'light-dark(var(--color-gray-500), var(--color-gray-400))',
+              fontWeight: isActive ? '600' : '400',
             }}
           >
             {tab.label}
-            {isActive && <span className="absolute inset-x-0 -bottom-px h-[2px]" style={{ background: 'var(--g-accent)' }} />}
+            {isActive && <span className="absolute inset-x-0 -bottom-px h-[2px]" style={{ background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))' }} />}
           </button>
         )
       })}
@@ -122,9 +122,9 @@ function BudgetsTabContent() {
           onClick={openCreate}
           className="flex items-center gap-1 rounded-[6px] px-2.5 py-1 text-[12px]"
           style={{
-            background: 'var(--g-accent)',
-            color: 'var(--g-accent-ink)',
-            fontWeight: 'var(--g-weight-demibold)',
+            background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))',
+            color: 'var(--color-white)',
+            fontWeight: '600',
           }}
         >
           <PlusIcon aria-hidden className="size-3.5" />
@@ -143,7 +143,7 @@ function BudgetsTabContent() {
             type="button"
             onClick={() => void budgetsQuery.refetch()}
             className="mt-3 rounded-[6px] px-3 py-1.5 text-[12px]"
-            style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)' }}
+            style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}
           >
             重试
           </button>
@@ -169,7 +169,7 @@ function BudgetsTabContent() {
               type="button"
               onClick={() => setCreateOpen(false)}
               className="rounded-[6px] px-3 py-1.5 text-[12.5px]"
-              style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)' }}
+              style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}
             >
               取消
             </button>
@@ -179,9 +179,9 @@ function BudgetsTabContent() {
               onClick={() => void handleCreate()}
               className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50"
               style={{
-                background: 'var(--g-accent)',
-                color: 'var(--g-accent-ink)',
-                fontWeight: 'var(--g-weight-demibold)',
+                background: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))',
+                color: 'var(--color-white)',
+                fontWeight: '600',
               }}
             >
               {createBudget.isPending || createWithLimit.isPending ? '创建中…' : '创建'}
@@ -191,32 +191,32 @@ function BudgetsTabContent() {
       >
         <div className="flex flex-col gap-3 text-[12.5px]">
           <label className="flex flex-col gap-1">
-            <span style={{ color: 'var(--g-ink-2)' }}>名称</span>
+            <span style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>名称</span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="rounded-[6px] px-2.5 py-1.5 outline-none"
-              style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }}
+              style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
               autoFocus
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span style={{ color: 'var(--g-ink-2)' }}>限额币种</span>
-            <select value={currencyCode} onChange={(event) => setCurrencyCode(event.target.value)} className="font-num rounded-[6px] px-2.5 py-1.5 outline-none" style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }}>
+            <span style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>限额币种</span>
+            <select value={currencyCode} onChange={(event) => setCurrencyCode(event.target.value)} className="font-mono tabular-nums rounded-[6px] px-2.5 py-1.5 outline-none" style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}>
               <option value="">选择币种…</option>
               {(currenciesQuery.data?.data ?? []).filter((currency) => currency.attributes.enabled !== false).map((currency) => <option key={currency.id} value={currency.attributes.code}>{currency.attributes.code} · {currency.attributes.name}</option>)}
             </select>
           </label>
           <label className="flex flex-col gap-1">
-            <span style={{ color: 'var(--g-ink-2)' }}>
+            <span style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>
               当期限额（可选，范围 {range.start} → {range.end}）
             </span>
             <input
               value={limitAmount}
               onChange={(e) => setLimitAmount(e.target.value.replace(/[^0-9.]/g, ''))}
               placeholder="如 2000"
-              className="font-num rounded-[6px] px-2.5 py-1.5 outline-none"
-              style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }}
+              className="font-mono tabular-nums rounded-[6px] px-2.5 py-1.5 outline-none"
+              style={{ background: 'light-dark(var(--color-gray-100), var(--color-gray-700))', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))', border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))' }}
             />
           </label>
         </div>
@@ -275,14 +275,14 @@ export function BudgetsPage() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-[18px]" style={{ fontWeight: 'var(--g-weight-demibold)', color: 'var(--g-ink)' }}>
+        <h1 className="text-[18px]" style={{ fontWeight: '600', color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
           预算与订阅
         </h1>
       </div>
 
       <TabBar active={activeTab} onChange={setActiveTab} />
 
-      <div className="rounded-[10px] p-2" style={{ background: 'var(--g-surface)', boxShadow: 'var(--g-shadow)' }}>
+      <div className="rounded-[10px] p-2" style={{ background: 'light-dark(var(--color-white), var(--color-gray-800))', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)' }}>
         {content}
       </div>
     </div>

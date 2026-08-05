@@ -8,12 +8,12 @@ import { formatAmount, formatMonthDay } from '../../lib/format'
 import { prefersReducedMotion } from '../../motion/reducedMotion'
 
 const PALETTE = [
-  'var(--g-chart-1)',
-  'var(--g-chart-2)',
-  'var(--g-chart-3)',
-  'var(--g-chart-4)',
-  'var(--g-chart-5)',
-  'var(--g-chart-6)',
+  'var(--color-indigo-500)',
+  'var(--color-sky-500)',
+  'var(--color-emerald-500)',
+  'var(--color-amber-500)',
+  'var(--color-red-500)',
+  'var(--color-violet-500)',
 ]
 
 const HEIGHT = 200
@@ -161,8 +161,8 @@ export function BalanceAreaChart({
               style={{ background: p.color }}
               aria-hidden
             />
-            <span style={{ color: 'var(--g-ink-2)' }}>{p.name}</span>
-            <span className="font-num" style={{ color: 'var(--g-ink)' }}>
+            <span style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}>{p.name}</span>
+            <span className="font-mono tabular-nums" style={{ color: 'light-dark(var(--color-gray-900), var(--color-gray-100))' }}>
               {p.symbol}
               {formatAmount(p.last)}
             </span>
@@ -196,7 +196,7 @@ export function BalanceAreaChart({
                   x2={innerW}
                   y1={y}
                   y2={y}
-                  stroke="var(--g-border)"
+                  stroke="light-dark(var(--color-gray-200), var(--color-gray-600))"
                   strokeWidth={1}
                   strokeOpacity={0.7}
                 />
@@ -205,9 +205,9 @@ export function BalanceAreaChart({
                   y={y}
                   textAnchor="end"
                   dominantBaseline="middle"
-                  fill="var(--g-ink-2)"
+                  fill="light-dark(var(--color-gray-500), var(--color-gray-400))"
                   fontSize={10}
-                  fontFamily="var(--g-font-num)"
+                  fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
                 >
                   {formatAxisMoney(t)}
                 </text>
@@ -227,9 +227,9 @@ export function BalanceAreaChart({
                 x={x}
                 y={innerH + 16}
                 textAnchor="middle"
-                fill="var(--g-ink-2)"
+                fill="light-dark(var(--color-gray-500), var(--color-gray-400))"
                 fontSize={10}
-                fontFamily="var(--g-font-num)"
+                fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
               >
                 {label}
               </text>
@@ -243,7 +243,7 @@ export function BalanceAreaChart({
               x2={innerW}
               y1={geometry.baselineY}
               y2={geometry.baselineY}
-              stroke="var(--g-ink-2)"
+              stroke="light-dark(var(--color-gray-500), var(--color-gray-400))"
               strokeWidth={1}
               strokeDasharray="3 3"
               strokeOpacity={0.45}

@@ -7,9 +7,9 @@ import { FireflyApiError } from '../../api/client'
 import { showToast } from '../../store/toastStore'
 
 const inputStyle = {
-  background: 'var(--g-surface-2)',
-  color: 'var(--g-ink)',
-  border: '1px solid var(--g-border)',
+  background: 'light-dark(var(--color-gray-100), var(--color-gray-700))',
+  color: 'light-dark(var(--color-gray-900), var(--color-gray-100))',
+  border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))',
 } as const
 
 function defaultRole(type: AccountType): string {
@@ -97,7 +97,7 @@ export function AccountDialog({
     </>}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="名称"><input autoFocus value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} className="rounded-[6px] px-2.5 py-1.5" style={inputStyle} /></Field>
-        <Field label="币种"><select value={form.currency_code ?? ''} disabled={currenciesQuery.isLoading || !!account} onChange={(event) => setForm((current) => ({ ...current, currency_code: event.target.value }))} className="font-num rounded-[6px] px-2.5 py-1.5" style={inputStyle}><option value="">选择币种...</option>{(currenciesQuery.data?.data ?? []).map((currency) => <option key={currency.id} value={currency.attributes.code}>{currency.attributes.code} · {currency.attributes.name}</option>)}</select></Field>
+        <Field label="币种"><select value={form.currency_code ?? ''} disabled={currenciesQuery.isLoading || !!account} onChange={(event) => setForm((current) => ({ ...current, currency_code: event.target.value }))} className="font-mono tabular-nums rounded-[6px] px-2.5 py-1.5" style={inputStyle}><option value="">选择币种...</option>{(currenciesQuery.data?.data ?? []).map((currency) => <option key={currency.id} value={currency.attributes.code}>{currency.attributes.code} · {currency.attributes.name}</option>)}</select></Field>
         <Field label="账户角色"><select value={form.account_role} onChange={(event) => setForm((current) => ({ ...current, account_role: event.target.value }))} className="rounded-[6px] px-2.5 py-1.5" style={inputStyle}>{roles.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
       </div>
     </Modal>

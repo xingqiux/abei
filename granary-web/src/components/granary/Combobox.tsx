@@ -45,7 +45,7 @@ export interface ComboboxProps {
  * 自由文本 + 候选建议 Combobox（规范 §4.3 输入补全）。
  * - 候选只是建议，不强制选中，可直接自由输入提交
  * - 键盘：↑↓ 移动、Enter 选中、Esc 关闭
- * - 高亮项 `--g-surface-2`；下拉 120ms 淡入（reduced-motion 直显）
+ * - 高亮项浅灰底；下拉 120ms 淡入（reduced-motion 直显）
  * 皮肤自绘，不依赖组件库皮肤。
  */
 export function Combobox({
@@ -167,9 +167,9 @@ export function Combobox({
   }
 
   const inputStyle: CSSProperties = {
-    background: 'var(--g-surface-2)',
-    color: 'var(--g-ink)',
-    border: `1px solid ${hasError ? 'var(--g-danger)' : 'var(--g-border)'}`,
+    background: 'light-dark(var(--color-gray-100), var(--color-gray-700))',
+    color: 'light-dark(var(--color-gray-900), var(--color-gray-100))',
+    border: `1px solid ${hasError ? 'light-dark(var(--color-red-600), var(--color-red-400))' : 'light-dark(var(--color-gray-200), var(--color-gray-600))'}`,
     ...style,
   }
 
@@ -210,15 +210,15 @@ export function Combobox({
           role="listbox"
           className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-[6px] py-0.5"
           style={{
-            background: 'var(--g-surface)',
-            border: '1px solid var(--g-border)',
-            boxShadow: 'var(--g-shadow)',
+            background: 'light-dark(var(--color-white), var(--color-gray-800))',
+            border: '1px solid light-dark(var(--color-gray-200), var(--color-gray-600))',
+            boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)',
           }}
         >
           {isLoading && items.length === 0 && (
             <li
               className="px-2.5 py-1.5 text-[12px]"
-              style={{ color: 'var(--g-ink-2)' }}
+              style={{ color: 'light-dark(var(--color-gray-500), var(--color-gray-400))' }}
               role="presentation"
             >
               搜索中…
@@ -234,8 +234,8 @@ export function Combobox({
                 aria-selected={active}
                 className="cursor-pointer px-2.5 py-1.5 text-[12.5px]"
                 style={{
-                  background: active ? 'var(--g-surface-2)' : 'transparent',
-                  color: 'var(--g-ink)',
+                  background: active ? 'light-dark(var(--color-gray-100), var(--color-gray-700))' : 'transparent',
+                  color: 'light-dark(var(--color-gray-900), var(--color-gray-100))',
                 }}
                 onMouseEnter={() => {
                   setKbdNav(true)

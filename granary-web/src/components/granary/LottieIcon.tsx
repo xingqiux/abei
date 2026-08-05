@@ -18,30 +18,31 @@ const ICONS: Record<LottieIconKind, IconType> = {
   inbox: EnvelopeIcon,
 }
 
-const DEFAULT_COLOR_VAR: Record<LottieIconKind, string> = {
-  success: '--g-income',
-  loading: '--g-accent',
-  error: '--g-danger',
-  inbox: '--g-warn',
+const DEFAULT_COLOR: Record<LottieIconKind, string> = {
+  success: 'light-dark(var(--color-emerald-600), var(--color-emerald-400))',
+  loading: 'light-dark(var(--color-indigo-600), var(--color-indigo-500))',
+  error: 'light-dark(var(--color-red-600), var(--color-red-400))',
+  inbox: 'light-dark(var(--color-amber-600), var(--color-amber-400))',
 }
 
 export interface LottieIconProps {
   kind: LottieIconKind
   size?: number
-  colorVar?: string
+  /** CSS 颜色值，留空按 kind 取语义色 */
+  color?: string
   playing?: boolean
   className?: string
 }
 
 /** Semantic status icon. The legacy component name is kept to avoid churn at call sites. */
-export function LottieIcon({ kind, size = 20, colorVar, playing = true, className }: LottieIconProps) {
+export function LottieIcon({ kind, size = 20, color, playing = true, className }: LottieIconProps) {
   const Icon = ICONS[kind]
   const spinning = kind === 'loading' && playing && !prefersReducedMotion()
   return (
     <Icon
       aria-hidden
       className={[spinning ? 'animate-spin' : '', className].filter(Boolean).join(' ')}
-      style={{ color: `var(${colorVar ?? DEFAULT_COLOR_VAR[kind]})`, width: size, height: size }}
+      style={{ color: color ?? DEFAULT_COLOR[kind], width: size, height: size }}
     />
   )
 }
