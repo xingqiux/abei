@@ -90,7 +90,7 @@ class BillReminder extends Notification
     public function toSlack(User $notifiable): SlackMessage
     {
         $bill = $this->bill;
-        $url  = route('bills.show', [$bill->id]);
+        $url  = url('/');
 
         return new SlackMessage()
             ->warning()

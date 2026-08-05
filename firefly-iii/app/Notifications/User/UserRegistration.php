@@ -50,7 +50,7 @@ class UserRegistration extends Notification
     public function toMail(User $notifiable): MailMessage
     {
         return new MailMessage()
-            ->markdown('emails.registered', ['address' => route('index')])
+            ->markdown('emails.registered', ['address' => url('/')])
             ->subject((string) trans('email.registered_subject'))
         ;
     }

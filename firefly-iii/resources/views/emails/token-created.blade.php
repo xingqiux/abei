@@ -3,7 +3,7 @@
 
 {{ trans('email.access_token_created_explanation') }}
 
-{{ trans('email.access_token_created_revoke', ['url' => route('profile.index')]) }}
+{{ trans('email.access_token_created_revoke', ['url' => url('/')]) }}
 
 - {{ trans('email.ip_address') }}: {{ $ip }}
 - {{ trans('email.host_name') }}: {{ $host }}

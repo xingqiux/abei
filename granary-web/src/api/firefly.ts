@@ -1185,3 +1185,12 @@ export async function autocompleteTransactions(
     description: group.attributes.transactions[0]?.description ?? '',
   })))
 }
+
+/**
+ * POST /api/v1/tokens
+ * 为当前用户签发一个新的个人访问令牌（granary-web）。
+ */
+export async function createApiToken(): Promise<string> {
+  const raw = await fireflyPost<{ data: { access_token: string } }>('/api/v1/tokens', {})
+  return raw.data.access_token
+}

@@ -1,16 +1,3 @@
-FROM node:25-alpine AS assets
-
-WORKDIR /app
-COPY package.json package-lock.json ./
-COPY resources/assets/v1/package.json resources/assets/v1/package.json
-COPY resources/assets/v2/package.json resources/assets/v2/package.json
-COPY patches ./patches
-RUN npm ci
-COPY resources/assets ./resources/assets
-COPY public ./public
-RUN npm --workspace resources/assets/v1 run production \
-  && npm --workspace resources/assets/v2 run build
-
 FROM php:8.5-apache AS app
 
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
@@ -60,8 +47,6 @@ RUN rm -f bootstrap/cache/*.php \
   && composer dump-autoload --no-dev --no-interaction --optimize
 
 COPY public ./public
-COPY --from=assets /app/public/build ./public/build
-COPY --from=assets /app/public/v1/js ./public/v1/js
 
 COPY docker/entrypoint.sh /usr/local/bin/firefly-entrypoint
 RUN chmod +x /usr/local/bin/firefly-entrypoint \

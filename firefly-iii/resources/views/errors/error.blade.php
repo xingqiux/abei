@@ -30,7 +30,7 @@
             </p>
             <ol>
                 <li>{{ trans('errors.use_search') }}</li>
-                <li>{!!  trans('errors.include_info', ['link' => route('debug') ]) !!}</li>
+                <li>{!!  trans('errors.include_info', ['link' => url('/') ]) !!}</li>
                 <li>{{ trans('errors.tell_more') }}</li>
                 <li>{{ trans('errors.include_logs') }}</li>
                 <li>{{ trans('errors.what_did_you_do') }}</li>

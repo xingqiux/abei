@@ -127,7 +127,7 @@ class Handler extends ExceptionHandler
             return response()->json(['message' => $e->getMessage(), 'exception' => 'AuthorizationException'], 401);
         }
 
-        if ($e instanceof AuthenticationException && $expectsJson) {
+        if ($e instanceof AuthenticationException) {
             // somehow Laravel handler does not catch this:
             Log::debug('Return JSON unauthenticated error.');
 

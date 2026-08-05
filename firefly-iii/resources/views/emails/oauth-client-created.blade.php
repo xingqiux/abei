@@ -3,7 +3,7 @@
 
 {{ trans('email.oauth_created_explanation') }}
 
-{{ trans('email.oauth_created_undo', ['url' => route('profile.index')] ) }}
+{{ trans('email.oauth_created_undo', ['url' => url('/')] ) }}
 
 - {{ trans('email.ip_address') }}: {{ $ip }}
 - {{ trans('email.host_name') }}: {{ $host }}

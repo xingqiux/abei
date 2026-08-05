@@ -51,7 +51,7 @@ class OwnerTestNotificationEmail extends Notification
     public function toMail(OwnerNotifiable $notifiable): MailMessage
     {
         $address = (string) config('firefly.site_owner');
-        $link    = route('index');
+        $link    = url('/');
 
         return new MailMessage()
             ->markdown('emails.admin-test', ['email' => $address, 'link' => $link])

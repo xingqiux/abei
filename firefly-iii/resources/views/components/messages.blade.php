@@ -1,3 +1,0 @@
-<p>
-    Stub component.
-</p>

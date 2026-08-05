@@ -67,12 +67,14 @@ bcscale(12);
 
 $app = Application::configure(basePath: dirname(__DIR__))
                   ->withRouting(
-                      web     : __DIR__ . '/../routes/web.php',
                       api     : __DIR__ . '/../routes/api.php',
                       commands: __DIR__ . '/../routes/console.php',
                       health  : '/up',
                   )
                   ->withMiddleware(function (Middleware $middleware): void {
+
+                      // 整站无 web 登录页：未认证一律交给 Handler 返回 JSON 401，不做重定向。
+                      $middleware->redirectGuestsTo(static fn () => null);
 
                       // overrule the standard middleware
                       $middleware->use(

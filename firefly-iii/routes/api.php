@@ -54,6 +54,19 @@ Route::group(
     }
 );
 
+// Health check for container orchestration. Intentionally unauthenticated.
+Route::group(
+    [
+        'namespace'  => 'FireflyIII\Api\V1\Controllers\System',
+        'prefix'     => 'v1',
+        'as'         => 'api.v1.health.',
+        'middleware' => [],
+    ],
+    static function (): void {
+        Route::get('health', ['uses' => 'HealthcheckController@check', 'as' => 'index'])->withoutMiddleware(['api']);
+    }
+);
+
 // Autocomplete controllers
 Route::group(
     [
@@ -931,5 +944,17 @@ Route::group(
             '{webhook}/messages/{webhookMessage}/attempts/{webhookAttempt}',
             ['uses' => 'DestroyController@destroyAttempt', 'as' => 'attempts.destroy']
         );
+    }
+);
+
+// Personal access token issuance for first-party web clients (granary-web).
+Route::group(
+    [
+        'namespace' => 'FireflyIII\Api\V1\Controllers\User',
+        'prefix'    => 'v1',
+        'as'        => 'api.v1.user.',
+    ],
+    static function (): void {
+        Route::post('tokens', ['uses' => 'TokenController@store', 'as' => 'tokens.store']);
     }
 );
