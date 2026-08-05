@@ -53,9 +53,9 @@ class NotifiesUserAboutFailedRuleAction implements ShouldQueue
         $groupTitle  = is_array($journal) ? $journal['description'] ?? '' : $journal->description ?? '';
 
         $mainMessage = trans('rules.main_message', ['rule' => $rule->title, 'action' => $ruleAction->action_type, 'group' => $groupId, 'error' => $error]);
-        $groupLink   = route('transactions.show', [$groupId]);
+        $groupLink   = url('/');
         $ruleTitle   = $rule->title;
-        $ruleLink    = route('rules.edit', [$rule->id]);
+        $ruleLink    = url('/');
         $params      = [$mainMessage, $groupTitle, $groupLink, $ruleTitle, $ruleLink];
         NotificationSender::send($user, new RuleActionFailed($params));
     }

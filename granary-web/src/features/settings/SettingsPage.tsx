@@ -58,7 +58,7 @@ export function SettingsPage() {
     }
   }
 
-  function useNewToken(token: string) {
+  function applyNewToken(token: string) {
     setStoredToken(token)
     setTokenModal({ generating: false, token: null, error: null })
     window.dispatchEvent(new CustomEvent(TOKEN_READY_EVENT))
@@ -167,7 +167,7 @@ export function SettingsPage() {
             </button>
             <button
               type="button"
-              onClick={() => useNewToken(tokenModal.token!)}
+              onClick={() => applyNewToken(tokenModal.token!)}
               className="rounded-[6px] px-2.5 py-1.5 text-[12.5px]"
               style={{ background: 'var(--g-accent)', color: 'var(--g-accent-ink)', fontWeight: 'var(--g-weight-demibold)' }}
             >
