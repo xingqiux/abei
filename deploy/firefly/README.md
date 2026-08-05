@@ -11,7 +11,7 @@
 ## 1. 本地构建镜像
 
 ```bash
-cd /Users/youla/proj/firefly-ai-accounting/firefly-iii
+cd /Users/youla/proj/abaku/firefly-iii
 docker buildx build --platform linux/amd64 \
   -t docker.xkqq.top/firefly/firefly-ai-accounting:latest \
   --push .
@@ -144,7 +144,7 @@ http://127.0.0.1:18001/health
 ## 6. 更新
 
 ```bash
-cd /Users/youla/proj/firefly-ai-accounting/firefly-iii
+cd /Users/youla/proj/abaku/firefly-iii
 docker buildx build --platform linux/amd64 \
   -t docker.xkqq.top/firefly/firefly-ai-accounting:latest \
   --push .
@@ -171,19 +171,16 @@ docker compose up -d
 
 ## Abaku 算珠 新前端（abaku-web）
 
-新前端是纯静态 nginx 镜像，构建期**不注入任何令牌**（运行时由 TokenGate 保存到浏览器 localStorage）。
+新前端是纯静态 nginx 镜像，构建期**不注入任何令牌**（运行时由 TokenGate 存进浏览器 sessionStorage）。
 
 ### 构建推送
 
 ```bash
-cd /Users/youla/proj/firefly-ai-accounting/abaku-web
+cd /Users/youla/proj/abaku/abaku-web
 docker buildx build --platform linux/amd64 \
-  --build-arg VITE_LEGACY_URL=https://firefly.xkqq.top \
   -t docker.xkqq.top/firefly/abaku-web:latest \
   --push .
 ```
-
-（`VITE_LEGACY_URL` 只影响设置页"旧版界面"链接，非敏感信息，可省略。）
 
 ### 服务器配置
 
@@ -200,6 +197,16 @@ ABAKU_WEB_PORT=18002
 
 ### 首次打开
 
-页面会显示令牌设置页（TokenGate）：在旧界面 个人资料 → OAuth → 个人访问令牌 创建一个 PAT，
-粘贴保存即可（存 localStorage，仅本浏览器）。更换令牌：Abaku 设置 → 关于 → 更换 API 令牌。
+页面会显示令牌设置页（TokenGate）。**Firefly 的网页界面已经删除**，第一个令牌只能从服务器签发：
+
+```bash
+docker compose exec app php artisan user:create-pat
+```
+
+把打印出来的令牌粘进 TokenGate 保存即可。之后在 Abaku 的 设置 → 访问令牌 里可以列出和撤销
+（走 `GET`/`DELETE /api/v1/tokens`），不必再登服务器。
+
+令牌存在 **sessionStorage**，只在当前标签页有效——关掉浏览器要重新粘一次。这是有意的：
+自托管记账数据敏感，不留长期凭证在磁盘上。
+
 回滚：`.env` 里 `ABAKU_WEB_IMAGE` 改回旧 tag 后 `docker compose up -d abaku-web`。
