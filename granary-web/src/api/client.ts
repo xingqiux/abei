@@ -141,7 +141,7 @@ function assertRequestIdentity(identity: { generation: number; token: string }):
 }
 
 /**
- * 调用本地 Firefly III API（开发期经 Vite proxy 转发 /api → 127.0.0.1:8001；
+ * 调用本地 Firefly III API（开发期经 Vite proxy 转发 /api → 127.0.0.1:18001；
  * 生产由同域 nginx 反代 /api → app，见 granary-web/nginx.conf）。
  */
 export async function fireflyFetch<T = unknown>(
@@ -181,7 +181,7 @@ export async function fireflyFetch<T = unknown>(
 }
 
 /**
- * POST 到本地 Firefly III API（开发期经 Vite proxy 转发 /api → 127.0.0.1:8001）。
+ * POST 到本地 Firefly III API（开发期经 Vite proxy 转发 /api → 127.0.0.1:18001）。
  */
 export async function fireflyPost<T = unknown>(path: string, body: unknown): Promise<T> {
   const identity = requestIdentity()

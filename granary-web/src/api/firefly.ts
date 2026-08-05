@@ -1,12 +1,5 @@
 import { FireflyApiError, fireflyDelete, fireflyDownload, fireflyFetch, fireflyPatch, fireflyPost, fireflyPut, fireflyUpload } from './client'
 import {
-  getActiveBookId,
-  granaryDelete,
-  granaryGet,
-  granaryPost,
-  granaryPut,
-} from './granary'
-import {
   accountsResponseSchema,
   accountDetailResponseSchema,
   accountItemResponseSchema,
@@ -48,7 +41,6 @@ import {
   tagsResponseSchema,
   transactionCreateResponseSchema,
   transactionDetailResponseSchema,
-  type Account,
   type AccountsResponse,
   type AccountDetailResponse,
   type AboutResponse,
@@ -104,166 +96,6 @@ import {
   type TransactionsResponse,
   type TransactionSearchCount,
 } from './schemas'
-import { sumDecimalStrings } from '../lib/decimal'
-
-interface GranaryAccount {
-  id: number
-  name: string
-  class: 'asset' | 'liability'
-  role: 'bank' | 'cash' | 'card' | 'loan' | 'other'
-  currency_code: string
-  balance: string
-  version: number
-  archived_at: string | null
-}
-
-interface GranaryPosting {
-  id: number
-  account_id: number
-  account_name: string
-  account_class: 'asset' | 'liability' | 'expense' | 'income' | 'equity'
-  currency_code: string
-  category_id: number | null
-  category_name: string | null
-  budget_id: number | null
-  budget_name: string | null
-  amount: string
-  book_amount: string
-  memo: string | null
-  cleared_at: string | null
-}
-
-interface GranaryTransaction {
-  id: number
-  status: string
-  transaction_type: CreateTransactionType
-  occurred_at: string
-  description: string
-  counterparty_id: number | null
-  counterparty_name: string | null
-  version: number
-  postings: GranaryPosting[]
-  tags: Array<{ id: number; name: string; archived: boolean }>
-}
-
-interface GranaryTransactionPage {
-  data: GranaryTransaction[]
-  next_before_id: number | null
-}
-
-interface GranaryCategory {
-  id: number
-  name: string
-  parent_id: number | null
-  version: number
-  archived_at: string | null
-}
-
-interface GranaryTag {
-  id: number
-  name: string
-  color: string | null
-  version: number
-  archived_at: string | null
-}
-
-interface GranaryCounterparty {
-  id: number
-  name: string
-  kind: string
-  review_status: string
-  notes: string | null
-  version: number
-  archived_at: string | null
-}
-
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  CNY: '¥',
-  USD: '$',
-  HKD: 'HK$',
-  EUR: '€',
-  JPY: '¥',
-  GBP: '£',
-}
-
-function bookPath(suffix: string): string {
-  return `/api/v1/books/${getActiveBookId()}${suffix}`
-}
-
-function accountType(account: GranaryAccount): AccountType {
-  if (account.class === 'liability') return 'liabilities'
-  if (account.role === 'cash') return 'cash'
-  return 'asset'
-}
-
-function mapAccount(account: GranaryAccount): Account {
-  return {
-    id: String(account.id),
-    attributes: {
-      name: account.name,
-      type: accountType(account),
-      active: account.archived_at == null,
-      currency_code: account.currency_code,
-      currency_symbol: CURRENCY_SYMBOLS[account.currency_code] ?? account.currency_code,
-      current_balance: account.balance,
-      account_role: account.role,
-      include_net_worth: true,
-      version: account.version,
-    },
-  }
-}
-
-function absoluteAmount(value: string): string {
-  return value.startsWith('-') ? value.slice(1) : value
-}
-
-function mapTransaction(transaction: GranaryTransaction) {
-  const visible = transaction.postings.filter((posting) => posting.account_class === 'asset' || posting.account_class === 'liability')
-  const categories = transaction.postings.filter((posting) => posting.category_id != null)
-  const source = transaction.transaction_type === 'deposit'
-    ? null
-    : visible.find((posting) => posting.amount.trim().startsWith('-')) ?? visible[0] ?? null
-  const destination = transaction.transaction_type === 'withdrawal'
-    ? null
-    : visible.find((posting) => !posting.amount.trim().startsWith('-') && posting.amount !== '0') ?? visible.at(-1) ?? null
-  const rows = transaction.transaction_type === 'transfer'
-    ? [source ?? destination].filter((posting): posting is GranaryPosting => posting != null)
-    : categories
-  const transactions = rows.map((posting) => {
-    const currencyCode = transaction.transaction_type === 'transfer'
-      ? posting.currency_code
-      : posting.currency_code
-    return {
-      description: transaction.description,
-      amount: absoluteAmount(transaction.transaction_type === 'transfer' ? posting.amount : posting.book_amount),
-      currency_code: currencyCode,
-      currency_symbol: CURRENCY_SYMBOLS[currencyCode] ?? currencyCode,
-      type: transaction.transaction_type,
-      date: transaction.occurred_at,
-      source_name: source?.account_name ?? transaction.counterparty_name,
-      destination_name: destination?.account_name ?? transaction.counterparty_name,
-      category_name: posting.category_name,
-      transaction_journal_id: String(transaction.id),
-      source_id: source == null ? null : String(source.account_id),
-      destination_id: destination == null ? null : String(destination.account_id),
-      category_id: posting.category_id == null ? null : String(posting.category_id),
-      budget_id: posting.budget_id == null ? null : String(posting.budget_id),
-      budget_name: posting.budget_name,
-      tags: transaction.tags.filter((tag) => !tag.archived).map((tag) => tag.name),
-      notes: posting.memo,
-      reconciled: visible.length > 0 && visible.every((item) => item.cleared_at != null),
-      granary_version: transaction.version,
-      counterparty_id: transaction.counterparty_id,
-    }
-  })
-  return {
-    id: String(transaction.id),
-    attributes: {
-      group_title: transaction.description,
-      transactions,
-    },
-  }
-}
 
 export interface DateRange {
   start: string // YYYY-MM-DD
@@ -310,59 +142,37 @@ async function getAllPages<T extends PaginatedCollection>(
   } as T
 }
 
+/**
+ * Firefly 分页游标：列表端点返回 meta.pagination（page 语义），
+ * 前端无限滚动用 next_before_id 当下页页码（String 形式）。
+ */
+function parseTransactionPage(raw: unknown): TransactionsResponse {
+  const parsed = transactionsResponseSchema.parse(raw)
+  const pagination = parsed.meta?.pagination
+  const current = pagination?.current_page ?? 1
+  const totalPages = pagination?.total_pages ?? 1
+  return { ...parsed, next_before_id: current < totalPages ? String(current + 1) : null }
+}
+
 export type TransactionTypeFilter = 'all' | 'withdrawal' | 'deposit' | 'transfer'
 
 export async function getSummaryBasic(range: DateRange): Promise<SummaryResponse> {
-  const summary = await granaryGet<{
-    currency_code: string
-    expense: string
-    income: string
-    net_cashflow: string
-    net_worth: string
-  }>(bookPath('/reports/summary'), { start: range.start, end: range.end })
-  const symbol = CURRENCY_SYMBOLS[summary.currency_code] ?? summary.currency_code
-  return summaryResponseSchema.parse({
-    [`spent-in-${summary.currency_code}`]: {
-      key: `spent-in-${summary.currency_code}`,
-      monetary_value: `-${absoluteAmount(summary.expense)}`,
-      value_parsed: summary.expense,
-      currency_code: summary.currency_code,
-      currency_symbol: symbol,
-    },
-    [`earned-in-${summary.currency_code}`]: {
-      key: `earned-in-${summary.currency_code}`,
-      monetary_value: absoluteAmount(summary.income),
-      value_parsed: summary.income,
-      currency_code: summary.currency_code,
-      currency_symbol: symbol,
-    },
-    [`net-worth-in-${summary.currency_code}`]: {
-      key: `net-worth-in-${summary.currency_code}`,
-      monetary_value: summary.net_worth,
-      value_parsed: summary.net_worth,
-      currency_code: summary.currency_code,
-      currency_symbol: symbol,
-    },
-  })
+  const raw = await fireflyFetch('/api/v1/summary/basic', { start: range.start, end: range.end })
+  return summaryResponseSchema.parse(raw)
 }
 
 export async function getTransactions(
   range: DateRange,
-  opts: { limit?: number; page?: number; beforeId?: string; type?: TransactionTypeFilter; accountId?: string; query?: string } = {},
+  opts: { limit?: number; page?: number; beforeId?: string; type?: TransactionTypeFilter } = {},
 ): Promise<TransactionsResponse> {
-  const raw = await granaryGet<GranaryTransactionPage>(bookPath('/transactions'), {
+  const raw = await fireflyFetch('/api/v1/transactions', {
     start: range.start,
     end: range.end,
     limit: opts.limit ?? 80,
-    before_id: opts.beforeId,
+    page: opts.beforeId ? Number(opts.beforeId) : (opts.page ?? 1),
     type: opts.type ?? 'all',
-    account_id: opts.accountId,
-    query: opts.query,
   })
-  return transactionsResponseSchema.parse({
-    data: raw.data.map(mapTransaction),
-    next_before_id: raw.next_before_id == null ? null : String(raw.next_before_id),
-  })
+  return parseTransactionPage(raw)
 }
 
 export async function getAllTransactions(
@@ -381,49 +191,38 @@ export async function getAllTransactions(
 }
 
 /**
- * 命令面板「搜索交易」区：GET /api/v1/search/transactions?query=&limit=。
- * 实测响应结构与 GET /api/v1/transactions 完全一致（data 为 transaction group 数组，
- * 每个 group.attributes.transactions 是拆分数组），因此复用 transactionsResponseSchema。
+ * 命令面板「搜索交易」区：GET /api/v1/search/transactions?query=&limit=&page=。
+ * 响应结构与 GET /api/v1/transactions 一致（transaction group 数组 + pagination）。
  */
 export async function searchTransactions(query: string, limit = 10): Promise<TransactionsResponse> {
-  return getTransactions(
-    { start: '1900-01-01', end: '2999-12-31' },
-    { query: query.trim(), limit },
-  )
+  const raw = await fireflyFetch('/api/v1/search/transactions', { query: query.trim(), limit })
+  return parseTransactionPage(raw)
 }
 
 export async function countTransactions(query: string): Promise<TransactionSearchCount> {
-  let beforeId: string | undefined
+  let page = 1
   let count = 0
   do {
-    const response = await getTransactions(
-      { start: '1900-01-01', end: '2999-12-31' },
-      { query: query.trim(), limit: 200, beforeId },
-    )
+    const raw = await fireflyFetch('/api/v1/search/transactions', { query: query.trim(), limit: 200, page })
+    const response = parseTransactionPage(raw)
     count += response.data.length
-    beforeId = response.next_before_id ?? undefined
-  } while (beforeId)
+    const pagination = response.meta?.pagination
+    const current = pagination?.current_page ?? 1
+    const totalPages = pagination?.total_pages ?? 1
+    if (current >= totalPages) break
+    page += 1
+  } while (page < 1000)
   return transactionSearchCountSchema.parse({ count })
 }
 
 export async function searchAccounts(query: string): Promise<AccountsResponse> {
-  const raw = await granaryGet<GranaryAccount[]>(bookPath('/accounts'))
-  const needle = query.trim().toLocaleLowerCase()
-  const data = raw.filter((account) => account.name.toLocaleLowerCase().includes(needle)).map(mapAccount)
-  return accountsResponseSchema.parse({ data, meta: { pagination: { total: data.length } } })
+  const raw = await fireflyFetch('/api/v1/search/accounts', { query: query.trim(), field: 'all' })
+  return accountsResponseSchema.parse(raw)
 }
 
 export async function getExpenseByCategory(range: DateRange): Promise<InsightCategoryEntry[]> {
-  const raw = await granaryGet<Array<{ id: number; name: string; currency_code: string; amount: string }>>(
-    bookPath('/reports/expenses/by-category'),
-    { start: range.start, end: range.end },
-  )
-  return insightCategoryResponseSchema.parse(raw.map((row) => ({
-    id: String(row.id),
-    name: row.name,
-    difference: `-${absoluteAmount(row.amount)}`,
-    currency_code: row.currency_code,
-  })))
+  const raw = await fireflyFetch('/api/v1/insight/expense/category', { start: range.start, end: range.end })
+  return insightCategoryResponseSchema.parse(raw)
 }
 
 /** GET /api/v1/insight/income/revenue（报表页「收入来源排行」）：结构与 expense/category 一致 */
@@ -508,23 +307,14 @@ export async function getAccountOverviewChart(
   range: DateRange,
   opts: AccountOverviewChartOpts = {},
 ): Promise<AccountChartOverview> {
-  const raw = await granaryGet<GranaryAccount[]>(bookPath('/accounts'))
-  const ids = new Set((opts.accounts ?? []).map(String))
-  const accounts = raw.filter((account) => {
-    if (ids.size > 0) return ids.has(String(account.id))
-    if (opts.preselected === 'liabilities') return account.class === 'liability'
-    return account.class === 'asset'
-  })
-  const timestamp = `${range.end}T12:00:00Z`
-  return accountChartOverviewSchema.parse(accounts.map((account) => ({
-    label: account.name,
-    currency_code: account.currency_code,
-    currency_symbol: CURRENCY_SYMBOLS[account.currency_code] ?? account.currency_code,
-    type: accountType(account),
+  const raw = await fireflyFetch('/api/v1/chart/account/overview', {
+    start: range.start,
+    end: range.end,
     period: opts.period ?? pickChartPeriod(range),
-    entries: { [timestamp]: account.balance },
-    pc_entries: {},
-  })))
+    preselected: opts.accounts && opts.accounts.length > 0 ? 'empty' : (opts.preselected ?? 'assets'),
+    accounts: opts.accounts,
+  })
+  return accountChartOverviewSchema.parse(raw)
 }
 
 export async function getBillInboxSummary(): Promise<BillInboxSummary> {
@@ -723,28 +513,18 @@ export async function getAccountsByType(
   type: AccountType,
   opts: { limit?: number; page?: number } = {},
 ) {
-  const raw = await granaryGet<GranaryAccount[]>(bookPath('/accounts'))
-  const filtered = raw.filter((account) => accountType(account) === type)
-  const limit = opts.limit ?? 40
-  const start = ((opts.page ?? 1) - 1) * limit
-  return accountsResponseSchema.parse({
-    data: filtered.slice(start, start + limit).map(mapAccount),
-    meta: {
-      pagination: {
-        total: filtered.length,
-        count: Math.min(limit, Math.max(0, filtered.length - start)),
-        per_page: limit,
-        current_page: opts.page ?? 1,
-        total_pages: Math.max(1, Math.ceil(filtered.length / limit)),
-      },
-    },
+  const raw = await fireflyFetch('/api/v1/accounts', {
+    type,
+    limit: opts.limit ?? 40,
+    page: opts.page ?? 1,
   })
+  return accountsResponseSchema.parse(raw)
 }
 
 /** GET /api/v1/accounts/{id} */
 export async function getAccount(accountId: string): Promise<AccountDetailResponse> {
-  const raw = await granaryGet<GranaryAccount>(bookPath(`/accounts/${accountId}`))
-  return accountDetailResponseSchema.parse({ data: mapAccount(raw) })
+  const raw = await fireflyFetch(`/api/v1/accounts/${accountId}`)
+  return accountDetailResponseSchema.parse(raw)
 }
 
 export interface AccountInput {
@@ -768,39 +548,50 @@ export interface AccountInput {
 }
 
 export async function createAccount(input: AccountInput): Promise<AccountDetailResponse> {
-  const raw = await granaryPost<GranaryAccount>(bookPath('/accounts'), accountWritePayload(input))
-  return accountItemResponseSchema.parse({ data: mapAccount(raw) })
+  const raw = await fireflyPost('/api/v1/accounts', accountWritePayload(input))
+  return accountItemResponseSchema.parse(raw)
 }
 
 export async function updateAccount(accountId: string, input: AccountInput): Promise<AccountDetailResponse> {
-  const current = input.version == null
-    ? await granaryGet<GranaryAccount>(bookPath(`/accounts/${accountId}`))
-    : null
-  const raw = await granaryPut<GranaryAccount>(bookPath(`/accounts/${accountId}`), {
-    ...accountWritePayload(input),
-    version: input.version ?? current?.version,
-  })
-  return accountItemResponseSchema.parse({ data: mapAccount(raw) })
+  const current = (await fireflyFetch<AccountDetailResponse>(`/api/v1/accounts/${accountId}`)).data.attributes
+  const merged: AccountInput = { ...input }
+  if (merged.account_role === undefined) merged.account_role = current.account_role ?? undefined
+  if (merged.liability_type === undefined && current.liability_type) {
+    merged.liability_type = current.liability_type as AccountInput['liability_type']
+  }
+  if (merged.liability_direction === undefined) merged.liability_direction = current.liability_direction ?? undefined
+  const raw = await fireflyPut(`/api/v1/accounts/${accountId}`, accountWritePayload(merged))
+  return accountItemResponseSchema.parse(raw)
 }
 
 export async function deleteAccount(accountId: string): Promise<void> {
-  const current = await granaryGet<GranaryAccount>(bookPath(`/accounts/${accountId}`))
-  return granaryDelete(bookPath(`/accounts/${accountId}`), { version: current.version })
+  return fireflyDelete(`/api/v1/accounts/${accountId}`)
 }
+
+const FIREFLY_ACCOUNT_ROLES = ['defaultAsset', 'sharedAsset', 'savingAsset', 'ccAsset', 'cashWalletAsset'] as const
 
 function accountWritePayload(input: AccountInput) {
   const type = input.type ?? 'asset'
-  const className = type === 'liabilities' ? 'liability' : 'asset'
-  let role = input.account_role ?? (type === 'cash' ? 'cash' : className === 'liability' ? 'other' : 'bank')
-  if (role === 'cashWalletAsset') role = 'cash'
-  else if (role === 'ccAsset') role = 'card'
-  else if (!['bank', 'cash', 'card', 'loan', 'other'].includes(role)) role = className === 'liability' ? 'other' : 'bank'
-  return {
-    name: input.name,
-    class: className,
-    role,
-    currency_code: input.currency_code ?? 'CNY',
+  const body: Record<string, unknown> = { name: input.name, type }
+  const passthrough: Array<keyof AccountInput> = [
+    'currency_code', 'active', 'include_net_worth', 'interest', 'interest_period',
+    'credit_card_type', 'monthly_payment_date', 'opening_balance', 'opening_balance_date',
+    'account_number', 'notes',
+  ]
+  for (const field of passthrough) {
+    if (input[field] !== undefined) body[field] = input[field]
   }
+  if (type === 'liabilities') {
+    body.liability_type = input.liability_type ?? (input.account_role === 'loan' ? 'loan' : 'debt')
+    body.liability_direction = input.liability_direction ?? 'debit'
+  } else {
+    const role = input.account_role
+    if (role != null && (FIREFLY_ACCOUNT_ROLES as readonly string[]).includes(role)) body.account_role = role
+    else if (role === 'cash') body.account_role = 'cashWalletAsset'
+    else if (role === 'card') body.account_role = 'ccAsset'
+    else body.account_role = 'defaultAsset'
+  }
+  return body
 }
 
 /**
@@ -812,12 +603,14 @@ export async function getAccountTransactions(
   range: DateRange,
   opts: { limit?: number; page?: number; beforeId?: string; type?: TransactionTypeFilter } = {},
 ): Promise<TransactionsResponse> {
-  return getTransactions(range, {
+  const raw = await fireflyFetch(`/api/v1/accounts/${accountId}/transactions`, {
+    start: range.start,
+    end: range.end,
     limit: opts.limit,
-    beforeId: opts.beforeId,
-    type: opts.type,
-    accountId,
+    page: opts.beforeId ? Number(opts.beforeId) : (opts.page ?? 1),
+    type: opts.type ?? 'all',
   })
+  return parseTransactionPage(raw)
 }
 
 export interface AccountSummary {
@@ -836,15 +629,17 @@ export async function getAssetAccounts(
   opts: { includeLiabilities?: boolean } = {},
 ): Promise<AccountSummary[]> {
   const includeLiabilities = opts.includeLiabilities ?? true
-  const accounts = await granaryGet<GranaryAccount[]>(bookPath('/accounts'))
-  return accounts
-    .filter((account) => includeLiabilities || account.class === 'asset')
-    .map((account) => ({
-      id: String(account.id),
-      name: account.name,
-      currencyCode: account.currency_code,
-      currencySymbol: CURRENCY_SYMBOLS[account.currency_code] ?? account.currency_code,
-    }))
+  const [assets, liabilities] = await Promise.all([
+    getAllPages('/api/v1/accounts', { type: 'asset' }, accountsResponseSchema),
+    includeLiabilities ? getAllPages('/api/v1/accounts', { type: 'liabilities' }, accountsResponseSchema) : Promise.resolve(null),
+  ])
+  const accounts = [...assets.data, ...(liabilities?.data ?? [])]
+  return accounts.map((account) => ({
+    id: account.id,
+    name: account.attributes.name,
+    currencyCode: account.attributes.currency_code ?? 'CNY',
+    currencySymbol: account.attributes.currency_symbol ?? account.attributes.currency_code ?? 'CNY',
+  }))
 }
 
 export type CreateTransactionType = 'withdrawal' | 'deposit' | 'transfer'
@@ -905,97 +700,13 @@ export async function createTransactionSplits(
     throw new FireflyApiError(422, '同一笔分类拆分必须使用相同日期、类型和资金账户')
   }
 
-  const [categories, tags, counterparties, accounts, books] = await Promise.all([
-    granaryGet<GranaryCategory[]>(bookPath('/categories')),
-    granaryGet<GranaryTag[]>(bookPath('/tags')),
-    granaryGet<GranaryCounterparty[]>(bookPath('/counterparties')),
-    granaryGet<GranaryAccount[]>(bookPath('/accounts')),
-    granaryGet<Array<{ id: number; base_currency_code: string }>>('/api/v1/books'),
-  ])
-  const book = books.find((candidate) => candidate.id === getActiveBookId())
-  if (!book) throw new FireflyApiError(404, '当前账本不存在')
-  const accountId = first.type === 'deposit' ? first.destination_id : first.source_id
-  const account = accounts.find((candidate) => String(candidate.id) === accountId)
-  if (!account) throw new FireflyApiError(422, '请选择有效的资金账户')
-  if (account.currency_code !== book.base_currency_code) {
-    throw new FireflyApiError(422, '外币交易需要同时填写本位币金额')
-  }
-
-  const tagNames = [...new Set(inputs.flatMap((input) => input.tags ?? []))]
-  const tagIds = tagNames.map((name) => {
-    const tag = tags.find((candidate) => candidate.name === name && candidate.archived_at == null)
-    if (!tag) throw new FireflyApiError(422, `标签“${name}”不存在，请先在管理页面创建`)
-    return tag.id
+  // Firefly 原生：分类/标签/支出收入账户按名称自动创建，无需前端预校验。
+  const raw = await fireflyPost('/api/v1/transactions', {
+    error_if_duplicate_hash: false,
+    group_title: inputs.length > 1 ? (groupTitle?.trim() || first.description.trim()) : undefined,
+    transactions: inputs.map(transactionWritePayload),
   })
-  const counterpartyName = first.type === 'deposit' ? first.source_name : first.destination_name
-  const counterparty = counterpartyName?.trim()
-    ? counterparties.find((candidate) => candidate.name === counterpartyName.trim() && candidate.archived_at == null)
-    : null
-  if (counterpartyName?.trim() && !counterparty) {
-    throw new FireflyApiError(422, `交易方“${counterpartyName.trim()}”不存在，请先在管理页面创建`)
-  }
-
-  let body: Record<string, unknown>
-  if (first.type === 'transfer') {
-    const destination = accounts.find((candidate) => String(candidate.id) === first.destination_id)
-    if (!destination) throw new FireflyApiError(422, '请选择有效的目标账户')
-    if (destination.currency_code !== account.currency_code) {
-      throw new FireflyApiError(422, '跨币种转账需要分别填写两端金额')
-    }
-    const category = first.category_id || first.category_name?.trim()
-      ? categories.find((candidate) =>
-          candidate.archived_at == null
-          && (String(candidate.id) === first.category_id || candidate.name === first.category_name?.trim()))
-      : null
-    if ((first.category_id || first.category_name?.trim()) && !category) {
-      throw new FireflyApiError(422, `分类“${first.category_name ?? ''}”不存在，请先在管理页面创建`)
-    }
-    body = {
-      type: 'transfer',
-      occurred_at: `${first.date}T12:00:00Z`,
-      description: first.description.trim(),
-      counterparty_id: counterparty?.id ?? null,
-      source_account_id: Number(first.source_id),
-      source_amount: first.amount,
-      source_book_amount: first.amount,
-      destination_account_id: Number(first.destination_id),
-      destination_amount: first.amount,
-      destination_book_amount: first.amount,
-      category_id: category?.id ?? null,
-      tag_ids: tagIds,
-    }
-  } else {
-    const splits = inputs.map((input) => {
-      const category = categories.find((candidate) =>
-        candidate.archived_at == null
-        && (String(candidate.id) === input.category_id || candidate.name === input.category_name?.trim()),
-      )
-      if (!category) {
-        throw new FireflyApiError(422, `分类“${input.category_name ?? ''}”不存在，请先在管理页面创建`)
-      }
-      return {
-        category_id: category.id,
-        budget_id: input.budget_id ? Number(input.budget_id) : null,
-        amount: input.amount,
-        book_amount: input.amount,
-        memo: input.notes?.trim() || null,
-      }
-    })
-    const amount = sumDecimalStrings(inputs.map((input) => input.amount))
-    body = {
-      type: first.type,
-      occurred_at: `${first.date}T12:00:00Z`,
-      description: groupTitle?.trim() || first.description.trim(),
-      counterparty_id: counterparty?.id ?? null,
-      account_id: Number(accountId),
-      amount,
-      book_amount: amount,
-      splits,
-      tag_ids: tagIds,
-    }
-  }
-  const raw = await granaryPost<GranaryTransaction>(bookPath('/transactions'), body)
-  return transactionCreateResponseSchema.parse({ data: mapTransaction(raw) })
+  return transactionCreateResponseSchema.parse(raw)
 }
 
 export async function createTransaction(input: CreateTransactionInput): Promise<TransactionCreateResponse> {
@@ -1008,8 +719,8 @@ export async function createTransaction(input: CreateTransactionInput): Promise<
  * group.attributes.transactions[] 每项含 transaction_journal_id（PUT 必带）。
  */
 export async function getTransaction(groupId: string): Promise<TransactionDetailResponse> {
-  const raw = await granaryGet<GranaryTransaction>(bookPath(`/transactions/${groupId}`))
-  return transactionDetailResponseSchema.parse({ data: mapTransaction(raw) })
+  const raw = await fireflyFetch(`/api/v1/transactions/${groupId}`)
+  return transactionDetailResponseSchema.parse(raw)
 }
 
 export async function getTransactionAttachments(groupId: string): Promise<AttachmentsResponse> {
@@ -1208,9 +919,7 @@ export async function createReconciliationAdjustment(input: {
  * 实测 204 空体；路径 id 是 group id（非 journal id）。
  */
 export async function deleteTransaction(groupId: string): Promise<void> {
-  await granaryPost(bookPath(`/transactions/${groupId}/trash`), {
-    reason: '用户从 Granary Web 移入回收站',
-  })
+  return fireflyDelete(`/api/v1/transactions/${groupId}`)
 }
 
 /**
@@ -1307,30 +1016,12 @@ export async function getPiggyBanks(): Promise<PiggyBanksResponse> {
 
 /** GET /api/v1/categories（设置页「分类与标签」组） */
 export async function getCategories(): Promise<CategoriesResponse> {
-  const raw = await granaryGet<GranaryCategory[]>(bookPath('/categories'))
-  return categoriesResponseSchema.parse({
-    data: raw.map((category) => ({
-      id: String(category.id),
-      attributes: {
-        name: category.name,
-        parent_id: category.parent_id,
-        version: category.version,
-      },
-    })),
-    meta: { pagination: { total: raw.length } },
-  })
+  return getAllPages('/api/v1/categories', {}, categoriesResponseSchema)
 }
 
 /** GET /api/v1/tags（设置页「分类与标签」组） */
 export async function getTags(): Promise<TagsResponse> {
-  const raw = await granaryGet<GranaryTag[]>(bookPath('/tags'))
-  return tagsResponseSchema.parse({
-    data: raw.map((tag) => ({
-      id: String(tag.id),
-      attributes: { tag: tag.name, color: tag.color, version: tag.version },
-    })),
-    meta: { pagination: { total: raw.length } },
-  })
+  return getAllPages('/api/v1/tags', {}, tagsResponseSchema)
 }
 
 /** GET /api/v1/rules（设置页「自动化」组） */
@@ -1397,31 +1088,13 @@ export async function getRecurrences(): Promise<RecurrencesResponse> {
 
 /** GET /api/v1/currencies（设置页「币种」组） */
 export async function getCurrencies(): Promise<CurrenciesResponse> {
-  const [currencies, books] = await Promise.all([
-    granaryGet<Array<{ code: string; name: string; symbol: string; minor_units: number; enabled_by_default: boolean }>>('/api/v1/currencies'),
-    granaryGet<Array<{ id: number; base_currency_code: string }>>('/api/v1/books'),
-  ])
-  const base = books.find((book) => book.id === getActiveBookId())?.base_currency_code
-  return currenciesResponseSchema.parse({
-    data: currencies.map((currency) => ({
-      id: currency.code,
-      attributes: {
-        name: currency.name,
-        code: currency.code,
-        symbol: currency.symbol,
-        enabled: currency.enabled_by_default || currency.code === base,
-        default: currency.code === base,
-        decimal_places: currency.minor_units,
-      },
-    })),
-    meta: { pagination: { total: currencies.length } },
-  })
+  return getAllPages('/api/v1/currencies', {}, currenciesResponseSchema)
 }
 
 /** GET /api/v1/about（设置页「关于」卡） */
 export async function getAbout(): Promise<AboutResponse> {
-  const raw = await granaryGet<{ service_version: string }>('/api/v1/instance')
-  return aboutResponseSchema.parse({ data: { version: raw.service_version, api_version: 'v1', driver: 'PostgreSQL' } })
+  const raw = await fireflyFetch('/api/v1/about')
+  return aboutResponseSchema.parse(raw)
 }
 
 /**
@@ -1457,19 +1130,12 @@ export async function autocompleteAccounts(
   query: string,
   opts: { types?: string; limit?: number } = {},
 ): Promise<AutocompleteAccount[]> {
-  const needle = query.trim().toLocaleLowerCase()
-  if (opts.types?.includes('Expense') || opts.types?.includes('Revenue')) {
-    const counterparties = await granaryGet<GranaryCounterparty[]>(bookPath('/counterparties'))
-    return autocompleteAccountsSchema.parse(counterparties
-      .filter((counterparty) => counterparty.name.toLocaleLowerCase().includes(needle))
-      .slice(0, opts.limit ?? 10)
-      .map((counterparty) => ({ id: String(counterparty.id), name: counterparty.name, type: 'counterparty', active: true })))
-  }
-  const accounts = await granaryGet<GranaryAccount[]>(bookPath('/accounts'))
-  return autocompleteAccountsSchema.parse(accounts
-    .filter((account) => account.name.toLocaleLowerCase().includes(needle))
-    .slice(0, opts.limit ?? 10)
-    .map((account) => ({ id: String(account.id), name: account.name, type: accountType(account), active: true })))
+  const raw = await fireflyFetch('/api/v1/autocomplete/accounts', {
+    query: query.trim(),
+    limit: opts.limit ?? 10,
+    types: opts.types,
+  })
+  return autocompleteAccountsSchema.parse(raw)
 }
 
 /**
@@ -1480,17 +1146,11 @@ export async function autocompleteCategories(
   query: string,
   opts: { limit?: number } = {},
 ): Promise<AutocompleteCategory[]> {
-  const needle = query.trim().toLocaleLowerCase()
-  const categories = await granaryGet<GranaryCategory[]>(bookPath('/categories'))
-  const parentIds = new Set(categories
-    .filter((category) => category.archived_at == null && category.parent_id != null)
-    .map((category) => category.parent_id))
-  return autocompleteCategoriesSchema.parse(categories
-    .filter((category) => category.archived_at == null
-      && !parentIds.has(category.id)
-      && category.name.toLocaleLowerCase().includes(needle))
-    .slice(0, opts.limit ?? 10)
-    .map((category) => ({ id: String(category.id), name: category.name })))
+  const raw = await fireflyFetch('/api/v1/autocomplete/categories', {
+    query: query.trim(),
+    limit: opts.limit ?? 10,
+  })
+  return autocompleteCategoriesSchema.parse(raw)
 }
 
 /**
@@ -1501,12 +1161,11 @@ export async function autocompleteTags(
   query: string,
   opts: { limit?: number } = {},
 ): Promise<AutocompleteTag[]> {
-  const needle = query.trim().toLocaleLowerCase()
-  const tags = await granaryGet<GranaryTag[]>(bookPath('/tags'))
-  return autocompleteTagsSchema.parse(tags
-    .filter((tag) => tag.name.toLocaleLowerCase().includes(needle))
-    .slice(0, opts.limit ?? 10)
-    .map((tag) => ({ id: String(tag.id), name: tag.name, tag: tag.name })))
+  const raw = await fireflyFetch('/api/v1/autocomplete/tags', {
+    query: query.trim(),
+    limit: opts.limit ?? 10,
+  })
+  return autocompleteTagsSchema.parse(raw)
 }
 
 /**

@@ -3,8 +3,12 @@ import { AppShell } from '../components/layout/AppShell'
 
 const DashboardPage = lazyRouteComponent(() => import('../features/dashboard/DashboardPage'), 'DashboardPage')
 const TransactionsPage = lazyRouteComponent(() => import('../features/transactions/TransactionsPage'), 'TransactionsPage')
+const BillInboxPage = lazyRouteComponent(() => import('../features/bill-inbox/BillInboxPage'), 'BillInboxPage')
+const ReconciliationPage = lazyRouteComponent(() => import('../features/reconciliation/ReconciliationPage'), 'ReconciliationPage')
+const BudgetsPage = lazyRouteComponent(() => import('../features/budgets/BudgetsPage'), 'BudgetsPage')
 const AccountsPage = lazyRouteComponent(() => import('../features/accounts/AccountsPage'), 'AccountsPage')
 const AccountDetailPage = lazyRouteComponent(() => import('../features/accounts/AccountDetailPage'), 'AccountDetailPage')
+const ReportsPage = lazyRouteComponent(() => import('../features/reports/ReportsPage'), 'ReportsPage')
 const SettingsPage = lazyRouteComponent(() => import('../features/settings/SettingsPage'), 'SettingsPage')
 
 const rootRoute = createRootRoute({
@@ -37,6 +41,24 @@ const transactionsRoute = createRoute({
   component: TransactionsPage,
 })
 
+const billInboxRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/bill-inbox',
+  component: BillInboxPage,
+})
+
+const reconciliationRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/reconciliation',
+  component: ReconciliationPage,
+})
+
+const budgetsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/budgets',
+  component: BudgetsPage,
+})
+
 const accountsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/accounts',
@@ -49,6 +71,12 @@ const accountDetailRoute = createRoute({
   component: AccountDetailPage,
 })
 
+const reportsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/reports',
+  component: ReportsPage,
+})
+
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
@@ -58,8 +86,12 @@ const settingsRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   transactionsRoute,
+  billInboxRoute,
+  reconciliationRoute,
+  budgetsRoute,
   accountsRoute,
   accountDetailRoute,
+  reportsRoute,
   settingsRoute,
 ])
 

@@ -1,14 +1,14 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import { router } from './routes/router'
-import { AuthGate } from './components/AuthGate'
+import { TokenGate } from './components/TokenGate'
 import { FireflyAuthError } from './api/client'
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 60_000,
-      // 401 交给 AuthGate 处理；重复请求不会恢复已经失效的 Session。
+      // 401 交给 TokenGate 处理；重复请求不会恢复已经失效的令牌。
       retry: (failureCount, error) => {
         if (error instanceof FireflyAuthError) return false
         return failureCount < 1
@@ -20,9 +20,9 @@ const queryClient = new QueryClient({
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthGate>
+      <TokenGate>
         <RouterProvider router={router} />
-      </AuthGate>
+      </TokenGate>
     </QueryClientProvider>
   )
 }

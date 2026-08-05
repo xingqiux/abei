@@ -20,11 +20,13 @@ function defaultRole(type: AccountType): string {
 
 function initialForm(type: AccountType, account: Account | null): AccountInput {
   const attributes = account?.attributes
+  const liabilityType = attributes?.liability_type
   return {
     name: attributes?.name ?? '',
     type,
     currency_code: attributes?.currency_code ?? '',
-    account_role: attributes?.account_role ?? defaultRole(type),
+    account_role: attributes?.account_role ?? (attributes?.liability_type === 'loan' ? 'loan' : defaultRole(type)),
+    liability_type: liabilityType === 'loan' || liabilityType === 'mortgage' ? liabilityType : undefined,
     version: typeof attributes?.version === 'number' ? attributes.version : undefined,
   }
 }

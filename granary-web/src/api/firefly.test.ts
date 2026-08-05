@@ -1,13 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createTransactionSplits, getBudgetLimits, getCategories, getCurrencies, updateTransactionSplits } from './firefly'
-import { setActiveBookId } from './granary'
 
 const mocks = vi.hoisted(() => ({
   fireflyFetch: vi.fn(),
   fireflyPost: vi.fn(),
   fireflyPut: vi.fn(),
-  granaryGet: vi.fn(),
-  granaryPost: vi.fn(),
 }))
 
 vi.mock('./client', async (importOriginal) => ({
@@ -16,48 +13,33 @@ vi.mock('./client', async (importOriginal) => ({
   fireflyPost: mocks.fireflyPost,
   fireflyPut: mocks.fireflyPut,
 }))
-vi.mock('./granary', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./granary')>()),
-  granaryGet: mocks.granaryGet,
-  granaryPost: mocks.granaryPost,
-}))
 
 beforeEach(() => {
   sessionStorage.clear()
-  setActiveBookId(7)
   mocks.fireflyFetch.mockReset()
   mocks.fireflyPost.mockReset()
   mocks.fireflyPut.mockReset()
-  mocks.granaryGet.mockReset()
-  mocks.granaryPost.mockReset()
 })
 
 describe('transaction writes', () => {
-  it('maps split transactions to the selected Granary book', async () => {
-    mocks.granaryGet
-      .mockResolvedValueOnce([
-        { id: 7, name: '餐饮', parent_id: null, version: 1, archived_at: null },
-        { id: 8, name: '甜点', parent_id: null, version: 1, archived_at: null },
-      ])
-      .mockResolvedValueOnce([{ id: 3, name: 'work', color: null, version: 1, archived_at: null }])
-      .mockResolvedValueOnce([{ id: 9, name: 'Cafe', kind: 'merchant', review_status: 'confirmed', notes: null, version: 1, archived_at: null }])
-      .mockResolvedValueOnce([{ id: 1, name: 'Checking', class: 'asset', role: 'bank', currency_code: 'CNY', balance: '100.00', version: 1, archived_at: null }])
-      .mockResolvedValueOnce([{ id: 7, base_currency_code: 'CNY' }])
-    mocks.granaryPost.mockResolvedValueOnce({
-      id: 42,
-      status: 'posted',
-      transaction_type: 'withdrawal',
-      occurred_at: '2026-07-20T12:00:00Z',
-      description: 'Team lunch',
-      counterparty_id: 9,
-      counterparty_name: 'Cafe',
-      version: 1,
-      postings: [
-        { id: 1, account_id: 1, account_name: 'Checking', account_class: 'asset', currency_code: 'CNY', category_id: null, category_name: null, budget_id: null, budget_name: null, amount: '-13.75', book_amount: '-13.75', memo: null, cleared_at: null },
-        { id: 2, account_id: 70, account_name: '餐饮', account_class: 'expense', currency_code: 'CNY', category_id: 7, category_name: '餐饮', budget_id: null, budget_name: null, amount: '10.25', book_amount: '10.25', memo: null, cleared_at: null },
-        { id: 3, account_id: 80, account_name: '甜点', account_class: 'expense', currency_code: 'CNY', category_id: 8, category_name: '甜点', budget_id: null, budget_name: null, amount: '3.50', book_amount: '3.50', memo: null, cleared_at: null },
-      ],
-      tags: [{ id: 3, name: 'work', archived: false }],
+  it('posts splits to Firefly with JSON:API-compatible write payload', async () => {
+    mocks.fireflyPost.mockResolvedValueOnce({
+      data: {
+        id: '42',
+        attributes: {
+          group_title: 'Team lunch',
+          transactions: [
+            {
+              transaction_journal_id: '101', description: 'Lunch', amount: '10.25', type: 'withdrawal',
+              date: '2026-07-20', currency_symbol: '¥', source_name: 'Checking', destination_name: 'Cafe', category_name: null,
+            },
+            {
+              transaction_journal_id: '102', description: 'Dessert', amount: '3.50', type: 'withdrawal',
+              date: '2026-07-20', currency_symbol: '¥', source_name: 'Checking', destination_name: 'Cafe', category_name: null,
+            },
+          ],
+        },
+      },
     })
 
     const result = await createTransactionSplits([
@@ -85,46 +67,31 @@ describe('transaction writes', () => {
       },
     ], 'Team lunch')
 
-    expect(mocks.granaryPost).toHaveBeenCalledWith('/api/v1/books/7/transactions', expect.objectContaining({
-      type: 'withdrawal',
-      description: 'Team lunch',
-      counterparty_id: 9,
-      account_id: 1,
-      amount: '13.75',
-      book_amount: '13.75',
-      tag_ids: [3],
-      splits: [
-        expect.objectContaining({ category_id: 7, amount: '10.25', book_amount: '10.25' }),
-        expect.objectContaining({ category_id: 8, amount: '3.50', book_amount: '3.50' }),
+    expect(mocks.fireflyPost).toHaveBeenCalledWith('/api/v1/transactions', {
+      error_if_duplicate_hash: false,
+      group_title: 'Team lunch',
+      transactions: [
+        expect.objectContaining({ type: 'withdrawal', amount: '10.25', source_id: '1', destination_name: 'Cafe', category_id: '7', tags: ['work'] }),
+        expect.objectContaining({ type: 'withdrawal', amount: '3.50', source_id: '1', destination_name: 'Cafe', category_id: '8', tags: ['work'] }),
       ],
-    }))
+    })
     expect(result.data.id).toBe('42')
   })
 
   it('keeps an optional category on a transfer without turning it into income or expense', async () => {
-    mocks.granaryGet
-      .mockResolvedValueOnce([{ id: 7, name: '资金调拨', parent_id: null, version: 1, archived_at: null }])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        { id: 1, name: 'Checking', class: 'asset', role: 'bank', currency_code: 'CNY', balance: '100.00', version: 1, archived_at: null },
-        { id: 2, name: 'Cash', class: 'asset', role: 'cash', currency_code: 'CNY', balance: '0.00', version: 1, archived_at: null },
-      ])
-      .mockResolvedValueOnce([{ id: 7, base_currency_code: 'CNY' }])
-    mocks.granaryPost.mockResolvedValueOnce({
-      id: 43,
-      status: 'posted',
-      transaction_type: 'transfer',
-      occurred_at: '2026-07-20T12:00:00Z',
-      description: '提现',
-      counterparty_id: null,
-      counterparty_name: null,
-      version: 1,
-      postings: [
-        { id: 1, account_id: 1, account_name: 'Checking', account_class: 'asset', currency_code: 'CNY', category_id: 7, category_name: '资金调拨', budget_id: null, budget_name: null, amount: '-20.00', book_amount: '-20.00', memo: null, cleared_at: null },
-        { id: 2, account_id: 2, account_name: 'Cash', account_class: 'asset', currency_code: 'CNY', category_id: null, category_name: null, budget_id: null, budget_name: null, amount: '20.00', book_amount: '20.00', memo: null, cleared_at: null },
-      ],
-      tags: [],
+    mocks.fireflyPost.mockResolvedValueOnce({
+      data: {
+        id: '43',
+        attributes: {
+          transactions: [
+            {
+              transaction_journal_id: '201', description: '提现', amount: '20.00', type: 'transfer',
+              date: '2026-07-20', currency_symbol: '¥', source_name: 'A', destination_name: 'B',
+              category_name: '资金调拨',
+            },
+          ],
+        },
+      },
     })
 
     const result = await createTransactionSplits([{
@@ -137,12 +104,13 @@ describe('transaction writes', () => {
       category_id: '7',
     }])
 
-    expect(mocks.granaryPost).toHaveBeenCalledWith('/api/v1/books/7/transactions', expect.objectContaining({
-      type: 'transfer',
-      source_account_id: 1,
-      destination_account_id: 2,
-      category_id: 7,
-    }))
+    expect(mocks.fireflyPost).toHaveBeenCalledWith('/api/v1/transactions', {
+      error_if_duplicate_hash: false,
+      group_title: undefined,
+      transactions: [
+        expect.objectContaining({ type: 'transfer', source_id: '1', destination_id: '2', category_id: '7' }),
+      ],
+    })
     expect(result.data.attributes.transactions[0]?.category_name).toBe('资金调拨')
   })
 
@@ -165,32 +133,34 @@ describe('transaction writes', () => {
 })
 
 describe('paginated collection APIs', () => {
-  it('loads categories from the selected Granary book', async () => {
-    mocks.granaryGet.mockResolvedValueOnce([
-      { id: 1, name: 'Food', parent_id: null, version: 1, archived_at: null },
-      { id: 2, name: 'Travel', parent_id: null, version: 1, archived_at: null },
-    ])
+  it('loads categories from Firefly', async () => {
+    mocks.fireflyFetch.mockResolvedValueOnce({
+      data: [
+        { id: '1', attributes: { name: 'Food' } },
+        { id: '2', attributes: { name: 'Travel' } },
+      ],
+      meta: { pagination: { total: 2, count: 2, per_page: 100, current_page: 1, total_pages: 1 } },
+    })
 
     const result = await getCategories()
 
-    expect(mocks.granaryGet).toHaveBeenCalledWith('/api/v1/books/7/categories')
+    expect(mocks.fireflyFetch).toHaveBeenCalledWith('/api/v1/categories', { limit: 100, page: 1 })
     expect(result.data.map(({ id }) => id)).toEqual(['1', '2'])
-    expect(result.data[0]?.attributes).not.toHaveProperty('kind')
     expect(result.meta?.pagination?.total).toBe(2)
   })
 
-  it('marks the current book base currency as default', async () => {
-    mocks.granaryGet
-      .mockResolvedValueOnce([
-        { code: 'CNY', name: 'Chinese Yuan', symbol: 'CN¥', minor_units: 2, enabled_by_default: true },
-        { code: 'USD', name: 'US Dollar', symbol: '$', minor_units: 2, enabled_by_default: true },
-      ])
-      .mockResolvedValueOnce([{ id: 7, base_currency_code: 'CNY' }])
+  it('loads currencies from Firefly', async () => {
+    mocks.fireflyFetch.mockResolvedValueOnce({
+      data: [
+        { id: 'CNY', attributes: { name: 'Chinese Yuan', code: 'CNY', symbol: 'CN¥', default: true, enabled: true } },
+        { id: 'USD', attributes: { name: 'US Dollar', code: 'USD', symbol: '$', default: false, enabled: true } },
+      ],
+      meta: { pagination: { total: 2, count: 2, per_page: 100, current_page: 1, total_pages: 1 } },
+    })
 
     const result = await getCurrencies()
 
-    expect(mocks.granaryGet).toHaveBeenNthCalledWith(1, '/api/v1/currencies')
-    expect(mocks.granaryGet).toHaveBeenNthCalledWith(2, '/api/v1/books')
+    expect(mocks.fireflyFetch).toHaveBeenCalledWith('/api/v1/currencies', { limit: 100, page: 1 })
     expect(result.data.map(({ id }) => id)).toEqual(['CNY', 'USD'])
     expect(result.data.find(({ id }) => id === 'CNY')?.attributes.default).toBe(true)
   })
@@ -222,5 +192,4 @@ describe('paginated collection APIs', () => {
     })
     expect(result.data.map(({ id }) => id)).toEqual(['10', '11'])
   })
-
 })
