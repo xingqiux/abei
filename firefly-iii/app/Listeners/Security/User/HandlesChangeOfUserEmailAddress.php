@@ -29,6 +29,7 @@ use FireflyIII\Events\Security\User\UserChangedEmailAddress;
 use FireflyIII\Exceptions\FireflyException;
 use FireflyIII\Mail\ConfirmEmailChangeMail;
 use FireflyIII\Mail\UndoEmailChangeMail;
+use FireflyIII\Support\Facades\Preferences;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -51,9 +52,8 @@ class HandlesChangeOfUserEmailAddress implements ShouldQueue
     {
         $newEmail = $event->newEmail;
         $oldEmail = $event->oldEmail;
-        // 确认/撤销的 Web 页面已随前端移除，邮件里只能给站点地址。
-        // 令牌仍由 UserRepository 写入偏好，等 API 侧补上确认端点后再在这里拼链接。
-        $url      = url('/');
+        $token    = Preferences::getForUser($event->user, 'email_change_confirm_token', 'invalid');
+        $url      = route('api.v1.user.email-change.confirm', [$token->data]);
 
         try {
             Mail::to($newEmail)->send(new ConfirmEmailChangeMail($newEmail, $oldEmail, $url));
@@ -75,7 +75,10 @@ class HandlesChangeOfUserEmailAddress implements ShouldQueue
     {
         $newEmail = $event->newEmail;
         $oldEmail = $event->oldEmail;
-        $url      = url('/');
+        $token    = Preferences::getForUser($event->user, 'email_change_undo_token', 'invalid');
+        // hash 决定退回到哪个旧地址，旧地址本身不进 URL。
+        $hashed   = hash('sha256', sprintf('%s%s', (string) config('app.key'), $oldEmail));
+        $url      = route('api.v1.user.email-change.undo', [$token->data, $hashed]);
 
         try {
             Mail::to($oldEmail)->send(new UndoEmailChangeMail($newEmail, $oldEmail, $url));

@@ -77,7 +77,9 @@ class Preferences
 
     public function deleteForUser(User $user, string $name): bool
     {
-        $fullName = sprintf('preference%s%s', auth()->user()->id, $name);
+        // 缓存键要跟着被删偏好的那个用户走。用 auth()->user() 在无登录态的路由上会炸，
+        // 在管理员代操作别人时也会清错键。
+        $fullName = sprintf('preference%s%s', $user->id, $name);
         if (Cache::has($fullName)) {
             Cache::forget($fullName);
         }

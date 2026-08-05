@@ -1,4 +1,4 @@
-@extends('layout.v2.error')
+@extends('layout.v2.page')
 @section('status_code','404')
 @section('status', trans('errors.404_status'))
 @section('sub_title', trans('errors.404_header'))

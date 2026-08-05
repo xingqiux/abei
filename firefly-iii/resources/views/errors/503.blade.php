@@ -1,4 +1,4 @@
-@extends('layout.v2.error')
+@extends('layout.v2.page')
 @section('status_code','503')
 @section('status', trans('errors.service_unavailable'))
 @section('sub_title', trans('errors.maintenance_mode'))

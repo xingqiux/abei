@@ -958,3 +958,22 @@ Route::group(
         Route::post('tokens', ['uses' => 'TokenController@store', 'as' => 'tokens.store']);
     }
 );
+
+// Email change confirm / undo. Reached from a link in an email, so there is no session and no
+// bearer token: the token in the URL is the credential. Returns a page, not JSON.
+Route::group(
+    [
+        'namespace'  => 'FireflyIII\Api\V1\Controllers\User',
+        'prefix'     => 'v1/email-change',
+        'as'         => 'api.v1.user.email-change.',
+        'middleware' => [],
+    ],
+    static function (): void {
+        Route::get('confirm/{token}', ['uses' => 'EmailChangeController@confirm', 'as' => 'confirm'])
+            ->withoutMiddleware(['api'])
+        ;
+        Route::get('undo/{token}/{hash}', ['uses' => 'EmailChangeController@undo', 'as' => 'undo'])
+            ->withoutMiddleware(['api'])
+        ;
+    }
+);
