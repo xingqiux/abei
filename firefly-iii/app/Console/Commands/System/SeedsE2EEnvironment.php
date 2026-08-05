@@ -19,6 +19,8 @@ use FireflyIII\Repositories\Currency\CurrencyRepositoryInterface;
 use FireflyIII\Repositories\Recurring\RecurringRepositoryInterface;
 use FireflyIII\Repositories\Rule\RuleRepositoryInterface;
 use FireflyIII\Repositories\RuleGroup\RuleGroupRepositoryInterface;
+use FireflyIII\Repositories\TransactionGroup\TransactionGroupRepositoryInterface;
+use FireflyIII\Services\Internal\Destroy\TransactionGroupDestroyService;
 use FireflyIII\Support\Facades\Preferences;
 use FireflyIII\User;
 use Illuminate\Console\Command;
@@ -33,15 +35,30 @@ use ZipArchive;
 final class SeedsE2EEnvironment extends Command
 {
     private const string BILL_PASSWORD          = 'e2e-bill-only';
+    private const string BROWSER_ARCHIVE_ASSET  = 'E2E 归档账户';
+    private const string BROWSER_ASSET          = 'E2E 记账账户';
+    private const string BROWSER_CATEGORY_FOOD  = 'E2E 餐饮';
+    private const string BROWSER_CATEGORY_RIDE  = 'E2E 交通';
+    private const string BROWSER_MERCHANT       = 'E2E 商户';
     private const string MAIL_PASSWORD          = 'bills-e2e-only';
-    private const string RECURRENCE_DESTINATION = 'Granary E2E Recurrence Merchant';
-    private const string RECURRENCE_SOURCE      = 'Granary E2E Recurrence Source';
-    private const string RECURRENCE_TITLE       = 'Granary E2E Daily Synthetic Subscription';
-    private const string RULE_GROUP_TITLE       = 'Granary E2E Synthetic Rules';
-    private const string RULE_TAG               = 'granary-e2e-reviewed';
-    private const string RULE_TITLE             = 'Granary E2E Tag Synthetic Lunch';
+    private const string RECURRENCE_DESTINATION = 'Abaku E2E Recurrence Merchant';
+    private const string RECURRENCE_SOURCE      = 'Abaku E2E Recurrence Source';
+    private const string RECURRENCE_TITLE       = 'Abaku E2E Daily Synthetic Subscription';
+    private const string RULE_GROUP_TITLE       = 'Abaku E2E Synthetic Rules';
+    private const string RULE_TAG               = 'abaku-e2e-reviewed';
+    private const string RULE_TITLE             = 'Abaku E2E Tag Synthetic Lunch';
 
-    protected $description = 'Seeds the isolated Granary browser-test user, token and synthetic mailbox fixture.';
+    /**
+     * 浏览器主路径夹具的三笔支出。金额互不相同，断言里可以直接对具体数字；
+     * 小时错开是为了让列表排序确定，键盘光标停在哪一行才可预期。
+     */
+    private const array BROWSER_TRANSACTIONS = [
+        ['description' => 'E2E 打车', 'amount' => '56.00', 'category' => self::BROWSER_CATEGORY_RIDE, 'hour' => 18],
+        ['description' => 'E2E 午餐', 'amount' => '34.00', 'category' => self::BROWSER_CATEGORY_FOOD, 'hour' => 12],
+        ['description' => 'E2E 早餐', 'amount' => '12.00', 'category' => self::BROWSER_CATEGORY_FOOD, 'hour' => 8]
+    ];
+
+    protected $description = 'Seeds the isolated Abaku browser-test user, token and synthetic mailbox fixture.';
 
     protected $signature = 'system:seed-e2e
                             {--email=e2e@example.test}
@@ -99,6 +116,7 @@ final class SeedsE2EEnvironment extends Command
         $this->writePersonalAccessToken($secondaryUser, $secondaryTokenPath);
         $this->configureMailbox($user);
         DB::transaction(fn() => $this->seedAutomations($user, $currency));
+        DB::transaction(fn() => $this->seedBrowserFixtures($user, $currency));
         if ((bool) $this->option('send-mail')) {
             $this->sendSyntheticBill('bills@localhost');
         }
@@ -155,9 +173,8 @@ final class SeedsE2EEnvironment extends Command
         return $user;
     }
 
-    private function findOrCreateRecurrenceAccount(
+    private function findOrCreateAccount(
         AccountRepositoryInterface $repository,
-        User $user,
         TransactionCurrency $currency,
         string $name,
         AccountTypeEnum $type
@@ -165,6 +182,12 @@ final class SeedsE2EEnvironment extends Command
     {
         $account = $repository->findByName($name, [$type->value]);
         if ($account instanceof Account) {
+            // 归档用例会把账户置为 active=false，下一次播种必须还原，否则第二次跑就没有「归档」按钮。
+            if (true !== $account->active) {
+                $account->active = true;
+                $account->save();
+            }
+
             return $account;
         }
 
@@ -191,7 +214,7 @@ final class SeedsE2EEnvironment extends Command
         if (!$group instanceof RuleGroup) {
             $group = $groupRepository->store([
                 'title'       => self::RULE_GROUP_TITLE,
-                'description' => 'Synthetic manual rules used only by Granary browser tests.',
+                'description' => 'Synthetic manual rules used only by Abaku browser tests.',
                 'active'      => true
             ]);
         }
@@ -216,14 +239,21 @@ final class SeedsE2EEnvironment extends Command
 
         $recurrence = $user->recurrences()->where('title', self::RECURRENCE_TITLE)->first();
         if ($recurrence instanceof Recurrence) {
+            // 「今天」页数的是「下一次到期日落在本月内的订阅」。起始日拨回今天、清掉上次触发写下的
+            // latest_date，这个数才不会随着播种日期越走越远而变。
+            $recurrence->first_date  = Carbon::today(config('app.timezone'));
+            $recurrence->latest_date = null;
+            $recurrence->active      = true;
+            $recurrence->save();
+
             return;
         }
 
         /** @var AccountRepositoryInterface $accountRepository */
         $accountRepository = app(AccountRepositoryInterface::class);
         $accountRepository->setUser($user);
-        $source      = $this->findOrCreateRecurrenceAccount($accountRepository, $user, $currency, self::RECURRENCE_SOURCE, AccountTypeEnum::ASSET);
-        $destination = $this->findOrCreateRecurrenceAccount($accountRepository, $user, $currency, self::RECURRENCE_DESTINATION, AccountTypeEnum::EXPENSE);
+        $source      = $this->findOrCreateAccount($accountRepository, $currency, self::RECURRENCE_SOURCE, AccountTypeEnum::ASSET);
+        $destination = $this->findOrCreateAccount($accountRepository, $currency, self::RECURRENCE_DESTINATION, AccountTypeEnum::EXPENSE);
 
         /** @var RecurringRepositoryInterface $recurringRepository */
         $recurringRepository = app(RecurringRepositoryInterface::class);
@@ -232,7 +262,7 @@ final class SeedsE2EEnvironment extends Command
             'recurrence'   => [
                 'type'              => 'withdrawal',
                 'title'             => self::RECURRENCE_TITLE,
-                'description'       => 'Synthetic daily subscription used only by Granary browser tests.',
+                'description'       => 'Synthetic daily subscription used only by Abaku browser tests.',
                 'first_date'        => Carbon::today(config('app.timezone')),
                 'nr_of_repetitions' => 0,
                 'apply_rules'       => false,
@@ -240,13 +270,64 @@ final class SeedsE2EEnvironment extends Command
             ],
             'repetitions'  => [['type' => 'daily', 'moment' => '', 'skip' => 0, 'weekend' => 1]],
             'transactions' => [[
-                'description'    => 'Granary E2E Synthetic Subscription Charge',
+                'description'    => 'Abaku E2E Synthetic Subscription Charge',
                 'amount'         => '12.34',
                 'currency_id'    => $currency->id,
                 'source_id'      => $source->id,
                 'destination_id' => $destination->id
             ]]
         ]);
+    }
+
+    /**
+     * 浏览器主路径（登录 → 今天 → 交易筛选/批量改分类/键盘 → 订阅记一笔 → 账户归档）要的账本。
+     *
+     * 这一段每次都把 E2E 用户的流水清空重建：主路径本身就在写数据（批量改分类、触发订阅生成交易），
+     * 不重置的话第二次跑断言到的笔数和分类都不一样。清空只作用于这个专供测试的用户。
+     */
+    private function seedBrowserFixtures(User $user, TransactionCurrency $currency): void
+    {
+        /** @var AccountRepositoryInterface $accountRepository */
+        $accountRepository = app(AccountRepositoryInterface::class);
+        $accountRepository->setUser($user);
+        $asset             = $this->findOrCreateAccount($accountRepository, $currency, self::BROWSER_ASSET, AccountTypeEnum::ASSET);
+        $merchant          = $this->findOrCreateAccount($accountRepository, $currency, self::BROWSER_MERCHANT, AccountTypeEnum::EXPENSE);
+        $this->findOrCreateAccount($accountRepository, $currency, self::BROWSER_ARCHIVE_ASSET, AccountTypeEnum::ASSET);
+
+        /** @var TransactionGroupDestroyService $destroyService */
+        $destroyService  = app(TransactionGroupDestroyService::class);
+        foreach ($user->transactionGroups()->get() as $group) {
+            $destroyService->destroy($group);
+        }
+
+        /** @var TransactionGroupRepositoryInterface $groupRepository */
+        $groupRepository = app(TransactionGroupRepositoryInterface::class);
+        $groupRepository->setUser($user);
+        $today           = Carbon::today(config('app.timezone'));
+
+        foreach (self::BROWSER_TRANSACTIONS as $row) {
+            $groupRepository->store([
+                'user'         => $user,
+                'user_group'   => $user->userGroup,
+                'group_title'  => null,
+                'transactions' => [[
+                    'type'           => 'withdrawal',
+                    'date'           => $today->clone()->setTime((int) $row['hour'], 0),
+                    'user'           => $user,
+                    'user_group'     => $user->userGroup,
+                    'currency_id'    => $currency->id,
+                    'description'    => $row['description'],
+                    'amount'         => $row['amount'],
+                    'source_id'      => $asset->id,
+                    'destination_id' => $merchant->id,
+                    'category_name'  => $row['category'],
+                    'reconciled'     => false,
+                    'identifier'     => 0,
+                    'order'          => 0,
+                    'tags'           => []
+                ]]
+            ]);
+        }
     }
 
     private function sendSyntheticBill(string $recipient): void
@@ -258,7 +339,7 @@ final class SeedsE2EEnvironment extends Command
             '2026-07-20 12:00:00,餐饮美食,合成测试商户,test@example.test,合成午餐,支出,18.80,E2E Checking,交易成功,E2E-ORDER-0001,E2E-MERCHANT-0001,自动化夹具',
             '2026-07-20 12:10:00,餐饮美食,合成拆分商户,split@example.test,合成拆分午餐,支出,23.80,招商银行储蓄卡(8705)&花呗,交易成功,E2E-ORDER-0002,E2E-MERCHANT-0002,组合支付夹具'
         ]);
-        $temp = tempnam(sys_get_temp_dir(), 'granary-e2e-');
+        $temp = tempnam(sys_get_temp_dir(), 'abaku-e2e-');
         if (false === $temp) {
             throw new RuntimeException('Could not create a temporary ZIP path.');
         }
@@ -279,11 +360,11 @@ final class SeedsE2EEnvironment extends Command
             if (false === $archive) {
                 throw new RuntimeException('Could not read the synthetic bill ZIP.');
             }
-            Mail::raw('附件是完全合成的支付宝流水，仅用于 Granary E2E。', static function ($message) use ($archive, $recipient): void {
+            Mail::raw('附件是完全合成的支付宝流水，仅用于 Abaku E2E。', static function ($message) use ($archive, $recipient): void {
                 $message
                     ->from('service@mail.alipay.com', '支付宝测试提醒')
                     ->to($recipient)
-                    ->subject('Granary E2E 的支付宝交易流水明细')
+                    ->subject('Abaku E2E 的支付宝交易流水明细')
                     ->attachData($archive, '支付宝交易明细(20260701-20260731).zip', ['mime' => 'application/zip']);
             });
         } finally {
@@ -297,11 +378,11 @@ final class SeedsE2EEnvironment extends Command
     {
         $clientCount = DB::table('oauth_clients')->where('grant_types', '["personal_access"]')->whereNull('owner_id')->count();
         if (0 === $clientCount) {
-            app(ClientRepository::class)->createPersonalAccessGrantClient('Granary E2E Personal Access Client', null);
+            app(ClientRepository::class)->createPersonalAccessGrantClient('Abaku E2E Personal Access Client', null);
         }
 
-        $user->tokens()->where('name', 'granary-e2e')->update(['revoked' => true]);
-        $token     = $user->createToken('granary-e2e')->accessToken;
+        $user->tokens()->where('name', 'abaku-e2e')->update(['revoked' => true]);
+        $token     = $user->createToken('abaku-e2e')->accessToken;
         $directory = dirname($path);
         if (!is_dir($directory) && !mkdir($directory, 0o700, true) && !is_dir($directory)) {
             throw new RuntimeException('Could not create the E2E token directory.');

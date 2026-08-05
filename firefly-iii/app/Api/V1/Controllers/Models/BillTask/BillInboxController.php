@@ -25,7 +25,7 @@ final class BillInboxController extends Controller
     ) {}
 
     /**
-     * 账单收件箱首页/侧栏用的渠道计数汇总，供 granary-web 新前端使用。
+     * 账单收件箱首页/侧栏用的渠道计数汇总，供 abaku-web 新前端使用。
      */
     public function summary(): JsonResponse
     {

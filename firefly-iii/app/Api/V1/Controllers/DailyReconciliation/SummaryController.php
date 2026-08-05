@@ -14,7 +14,7 @@ final class SummaryController extends Controller
     public function __construct(private readonly DailyReconciliationSummaryService $summaryService) {}
 
     /**
-     * 最近 N 天的按天收支汇总 + 对账状态，供 granary-web 新前端使用。
+     * 最近 N 天的按天收支汇总 + 对账状态，供 abaku-web 新前端使用。
      */
     public function summary(Request $request): JsonResponse
     {

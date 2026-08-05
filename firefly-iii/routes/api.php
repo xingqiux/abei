@@ -947,7 +947,7 @@ Route::group(
     }
 );
 
-// Personal access token issuance for first-party web clients (granary-web).
+// Personal access token management for first-party web clients (abaku-web).
 Route::group(
     [
         'namespace' => 'FireflyIII\Api\V1\Controllers\User',
@@ -955,7 +955,9 @@ Route::group(
         'as'        => 'api.v1.user.',
     ],
     static function (): void {
+        Route::get('tokens', ['uses' => 'TokenController@index', 'as' => 'tokens.index']);
         Route::post('tokens', ['uses' => 'TokenController@store', 'as' => 'tokens.store']);
+        Route::delete('tokens/{id}', ['uses' => 'TokenController@destroy', 'as' => 'tokens.destroy']);
     }
 );
 

@@ -10,14 +10,14 @@ use Illuminate\Support\Facades\DB;
 use Laravel\Passport\ClientRepository;
 
 /**
- * Creates a personal access token for the granary-web frontend.
+ * Creates a personal access token for the abaku-web frontend.
  * Fallback when no PAT exists and the API token endpoint is unreachable.
  */
 class CreatePersonalAccessToken extends Command
 {
     use ShowsFriendlyMessages;
 
-    protected $description = 'Creates a personal access token (PAT) for the granary-web frontend.';
+    protected $description = 'Creates a personal access token (PAT) for the abaku-web frontend.';
 
     protected $signature = 'user:create-pat {--email= : user email; defaults to the first user}';
 
@@ -32,11 +32,11 @@ class CreatePersonalAccessToken extends Command
 
         $clientCount = DB::table('oauth_clients')->where('grant_types', '["personal_access"]')->whereNull('owner_id')->count();
         if (0 === $clientCount) {
-            $clientRepository->createPersonalAccessGrantClient('Granary Personal Access Client', null);
+            $clientRepository->createPersonalAccessGrantClient('Abaku Personal Access Client', null);
         }
 
-        $user->tokens()->where('name', 'granary-web')->update(['revoked' => true]);
-        $token = $user->createToken('granary-web')->accessToken;
+        $user->tokens()->where('name', 'abaku-web')->update(['revoked' => true]);
+        $token = $user->createToken('abaku-web')->accessToken;
         $this->friendlyPositive(sprintf('Created PAT for %s (%s):', $user->email, $user->id));
         $this->line(sprintf('      %s', $token));
 
