@@ -1,72 +1,74 @@
-/* 谷仓 Granary · 设计 Token（ui-design-spec.md §2） */
+/* 谷仓 Granary · 设计 Token（tailwind-plus 默认观感：白/灰表面 + indigo 主色） */
 
 :root {
-  /* 色彩 - dark（默认） */
-  --g-bg: #0a0f1c;
-  --g-surface: #111a2e;
-  --g-surface-2: #1a2745;
-  --g-border: #243356;
-  --g-ink: #e8ebf2;
-  --g-ink-2: #8a94ab;
-  --g-accent: #fca311;
-  --g-accent-ink: #14213d;
-  --g-income: #45c08f;
-  --g-expense: #f07e64;
-  --g-transfer: #7e9bc9;
-  --g-warn: #e8c15a;
-  --g-danger: #e5484d;
-  --g-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 8px 24px rgb(0 0 0 / 0.35);
+  --g-bg: #f9fafb;
+  --g-surface: #ffffff;
+  --g-surface-2: #f3f4f6;
+  --g-border: #e5e7eb;
+  --g-ink: #111827;
+  --g-ink-2: #6b7280;
+  --g-accent: #4f46e5;
+  --g-accent-ink: #ffffff;
+  --g-income: #059669;
+  --g-expense: #dc2626;
+  --g-transfer: #4f46e5;
+  --g-warn: #d97706;
+  --g-danger: #dc2626;
+  --g-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08);
 
-  /* 侧栏底色，比 bg 略深一档 */
-  --g-sidebar-bg: #0e1526;
-  --g-sidebar-border: #1c2946;
+  --g-sidebar-bg: #ffffff;
+  --g-sidebar-border: #e5e7eb;
 
-  /* 图表分类色板（6+1） */
-  --g-chart-1: #fca311;
-  --g-chart-2: #45c08f;
-  --g-chart-3: #7e9bc9;
-  --g-chart-4: #d98ba6;
-  --g-chart-5: #a3b36b;
-  --g-chart-6: #c9873b;
-  --g-chart-other: #5c6880;
+  --g-chart-1: #4f46e5;
+  --g-chart-2: #0ea5e9;
+  --g-chart-3: #10b981;
+  --g-chart-4: #f59e0b;
+  --g-chart-5: #ef4444;
+  --g-chart-6: #8b5cf6;
+  --g-chart-other: #9ca3af;
 
-  /* 字体 */
-  --g-font-ui: 'MiSans', -apple-system, 'PingFang SC', 'HarmonyOS Sans SC', sans-serif;
-  --g-font-num: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
-  /* misans 子集包内实际声明的数字字重（非标准 400/600） */
-  --g-weight-regular: 330;
-  --g-weight-demibold: 450;
+  --g-font-ui: ui-sans-serif, system-ui, -apple-system, 'PingFang SC', 'HarmonyOS Sans SC', sans-serif;
+  --g-font-num: ui-monospace, 'SF Mono', Menlo, monospace;
+  --g-weight-regular: 400;
+  --g-weight-demibold: 600;
 
-  /* 动效 */
   --t-fast: 120ms;
   --t-base: 240ms;
   --t-slow: 480ms;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
-  color-scheme: dark;
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: light) {
+@media (prefers-color-scheme: dark) {
   :root {
-    --g-bg: #ececea;
-    --g-surface: #ffffff;
-    --g-surface-2: #f4f4f2;
-    --g-border: #dcdcd8;
-    --g-ink: #14192b;
-    --g-ink-2: #6a7183;
-    --g-accent: #d97e00;
+    --g-bg: #111827;
+    --g-surface: #1f2937;
+    --g-surface-2: #374151;
+    --g-border: #4b5563;
+    --g-ink: #f3f4f6;
+    --g-ink-2: #9ca3af;
+    --g-accent: #6366f1;
     --g-accent-ink: #ffffff;
-    --g-income: #17805f;
-    --g-expense: #c05237;
-    --g-transfer: #4e6e8e;
-    --g-warn: #9a7a16;
-    --g-danger: #c4302b;
-    --g-shadow: 0 1px 2px rgb(16 20 40 / 0.06), 0 8px 24px rgb(16 20 40 / 0.1);
+    --g-income: #34d399;
+    --g-expense: #f87171;
+    --g-transfer: #818cf8;
+    --g-warn: #fbbf24;
+    --g-danger: #f87171;
+    --g-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.4), 0 1px 3px 0 rgb(0 0 0 / 0.3);
 
-    --g-sidebar-bg: #f4f4f2;
-    --g-sidebar-border: #dcdcd8;
+    --g-sidebar-bg: #111827;
+    --g-sidebar-border: #374151;
 
-    color-scheme: light;
+    --g-chart-1: #818cf8;
+    --g-chart-2: #38bdf8;
+    --g-chart-3: #34d399;
+    --g-chart-4: #fbbf24;
+    --g-chart-5: #f87171;
+    --g-chart-6: #a78bfa;
+    --g-chart-other: #6b7280;
+
+    color-scheme: dark;
   }
 }

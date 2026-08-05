@@ -87,7 +87,7 @@ export function TokenGate({ children }: { children?: ReactNode }) {
           <div className="text-[15px]" style={{ fontWeight: 'var(--g-weight-demibold)', color: 'var(--g-ink)' }}>
             谷仓 Granary
           </div>
-          <div className="text-[12.5px] leading-relaxed" style={{ color: 'var(--g-ink-2)' }}>
+          <div className="text-[12.5px] leading-relaxed text-gray-500 dark:text-gray-400">
             需要 Firefly III 个人访问令牌才能继续。在 Firefly III 个人资料 → OAuth → 个人访问令牌 创建，
             粘贴到下面并保存；令牌只保留在当前浏览器会话，不会经过任何第三方服务器。
           </div>
@@ -110,7 +110,7 @@ export function TokenGate({ children }: { children?: ReactNode }) {
             }}
           />
           {error && (
-            <div className="text-[11px]" style={{ color: 'var(--g-danger)' }}>
+            <div className="text-[11px] text-red-600 dark:text-red-400">
               {error}
             </div>
           )}

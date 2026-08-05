@@ -6,9 +6,9 @@
 export function ProgressBar({ pct, colorVar = 'var(--g-accent)' }: { pct: number; colorVar?: string }) {
   const clamped = Math.max(0, Math.min(100, pct))
   return (
-    <div className="h-2 flex-1 overflow-hidden rounded-[3px]" style={{ background: 'var(--g-surface-2)' }}>
+    <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
       <div
-        className="h-full rounded-[3px] transition-[width]"
+        className="h-full rounded-full transition-[width]"
         style={{ width: `${clamped}%`, background: colorVar, transitionDuration: 'var(--t-base)' }}
       />
     </div>

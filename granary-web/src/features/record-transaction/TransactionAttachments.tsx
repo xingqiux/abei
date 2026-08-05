@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Download, Paperclip, Pencil, Trash2 } from 'lucide-react'
+import { ArrowDownTrayIcon, PaperClipIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline'
 import {
   useCreateTransactionAttachment,
   useDeleteAttachment,
@@ -94,18 +94,18 @@ export function TransactionAttachments({ groupId, journalId }: { groupId: string
 
   return (
     <>
-      <section className="mt-3 border-t pt-3" style={{ borderColor: 'var(--g-border)' }}>
+      <section className="mt-3 border-t pt-3 border-gray-200 dark:border-gray-700">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="flex items-center gap-1.5 text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}><Paperclip size={13} />附件</span>
+        <span className="flex items-center gap-1.5 text-[11.5px] text-gray-500 dark:text-gray-400"><PaperClipIcon aria-hidden className="size-3.5" />附件</span>
         <label className="cursor-pointer rounded-[5px] px-2 py-1 text-[11.5px]" style={{ background: 'var(--g-surface-2)', color: 'var(--g-accent)' }}>
           {createMutation.isPending ? '上传中…' : '添加附件'}
           <input type="file" accept={about.data?.data.attachment_mime_types?.join(',')} className="sr-only" disabled={createMutation.isPending} onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.currentTarget.value = '' }} />
         </label>
       </div>
       {query.isLoading ? (
-        <span className="text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>附件加载中…</span>
+        <span className="text-[11.5px] text-gray-500 dark:text-gray-400">附件加载中…</span>
       ) : query.isError ? (
-        <div className="flex items-center justify-between text-[11.5px]" style={{ color: 'var(--g-danger)' }}><span>附件加载失败</span><button type="button" onClick={() => void query.refetch()} style={{ color: 'var(--g-accent)' }}>重试</button></div>
+        <div className="flex items-center justify-between text-[11.5px] text-red-600 dark:text-red-400"><span>附件加载失败</span><button type="button" onClick={() => void query.refetch()} style={{ color: 'var(--g-accent)' }}>重试</button></div>
       ) : (
         <div className="flex flex-col gap-1">
           {(query.data?.data ?? []).map((attachment) => {
@@ -114,28 +114,28 @@ export function TransactionAttachments({ groupId, journalId }: { groupId: string
             return (
               <div key={attachment.id} className="flex min-h-7 items-center gap-2 rounded-[4px] px-1.5 hover:bg-[var(--g-surface-2)]">
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[11.5px]" style={{ color: 'var(--g-ink)' }}>{name}</div>
-                  {(attrs.title && attrs.title !== attrs.filename || attrs.notes) && <div className="truncate text-[10.5px]" style={{ color: 'var(--g-ink-2)' }}>{attrs.filename}{attrs.notes ? ` · ${attrs.notes}` : ''}</div>}
+                  <div className="truncate text-[11.5px] text-gray-900 dark:text-gray-100">{name}</div>
+                  {(attrs.title && attrs.title !== attrs.filename || attrs.notes) && <div className="truncate text-[10.5px] text-gray-500 dark:text-gray-400">{attrs.filename}{attrs.notes ? ` · ${attrs.notes}` : ''}</div>}
                 </div>
-                <span className="font-num text-[10.5px]" style={{ color: 'var(--g-ink-2)' }}>{attrs.size > 0 ? `${Math.ceil(attrs.size / 1024)} KB` : '待上传'}</span>
-                <button type="button" title="下载附件" aria-label={`下载 ${name}`} onClick={() => void download(attachment.id, attrs.filename)} className="rounded p-1" style={{ color: 'var(--g-accent)' }}><Download size={12} /></button>
-                <button type="button" title="编辑附件信息" aria-label={`编辑 ${name}`} onClick={() => setDraft({ id: attachment.id, filename: attrs.filename, title: attrs.title || attrs.filename, notes: attrs.notes || '' })} className="rounded p-1" style={{ color: 'var(--g-ink-2)' }}><Pencil size={12} /></button>
-                <button type="button" title="删除附件" aria-label={`删除 ${name}`} onClick={() => void remove(attachment.id, name)} className="rounded p-1" style={{ color: 'var(--g-danger)' }}><Trash2 size={12} /></button>
+                <span className="font-num text-[10.5px] text-gray-500 dark:text-gray-400">{attrs.size > 0 ? `${Math.ceil(attrs.size / 1024)} KB` : '待上传'}</span>
+                <button type="button" title="下载附件" aria-label={`下载 ${name}`} onClick={() => void download(attachment.id, attrs.filename)} className="rounded p-1 text-indigo-600 dark:text-indigo-400"><ArrowDownTrayIcon aria-hidden className="size-3" /></button>
+                <button type="button" title="编辑附件信息" aria-label={`编辑 ${name}`} onClick={() => setDraft({ id: attachment.id, filename: attrs.filename, title: attrs.title || attrs.filename, notes: attrs.notes || '' })} className="rounded p-1 text-gray-500 dark:text-gray-400"><PencilIcon aria-hidden className="size-3" /></button>
+                <button type="button" title="删除附件" aria-label={`删除 ${name}`} onClick={() => void remove(attachment.id, name)} className="rounded p-1 text-red-600 dark:text-red-400"><TrashIcon aria-hidden className="size-3" /></button>
               </div>
             )
           })}
-          {query.isSuccess && query.data.data.length === 0 && <span className="text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>无附件</span>}
+          {query.isSuccess && query.data.data.length === 0 && <span className="text-[11.5px] text-gray-500 dark:text-gray-400">无附件</span>}
         </div>
       )}
       </section>
       <Modal open={draft !== null} onClose={() => setDraft(null)} title="编辑附件信息" width={420} footer={<>
-        <button type="button" disabled={updateMutation.isPending} onClick={() => setDraft(null)} className="rounded-[6px] px-3 py-1.5 text-[12px]" style={{ color: 'var(--g-ink-2)' }}>取消</button>
-        <button type="button" disabled={updateMutation.isPending} onClick={() => void saveMetadata()} className="rounded-[6px] px-3 py-1.5 text-[12px] disabled:opacity-50" style={{ background: 'var(--g-accent)', color: 'var(--g-accent-ink)' }}>{updateMutation.isPending ? '保存中…' : '保存'}</button>
+        <button type="button" disabled={updateMutation.isPending} onClick={() => setDraft(null)} className="rounded-[6px] px-3 py-1.5 text-[12px] text-gray-500 dark:text-gray-400">取消</button>
+        <button type="button" disabled={updateMutation.isPending} onClick={() => void saveMetadata()} className="rounded-[6px] px-3 py-1.5 text-[12px] disabled:opacity-50 bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-500">{updateMutation.isPending ? '保存中…' : '保存'}</button>
       </>}>
         {draft && <div className="flex flex-col gap-3 text-[12px]">
-          <label className="flex flex-col gap-1" style={{ color: 'var(--g-ink-2)' }}>文件名<input autoFocus value={draft.filename} onChange={(event) => setDraft({ ...draft, filename: event.target.value })} className="rounded-[6px] px-2.5 py-1.5" style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }} /></label>
-          <label className="flex flex-col gap-1" style={{ color: 'var(--g-ink-2)' }}>标题<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} className="rounded-[6px] px-2.5 py-1.5" style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }} /></label>
-          <label className="flex flex-col gap-1" style={{ color: 'var(--g-ink-2)' }}>备注<textarea rows={3} value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} className="resize-y rounded-[6px] px-2.5 py-1.5" style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }} /></label>
+          <label className="flex flex-col gap-1 text-gray-500 dark:text-gray-400">文件名<input autoFocus value={draft.filename} onChange={(event) => setDraft({ ...draft, filename: event.target.value })} className="rounded-[6px] px-2.5 py-1.5" style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }} /></label>
+          <label className="flex flex-col gap-1 text-gray-500 dark:text-gray-400">标题<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} className="rounded-[6px] px-2.5 py-1.5" style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }} /></label>
+          <label className="flex flex-col gap-1 text-gray-500 dark:text-gray-400">备注<textarea rows={3} value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} className="resize-y rounded-[6px] px-2.5 py-1.5" style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)', border: '1px solid var(--g-border)' }} /></label>
         </div>}
       </Modal>
     </>

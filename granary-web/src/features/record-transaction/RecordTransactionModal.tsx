@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDownIcon } from '@heroicons/react/20/solid'
 import gsap from 'gsap'
 import { Modal } from '../../components/granary/Modal'
 import { Combobox, type ComboboxItem } from '../../components/granary/Combobox'
@@ -560,10 +560,9 @@ export function RecordTransactionModal() {
               style={{ color: 'var(--g-ink-2)' }}
             >
               更多选项
-              <ChevronDown
+              <ChevronDownIcon
                 aria-hidden
-                size={13}
-                color="var(--g-ink-2)"
+                className="size-3.5 text-gray-400"
                 style={{ transform: moreOpen ? 'rotate(180deg)' : 'none', transition: 'transform 120ms' }}
               />
             </button>

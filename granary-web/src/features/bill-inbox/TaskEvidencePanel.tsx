@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Download, LocateFixed } from 'lucide-react'
+import { ArrowDownTrayIcon, MapPinIcon } from '@heroicons/react/24/outline'
 import { downloadBillArtifact } from '../../api/firefly'
 import { useBillTaskArtifacts, useBillTaskEvents, useBillTaskReview } from '../../api/queries'
 import { FireflyApiError } from '../../api/client'
@@ -73,20 +73,20 @@ export function TaskEvidencePanel({ taskId, onReviewRow }: { taskId: string; onR
   return (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
       <section className="min-w-0">
-        <h3 className="mb-2 text-[11px]" style={{ color: 'var(--g-ink-2)' }}>REVIEW</h3>
+        <h3 className="mb-2 text-[11px] text-gray-500 dark:text-gray-400">REVIEW</h3>
         <div className="flex flex-wrap gap-1.5">
           {candidateCounts.map(([label, count]) => (
             <span key={label} className="rounded-[4px] px-1.5 py-1 text-[11.5px]" style={{ background: 'var(--g-surface-2)', color: count > 0 ? 'var(--g-ink)' : 'var(--g-ink-2)' }}>
               {label} <span className="font-num">{count}</span>
             </span>
           ))}
-          {review.isLoading && <span className="text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>加载中…</span>}
+          {review.isLoading && <span className="text-[11.5px] text-gray-500 dark:text-gray-400">加载中…</span>}
         </div>
         <div className="mt-2 flex max-h-[190px] flex-col gap-1 overflow-y-auto">
           {issueGroups.flatMap((group) => group.items.map((candidate) => (
             <div key={`${group.label}-${candidate.row_id}`} className="flex items-start gap-1.5 rounded-[4px] px-1.5 py-1" style={{ background: 'var(--g-surface-2)' }}>
               <div className="min-w-0 flex-1 text-[11px] leading-relaxed">
-                <div className="truncate" style={{ color: 'var(--g-ink)' }}>
+                <div className="truncate text-gray-900 dark:text-gray-100">
                   {group.label} · #{candidate.row_number ?? candidate.row_id} · {candidate.description_preview || candidate.counterparty || '未命名流水'}
                 </div>
                 <div style={{ color: 'var(--g-ink-2)' }}>
@@ -94,47 +94,47 @@ export function TaskEvidencePanel({ taskId, onReviewRow }: { taskId: string; onR
                   {(candidate.firefly_amount || candidate.amount) && ` · ${candidate.currency_symbol || candidate.currency_code || ''}${formatAmount(candidate.firefly_amount || candidate.amount || '0')}`}
                 </div>
               </div>
-              <button type="button" title="定位并修复流水" aria-label={`定位流水 ${candidate.row_id}`} onClick={() => onReviewRow(candidate.row_id)} className="shrink-0 rounded p-1" style={{ color: 'var(--g-accent)' }}><LocateFixed size={12} /></button>
+              <button type="button" title="定位并修复流水" aria-label={`定位流水 ${candidate.row_id}`} onClick={() => onReviewRow(candidate.row_id)} className="shrink-0 rounded p-1 text-indigo-600 dark:text-indigo-400"><MapPinIcon aria-hidden className="size-3" /></button>
             </div>
           )))}
-          {review.isSuccess && issueGroups.length === 0 && <span className="text-[11px]" style={{ color: 'var(--g-ink-2)' }}>没有需要人工修复的问题</span>}
+          {review.isSuccess && issueGroups.length === 0 && <span className="text-[11px] text-gray-500 dark:text-gray-400">没有需要人工修复的问题</span>}
         </div>
       </section>
 
       <section className="min-w-0">
-        <h3 className="mb-2 text-[11px]" style={{ color: 'var(--g-ink-2)' }}>产物</h3>
+        <h3 className="mb-2 text-[11px] text-gray-500 dark:text-gray-400">产物</h3>
         <div className="flex flex-col gap-1">
           {(artifacts.data?.data ?? []).map((artifact) => (
             <div key={artifact.id} className="flex items-start justify-between gap-2 text-[11.5px]">
               <div className="min-w-0 flex-1">
-                <div className="truncate" style={{ color: 'var(--g-ink)' }}>{artifact.attributes.filename ?? `${artifact.attributes.kind}-${artifact.id}`}</div>
-                <div className="truncate text-[10.5px]" style={{ color: 'var(--g-ink-2)' }}>{artifact.attributes.mime_type} · {formatBytes(artifact.attributes.size)} · {STAGE_LABELS[artifact.attributes.generation_stage]}{artifact.attributes.encrypted ? ' · 已加密' : ''}</div>
+                <div className="truncate text-gray-900 dark:text-gray-100">{artifact.attributes.filename ?? `${artifact.attributes.kind}-${artifact.id}`}</div>
+                <div className="truncate text-[10.5px] text-gray-500 dark:text-gray-400">{artifact.attributes.mime_type} · {formatBytes(artifact.attributes.size)} · {STAGE_LABELS[artifact.attributes.generation_stage]}{artifact.attributes.encrypted ? ' · 已加密' : ''}</div>
               </div>
-              <button type="button" disabled={downloadingId !== null} title="下载产物" aria-label={`下载 ${artifact.attributes.filename ?? artifact.id}`} onClick={() => void download(artifact.id, artifact.attributes.filename ?? `artifact-${artifact.id}`)} className="shrink-0 rounded p-1 disabled:opacity-40" style={{ color: 'var(--g-accent)' }}>
-                <Download size={13} />
+              <button type="button" disabled={downloadingId !== null} title="下载产物" aria-label={`下载 ${artifact.attributes.filename ?? artifact.id}`} onClick={() => void download(artifact.id, artifact.attributes.filename ?? `artifact-${artifact.id}`)} className="shrink-0 rounded p-1 disabled:opacity-40 text-indigo-600 dark:text-indigo-400">
+                <ArrowDownTrayIcon aria-hidden className="size-3.5" />
               </button>
             </div>
           ))}
-          {artifacts.isSuccess && artifacts.data.data.length === 0 && <span className="text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>无可下载产物</span>}
+          {artifacts.isSuccess && artifacts.data.data.length === 0 && <span className="text-[11.5px] text-gray-500 dark:text-gray-400">无可下载产物</span>}
         </div>
       </section>
 
       <section className="min-w-0">
-        <h3 className="mb-2 text-[11px]" style={{ color: 'var(--g-ink-2)' }}>事件</h3>
+        <h3 className="mb-2 text-[11px] text-gray-500 dark:text-gray-400">事件</h3>
         <div className="flex max-h-[140px] flex-col gap-1 overflow-y-auto">
           {(events.data?.data ?? []).map((event) => (
             <div key={event.id} className="text-[11.5px] leading-relaxed">
-              <span className="font-num" style={{ color: 'var(--g-ink-2)' }}>{event.attributes.created_at ? formatDateTime(event.attributes.created_at) : '--'}</span>{' '}
+              <span className="font-num text-gray-500 dark:text-gray-400">{event.attributes.created_at ? formatDateTime(event.attributes.created_at) : '--'}</span>{' '}
               <span style={{ color: 'var(--g-ink)' }}>{event.attributes.event_type}</span>
               {event.attributes.message && <span style={{ color: 'var(--g-ink-2)' }}> · {event.attributes.message}</span>}
             </div>
           ))}
-          {events.isSuccess && events.data.data.length === 0 && <span className="text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>暂无事件</span>}
+          {events.isSuccess && events.data.data.length === 0 && <span className="text-[11.5px] text-gray-500 dark:text-gray-400">暂无事件</span>}
         </div>
       </section>
 
       {hasError && (
-        <div className="lg:col-span-3 flex items-center justify-between text-[11.5px]" style={{ color: 'var(--g-danger)' }}>
+        <div className="lg:col-span-3 flex items-center justify-between text-[11.5px] text-red-600 dark:text-red-400">
           <span>任务附加信息加载不完整</span>
           <button type="button" onClick={() => { void artifacts.refetch(); void events.refetch(); void review.refetch() }} style={{ color: 'var(--g-accent)' }}>重试</button>
         </div>

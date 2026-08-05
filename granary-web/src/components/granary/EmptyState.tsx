@@ -21,17 +21,16 @@ export function EmptyState({
       {lottie ? (
         <LottieIcon kind={lottie} size={40} />
       ) : (
-        <div className="flex h-10 items-center justify-center" style={{ fontSize: 32, color: 'var(--g-ink-2)' }} aria-hidden>
+        <div className="flex h-10 items-center justify-center text-[32px] text-gray-400" aria-hidden>
           {icon}
         </div>
       )}
-      <div style={{ color: 'var(--g-ink-2)', fontSize: 13 }}>{message}</div>
+      <div className="text-[13px] text-gray-500 dark:text-gray-400">{message}</div>
       {actionLabel && (
         <button
           type="button"
           onClick={onAction}
-          className="rounded-[6px] px-3 py-1.5 text-[12.5px]"
-          style={{ background: 'var(--g-accent)', color: 'var(--g-accent-ink)', fontWeight: 'var(--g-weight-demibold)' }}
+          className="rounded-md bg-indigo-600 px-3 py-1.5 text-[13px] font-semibold text-white shadow-sm hover:bg-indigo-500"
         >
           {actionLabel}
         </button>

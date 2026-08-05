@@ -1,5 +1,6 @@
+import type { ComponentType } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Inbox, CalendarCheck } from 'lucide-react'
+import { CalendarDaysIcon, InboxIcon } from '@heroicons/react/24/outline'
 import { useBillInboxSummary, useReconciliationSummary } from '../../api/queries'
 
 export function TodoCard() {
@@ -11,12 +12,12 @@ export function TodoCard() {
   const daysUnreconciled = recon.data?.days_unreconciled ?? 0
   const lastReconciled = recon.data?.last_reconciled_date
 
-  const items: { icon: typeof Inbox; text: string; to: string }[] = []
-  if (pending > 0) items.push({ icon: Inbox, text: `收件箱 ${pending} 条需处理`, to: '/bill-inbox' })
-  if (parsed > 0) items.push({ icon: Inbox, text: `收件箱 ${parsed} 条已解析待审`, to: '/bill-inbox' })
+  const items: { icon: ComponentType<{ className?: string }>; text: string; to: string }[] = []
+  if (pending > 0) items.push({ icon: InboxIcon, text: `收件箱 ${pending} 条需处理`, to: '/bill-inbox' })
+  if (parsed > 0) items.push({ icon: InboxIcon, text: `收件箱 ${parsed} 条已解析待审`, to: '/bill-inbox' })
   if (daysUnreconciled > 0)
     items.push({
-      icon: CalendarCheck,
+      icon: CalendarDaysIcon,
       text: lastReconciled ? `${lastReconciled} 后已 ${daysUnreconciled} 天未对账` : `已 ${daysUnreconciled} 天未对账`,
       to: '/reconciliation',
     })
@@ -26,26 +27,22 @@ export function TodoCard() {
 
   return (
     <div
-      className="flex items-center justify-between rounded-[10px] py-3 pl-3.5 pr-4"
-      style={{
-        background: 'var(--g-surface)',
-        boxShadow: 'var(--g-shadow)',
-        borderLeft: '3px solid var(--g-accent)',
-      }}
+      className="flex items-center justify-between rounded-xl bg-white py-3 pl-4 pr-4 shadow-sm ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-700"
+      style={{ borderLeft: '3px solid var(--g-accent)' }}
     >
-      <div className="flex flex-wrap items-center gap-1.5 text-[12.5px]" style={{ color: 'var(--g-ink)' }}>
+      <div className="flex flex-wrap items-center gap-1.5 text-[13px] text-gray-900 dark:text-gray-100">
         {items.map((item, i) => {
           const Icon = item.icon
           return (
             <span key={item.text} className="flex items-center gap-1.5">
-              {i > 0 && <span style={{ color: 'var(--g-ink-2)' }}>·</span>}
-              <Icon aria-hidden size={14} color="var(--g-accent)" />
+              {i > 0 && <span className="text-gray-400">·</span>}
+              <Icon aria-hidden className="size-4 text-indigo-600 dark:text-indigo-400" />
               {item.text}
             </span>
           )
         })}
       </div>
-      <Link to={items[0].to} className="shrink-0 text-[12.5px]" style={{ color: 'var(--g-accent)' }}>
+      <Link to={items[0].to} className="shrink-0 text-[13px] font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">
         去处理 →
       </Link>
     </div>

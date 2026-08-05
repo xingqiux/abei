@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { PartyPopper } from 'lucide-react'
+import { CakeIcon } from '@heroicons/react/24/outline'
 import { playGrainBurst } from '../../motion/grainBurst'
 import { prefersReducedMotion } from '../../motion/reducedMotion'
 
@@ -20,7 +20,7 @@ export function CelebrateOverlay({ onDone }: { onDone: () => void }) {
 
   return (
     <div ref={overlayRef} className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center overflow-hidden">
-      <PartyPopper aria-hidden size={64} className="animate-pulse" style={{ color: 'var(--g-accent)' }} />
+      <CakeIcon aria-hidden className="size-16 animate-pulse" style={{ color: 'var(--g-accent)' }} />
     </div>
   )
 }

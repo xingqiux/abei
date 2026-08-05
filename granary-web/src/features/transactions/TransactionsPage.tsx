@@ -7,7 +7,7 @@ import { TransactionRow } from '../../components/granary/TransactionRow'
 import { DeleteTransactionDialog } from '../../components/granary/DeleteTransactionDialog'
 import { Skeleton } from '../../components/granary/Skeleton'
 import { EmptyState } from '../../components/granary/EmptyState'
-import { WalletCards } from 'lucide-react'
+import { BanknotesIcon } from '@heroicons/react/24/outline'
 import { formatAmount, formatDayGroupLabel } from '../../lib/format'
 import { useStaggerIn } from '../../motion/useStaggerIn'
 import { showToast } from '../../store/toastStore'
@@ -76,7 +76,7 @@ export function TransactionsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex gap-1" style={{ borderBottom: '1px solid var(--g-border)' }}>
+      <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700">
         {TABS.map((tab) => {
           const active = tab.value === type
           return (
@@ -84,25 +84,19 @@ export function TransactionsPage() {
               key={tab.value}
               type="button"
               onClick={() => setType(tab.value)}
-              className="relative px-3 py-2 text-[12.5px]"
-              style={{
-                color: active ? 'var(--g-ink)' : 'var(--g-ink-2)',
-                fontWeight: active ? 'var(--g-weight-demibold)' : 'var(--g-weight-regular)',
-              }}
+              className={`-mb-px border-b-2 px-3 py-2 text-[13px] ${
+                active
+                  ? 'border-indigo-600 font-semibold text-gray-900 dark:border-indigo-400 dark:text-gray-100'
+                  : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:hover:border-gray-600 dark:hover:text-gray-300'
+              }`}
             >
               {tab.label}
-              {active && (
-                <span
-                  className="absolute inset-x-0 -bottom-px h-[2px]"
-                  style={{ background: 'var(--g-accent)' }}
-                />
-              )}
             </button>
           )
         })}
       </div>
 
-      <div className="rounded-[10px] p-2" style={{ background: 'var(--g-surface)', boxShadow: 'var(--g-shadow)' }}>
+      <div className="rounded-xl bg-white p-2 shadow-sm ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-700">
         {query.isLoading ? (
           <div className="flex flex-col gap-1 p-2">
             {Array.from({ length: 14 }).map((_, i) => (
@@ -110,9 +104,9 @@ export function TransactionsPage() {
             ))}
           </div>
         ) : query.isError ? (
-          <div className="flex flex-col items-center gap-2 py-8 text-[12.5px]" style={{ color: 'var(--g-danger)' }}>
+          <div className="flex flex-col items-center gap-2 py-8 text-[13px] text-red-600 dark:text-red-400">
             <span>交易加载失败</span>
-            <button type="button" onClick={() => void query.refetch()} style={{ color: 'var(--g-accent)' }}>
+            <button type="button" onClick={() => void query.refetch()} className="text-indigo-600 dark:text-indigo-400">
               重试
             </button>
           </div>
@@ -120,7 +114,7 @@ export function TransactionsPage() {
           query.isFetching ? (
             <EmptyState lottie="loading" message="加载中…" />
           ) : (
-            <EmptyState icon={<WalletCards size={36} />} message="所选范围内暂无交易" />
+            <EmptyState icon={<BanknotesIcon className="size-9 text-gray-400" />} message="所选范围内暂无交易" />
           )
         ) : (
           <div ref={listRef} className="flex flex-col">
@@ -140,8 +134,7 @@ export function TransactionsPage() {
               return (
                 <div key={day}>
                   <div
-                    className="flex h-7 items-center justify-between rounded-[4px] px-2 text-[11.5px]"
-                    style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink-2)' }}
+                    className="flex h-7 items-center justify-between rounded-md bg-gray-50 px-2 text-[11.5px] text-gray-500 dark:bg-gray-800 dark:text-gray-400"
                   >
                     <span>{formatDayGroupLabel(day)}</span>
                     <span className="font-num flex gap-2">
@@ -153,10 +146,10 @@ export function TransactionsPage() {
                             style={{
                               color:
                                 comparison < 0
-                                  ? 'var(--g-expense)'
+                                  ? 'rgb(220 38 38 / 1)'
                                   : comparison > 0
-                                    ? 'var(--g-income)'
-                                    : 'var(--g-ink-2)',
+                                    ? 'rgb(5 150 105 / 1)'
+                                    : 'rgb(107 114 128 / 1)',
                             }}
                           >
                             {comparison > 0 ? '+' : comparison < 0 ? '-' : ''}
@@ -190,8 +183,7 @@ export function TransactionsPage() {
               type="button"
               disabled={query.isFetchingNextPage}
               onClick={() => void query.fetchNextPage()}
-              className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-60"
-              style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink)' }}
+              className="rounded-md bg-gray-100 px-3 py-1.5 text-[13px] text-gray-900 hover:bg-gray-200 disabled:opacity-60 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
             >
               {query.isFetchingNextPage ? '加载中…' : '加载更多'}
             </button>

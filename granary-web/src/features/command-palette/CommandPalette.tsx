@@ -1,8 +1,8 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from '@tanstack/react-router'
 import gsap from 'gsap'
-import { Landmark, Plus, Search, type LucideIcon } from 'lucide-react'
+import { BanknotesIcon, MagnifyingGlassIcon, PlusIcon } from '@heroicons/react/24/outline'
 import { useCommandPaletteStore } from '../../store/commandPaletteStore'
 import { useRecordTxStore } from '../../store/recordTxStore'
 import { useSearchAccounts, useSearchTransactionCount, useSearchTransactions } from '../../api/queries'
@@ -20,7 +20,7 @@ interface ActionItem {
   key: 'action'
   id: string
   label: string
-  icon: LucideIcon
+  icon: ComponentType<{ className?: string }>
   run: () => void
 }
 
@@ -28,7 +28,7 @@ interface NavPaletteItem {
   key: 'nav'
   id: string
   label: string
-  icon: LucideIcon
+  icon: ComponentType<{ className?: string }>
   run: () => void
 }
 
@@ -52,7 +52,7 @@ interface AccountSearchPaletteItem {
 type PaletteItem = ActionItem | NavPaletteItem | SearchPaletteItem | AccountSearchPaletteItem
 
 /**
- * 全局命令面板（Cmd+K）：搜索交易 / 跳页 / 快捷记账三合一（规范 §5/§6）。
+ * 全局命令面板（Cmd+K）：搜索交易 / 跳页 / 快捷记账三合一。
  * 触发：Cmd+K、Ctrl+K（随时可切换）、`/`（仅在未聚焦输入控件且面板未打开时）、顶栏搜索框点击。
  */
 export function CommandPalette() {
@@ -105,7 +105,7 @@ export function CommandPalette() {
     requestAnimationFrame(() => inputRef.current?.focus())
   }, [open])
 
-  // 搜索交易 300ms 防抖（规范 §5.c）
+  // 搜索交易 300ms 防抖
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedQuery(query), 300)
     return () => window.clearTimeout(t)
@@ -119,7 +119,7 @@ export function CommandPalette() {
   const isSearchLoading = searchEnabled && (searchQuery.isFetching || searchCountQuery.isFetching || accountSearchQuery.isFetching)
   const hasSearchError = searchQuery.isError || searchCountQuery.isError || accountSearchQuery.isError
 
-  // 入场动效：surface 底、阴影+1px 描边、240ms 入场（规范 §5/§6），尊重 reduced-motion
+  // 入场动效：240ms 入场，尊重 reduced-motion
   useLayoutEffect(() => {
     if (!open) return
     const el = cardRef.current
@@ -139,7 +139,7 @@ export function CommandPalette() {
         key: 'action',
         id: 'action-record',
         label: '记一笔',
-        icon: Plus,
+        icon: PlusIcon,
         run: () => {
           close()
           openRecordForm()
@@ -259,16 +259,10 @@ export function CommandPalette() {
         aria-label="命令面板"
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        className="flex h-fit max-h-[60vh] w-full flex-col rounded-[10px]"
-        style={{
-          maxWidth: 560,
-          background: 'var(--g-surface)',
-          boxShadow: 'var(--g-shadow)',
-          border: '1px solid var(--g-border)',
-        }}
+        className="flex h-fit max-h-[60vh] w-full max-w-[560px] flex-col rounded-xl bg-white shadow-2xl ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-700"
       >
-        <div className="flex items-center gap-2 px-3.5 py-3" style={{ borderBottom: '1px solid var(--g-border)' }}>
-          <Search aria-hidden size={16} color="var(--g-ink-2)" />
+        <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+          <MagnifyingGlassIcon aria-hidden className="size-4 text-gray-400" />
           <input
             ref={inputRef}
             value={query}
@@ -276,13 +270,9 @@ export function CommandPalette() {
             onKeyDown={handleInputKeyDown}
             placeholder="搜索交易、跳转页面、记一笔…"
             aria-label="命令面板搜索"
-            className="w-full bg-transparent text-[14px] outline-none"
-            style={{ color: 'var(--g-ink)' }}
+            className="w-full bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100"
           />
-          <kbd
-            className="font-num shrink-0 rounded-[4px] px-1.5 text-[10px]"
-            style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink-2)', border: '1px solid var(--g-border)' }}
-          >
+          <kbd className="shrink-0 rounded border border-gray-300 px-1.5 py-0.5 font-sans text-[10px] text-gray-400 dark:border-gray-600">
             Esc
           </kbd>
         </div>
@@ -334,17 +324,16 @@ export function CommandPalette() {
                     aria-selected={active}
                     onMouseEnter={() => setActiveIndex(idx)}
                     onClick={item.run}
-                    className="mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-[6px] px-2.5 py-1.5"
-                    style={{ background: active ? 'var(--g-surface-2)' : 'transparent' }}
+                    className={`mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 ${active ? 'bg-gray-100 dark:bg-gray-800' : ''}`}
                   >
-                    <Search aria-hidden size={14} color="var(--g-ink-2)" className="shrink-0" />
-                    <div className="min-w-0 flex-1 truncate text-[12.5px]" style={{ color: 'var(--g-ink)' }}>
+                    <MagnifyingGlassIcon aria-hidden className="size-4 shrink-0 text-gray-400" />
+                    <div className="min-w-0 flex-1 truncate text-[13px] text-gray-900 dark:text-gray-100">
                       {item.description}
                     </div>
-                    <div className="font-num shrink-0 text-[11px]" style={{ color: 'var(--g-ink-2)' }}>
+                    <div className="shrink-0 font-mono text-[11px] text-gray-400">
                       {formatDateTime(item.date)}
                     </div>
-                    <span className="font-num shrink-0 text-[12.5px]" style={{ color: 'var(--g-ink)' }}>{item.amountLabel}</span>
+                    <span className="shrink-0 font-mono text-[13px] text-gray-900 dark:text-gray-100">{item.amountLabel}</span>
                   </div>
                 )
               })}
@@ -358,10 +347,10 @@ export function CommandPalette() {
                 const idx = indexById.get(item.id) ?? 0
                 const active = idx === activeIndex
                 return (
-                  <div key={item.id} data-index={idx} role="option" aria-selected={active} onMouseEnter={() => setActiveIndex(idx)} onClick={item.run} className="mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-[6px] px-2.5 py-1.5" style={{ background: active ? 'var(--g-surface-2)' : 'transparent' }}>
-                    <Landmark aria-hidden size={14} color="var(--g-ink-2)" />
-                    <span className="min-w-0 flex-1 truncate text-[12.5px]" style={{ color: 'var(--g-ink)' }}>{item.name}</span>
-                    <span className="text-[11px]" style={{ color: 'var(--g-ink-2)' }}>{item.accountType}</span>
+                  <div key={item.id} data-index={idx} role="option" aria-selected={active} onMouseEnter={() => setActiveIndex(idx)} onClick={item.run} className={`mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 ${active ? 'bg-gray-100 dark:bg-gray-800' : ''}`}>
+                    <BanknotesIcon aria-hidden className="size-4 text-gray-400" />
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-gray-900 dark:text-gray-100">{item.name}</span>
+                    <span className="text-[11px] text-gray-400">{item.accountType}</span>
                   </div>
                 )
               })}
@@ -369,7 +358,7 @@ export function CommandPalette() {
           )}
 
           {showNoResults && (
-            <div className="px-4 py-6 text-center text-[12.5px]" style={{ color: 'var(--g-ink-2)' }}>
+            <div className="px-4 py-6 text-center text-[13px] text-gray-400">
               没有匹配结果
             </div>
           )}
@@ -383,10 +372,7 @@ export function CommandPalette() {
 function PaletteSection({ label, loading, children }: { label: string; loading?: boolean; children: ReactNode }) {
   return (
     <div className="py-1">
-      <div
-        className="flex items-center gap-1.5 px-4 py-1 text-[10.5px] uppercase"
-        style={{ color: 'var(--g-ink-2)', letterSpacing: '.06em' }}
-      >
+      <div className="flex items-center gap-1.5 px-4 py-1 text-[10.5px] font-medium uppercase tracking-wider text-gray-400">
         {label}
         {loading && <LottieIcon kind="loading" size={12} />}
       </div>
@@ -396,7 +382,7 @@ function PaletteSection({ label, loading, children }: { label: string; loading?:
 }
 
 function SearchError({ label, onRetry }: { label: string; onRetry: () => void }) {
-  return <div className="mx-3 flex items-center justify-between rounded-[4px] px-2 py-1.5 text-[11.5px]" style={{ color: 'var(--g-danger)' }}><span>{label}</span><button type="button" onClick={onRetry} style={{ color: 'var(--g-accent)' }}>重试</button></div>
+  return <div className="mx-3 flex items-center justify-between rounded px-2 py-1.5 text-[11.5px] text-red-600 dark:text-red-400"><span>{label}</span><button type="button" onClick={onRetry} className="text-indigo-600 dark:text-indigo-400">重试</button></div>
 }
 
 function PaletteRow({
@@ -407,7 +393,7 @@ function PaletteRow({
   onSelect,
   onHover,
 }: {
-  icon: LucideIcon
+  icon: ComponentType<{ className?: string }>
   label: string
   index: number
   active: boolean
@@ -421,11 +407,10 @@ function PaletteRow({
       aria-selected={active}
       onMouseEnter={onHover}
       onClick={onSelect}
-      className="mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-[6px] px-2.5 py-1.5"
-      style={{ background: active ? 'var(--g-surface-2)' : 'transparent' }}
+      className={`mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 ${active ? 'bg-gray-100 dark:bg-gray-800' : ''}`}
     >
-      <Icon aria-hidden size={15} color={active ? 'var(--g-ink)' : 'var(--g-ink-2)'} />
-      <span className="text-[12.5px]" style={{ color: 'var(--g-ink)' }}>
+      <Icon aria-hidden className={`size-4 ${active ? 'text-gray-900 dark:text-gray-100' : 'text-gray-400'}`} />
+      <span className="text-[13px] text-gray-900 dark:text-gray-100">
         {label}
       </span>
     </div>

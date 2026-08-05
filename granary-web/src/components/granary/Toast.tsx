@@ -36,26 +36,22 @@ function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => vo
     <div
       ref={ref}
       role="status"
-      className="flex items-center gap-2.5 rounded-[10px] py-2.5 pl-3 pr-3.5"
+      className="flex items-center gap-2.5 rounded-lg bg-white py-2.5 pl-3 pr-3.5 shadow-lg ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-700"
       style={{
-        background: 'var(--g-surface)',
-        boxShadow: 'var(--g-shadow)',
-        border: '1px solid var(--g-border)',
         borderLeft: `3px solid ${BORDER_COLOR[toast.kind]}`,
         minWidth: 260,
         maxWidth: 360,
       }}
     >
       <LottieIcon kind={ICON_KIND[toast.kind]} size={18} />
-      <div className="flex-1 text-[12.5px]" style={{ color: 'var(--g-ink)' }}>
+      <div className="flex-1 text-[13px] text-gray-900 dark:text-gray-100">
         {toast.message}
       </div>
       <button
         type="button"
         onClick={onDismiss}
         aria-label="关闭"
-        className="shrink-0 text-[13px] leading-none"
-        style={{ color: 'var(--g-ink-2)' }}
+        className="shrink-0 text-[13px] leading-none text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
       >
         ×
       </button>

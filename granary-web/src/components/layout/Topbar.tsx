@@ -1,4 +1,4 @@
-import { Search, Plus, LogOut } from 'lucide-react'
+import { ArrowRightStartOnRectangleIcon, MagnifyingGlassIcon, PlusIcon } from '@heroicons/react/20/solid'
 import { useRecordTxStore } from '../../store/recordTxStore'
 import { useCommandPaletteStore } from '../../store/commandPaletteStore'
 import { DateRangePicker } from '../granary/DateRangePicker'
@@ -9,46 +9,36 @@ export function Topbar() {
   const openCommandPalette = useCommandPaletteStore((s) => s.openPalette)
 
   return (
-    <header
-      className="flex h-11 shrink-0 items-center gap-3 px-3 md:px-5"
-      style={{ borderBottom: '1px solid var(--g-border)' }}
-    >
-      {/* 移动端：搜索 + 居中日期范围选择器（规范 §3） */}
+    <header className="flex h-16 shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-4 md:px-6 dark:border-gray-800 dark:bg-gray-900">
+      {/* 移动端：搜索 + 居中日期范围选择器 */}
       <div className="flex w-full items-center md:hidden">
         <button
           type="button"
           onClick={openCommandPalette}
           aria-label="搜索"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px]"
-          style={{ background: 'var(--g-surface-2)' }}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-gray-800"
         >
-          <Search aria-hidden size={14} color="var(--g-ink-2)" />
+          <MagnifyingGlassIcon aria-hidden className="size-5" />
         </button>
         <div className="flex flex-1 justify-center">
           <DateRangePicker compact />
         </div>
-        <div className="w-7 shrink-0" aria-hidden />
+        <div className="w-9 shrink-0" aria-hidden />
       </div>
 
-      {/* 桌面版：搜索框 + 日期范围选择器 + 「+ 记一笔」（规范 §3） */}
-      <div className="hidden w-full items-center gap-3 md:flex">
+      {/* 桌面版：搜索框 + 日期范围选择器 + 「+ 记一笔」 */}
+      <div className="hidden w-full items-center gap-4 md:flex">
         <div className="flex-1">
           <button
             type="button"
             onClick={openCommandPalette}
-            className="flex w-full max-w-[320px] items-center justify-between rounded-[6px] px-2.5 py-1.5 text-left text-[12.5px]"
-            style={{ background: 'var(--g-surface-2)', color: 'var(--g-ink-2)' }}
+            className="flex w-full max-w-xs items-center justify-between gap-2 rounded-md bg-white px-3 py-1.5 text-sm text-gray-500 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:ring-gray-700 dark:hover:bg-gray-700"
           >
-            <span className="flex items-center gap-1.5">
-              <Search aria-hidden size={14} color="var(--g-ink-2)" />
+            <span className="flex items-center gap-2">
+              <MagnifyingGlassIcon aria-hidden className="size-4 text-gray-400" />
               搜索，或 Cmd+K
             </span>
-            <kbd
-              className="font-num rounded-[4px] px-1.5 text-[10px]"
-              style={{ background: 'var(--g-surface)', color: 'var(--g-ink-2)', border: '1px solid var(--g-border)' }}
-            >
-              /
-            </kbd>
+            <kbd className="rounded border border-gray-300 px-1.5 py-0.5 font-sans text-[10px] text-gray-400 dark:border-gray-600">/</kbd>
           </button>
         </div>
 
@@ -57,17 +47,20 @@ export function Topbar() {
         <button
           type="button"
           onClick={openRecordForm}
-          className="flex shrink-0 items-center gap-1 rounded-[6px] px-3 py-1.5 text-[12.5px]"
-          style={{
-            background: 'var(--g-accent)',
-            color: 'var(--g-accent-ink)',
-            fontWeight: 'var(--g-weight-demibold)',
-          }}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"
         >
-          <Plus aria-hidden size={14} color="var(--g-accent-ink)" />
+          <PlusIcon aria-hidden className="size-4" />
           记一笔
         </button>
-        <button type="button" title="更换令牌" aria-label="更换令牌" onClick={requestTokenReset} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px]" style={{ color: 'var(--g-ink-2)' }}><LogOut size={15} aria-hidden /></button>
+        <button
+          type="button"
+          title="更换令牌"
+          aria-label="更换令牌"
+          onClick={requestTokenReset}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+        >
+          <ArrowRightStartOnRectangleIcon aria-hidden className="size-5" />
+        </button>
       </div>
     </header>
   )

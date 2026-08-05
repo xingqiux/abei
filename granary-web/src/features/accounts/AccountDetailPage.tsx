@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useParams } from '@tanstack/react-router'
-import { ArrowLeft, WalletCards } from 'lucide-react'
+import { ArrowLeftIcon, BanknotesIcon } from '@heroicons/react/24/outline'
 import {
   useAccount,
   useAccountOverviewChart,
@@ -56,7 +56,7 @@ function InfoRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-1 text-[12.5px]">
       <span style={{ color: 'var(--g-ink-2)' }}>{label}</span>
-      <span className="min-w-0 text-right" style={{ color: 'var(--g-ink)' }}>
+      <span className="min-w-0 text-right text-gray-900 dark:text-gray-100">
         {children}
       </span>
     </div>
@@ -147,7 +147,7 @@ export function AccountDetailPage() {
               >
                 {attrs.name}
               </h1>
-              <div className="flex flex-wrap items-center gap-2 text-[12px]" style={{ color: 'var(--g-ink-2)' }}>
+              <div className="flex flex-wrap items-center gap-2 text-[12px] text-gray-500 dark:text-gray-400">
                 <span>{typeLabel}</span>
                 {attrs.active === false && <span style={{ color: 'var(--g-warn)' }}>已停用</span>}
                 {tail && (
@@ -252,7 +252,7 @@ export function AccountDetailPage() {
           ) : txQuery.isError ? (
             <ErrorState message="账户流水加载失败" onRetry={() => void txQuery.refetch()} />
           ) : rows.length === 0 ? (
-          <EmptyState icon={<WalletCards size={36} />} message="本期该账户暂无交易" />
+          <EmptyState icon={<BanknotesIcon aria-hidden className="size-9 text-gray-400" />} message="本期该账户暂无交易" />
         ) : (
           <>
             <div ref={listRef} className="flex flex-col">
@@ -303,7 +303,7 @@ function BackLink() {
       className="inline-flex w-fit items-center gap-1 text-[12.5px]"
       style={{ color: 'var(--g-accent)' }}
     >
-      <ArrowLeft aria-hidden size={13} color="currentColor" />
+      <ArrowLeftIcon aria-hidden className="size-3.5" />
       返回账户
     </Link>
   )

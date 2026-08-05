@@ -1,13 +1,21 @@
-import { CircleAlert, CircleCheck, LoaderCircle, Mail, type LucideIcon } from 'lucide-react'
+import type { CSSProperties, ComponentType } from 'react'
+import {
+  ArrowPathIcon,
+  CheckCircleIcon,
+  EnvelopeIcon,
+  ExclamationCircleIcon,
+} from '@heroicons/react/24/outline'
 import { prefersReducedMotion } from '../../motion/reducedMotion'
 
 export type LottieIconKind = 'success' | 'loading' | 'error' | 'inbox'
 
-const ICONS: Record<LottieIconKind, LucideIcon> = {
-  success: CircleCheck,
-  loading: LoaderCircle,
-  error: CircleAlert,
-  inbox: Mail,
+type IconType = ComponentType<{ className?: string; style?: CSSProperties }>
+
+const ICONS: Record<LottieIconKind, IconType> = {
+  success: CheckCircleIcon,
+  loading: ArrowPathIcon,
+  error: ExclamationCircleIcon,
+  inbox: EnvelopeIcon,
 }
 
 const DEFAULT_COLOR_VAR: Record<LottieIconKind, string> = {
@@ -32,9 +40,8 @@ export function LottieIcon({ kind, size = 20, colorVar, playing = true, classNam
   return (
     <Icon
       aria-hidden
-      size={size}
       className={[spinning ? 'animate-spin' : '', className].filter(Boolean).join(' ')}
-      style={{ color: `var(${colorVar ?? DEFAULT_COLOR_VAR[kind]})` }}
+      style={{ color: `var(${colorVar ?? DEFAULT_COLOR_VAR[kind]})`, width: size, height: size }}
     />
   )
 }

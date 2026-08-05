@@ -12,7 +12,7 @@ import { Skeleton } from '../../components/granary/Skeleton'
 import { EmptyState } from '../../components/granary/EmptyState'
 import { CelebrateOverlay } from '../../components/granary/CelebrateOverlay'
 import { Modal } from '../../components/granary/Modal'
-import { WalletCards } from 'lucide-react'
+import { BanknotesIcon } from '@heroicons/react/24/outline'
 import { formatAmount, formatMonthDay } from '../../lib/format'
 import { useStaggerIn } from '../../motion/useStaggerIn'
 import { showToast } from '../../store/toastStore'
@@ -184,7 +184,7 @@ export function ReconciliationPage() {
         <h1 className="text-[18px]" style={{ fontWeight: 'var(--g-weight-demibold)', color: 'var(--g-ink)' }}>
           按天对账
         </h1>
-        <div className="text-[12.5px]" style={{ color: 'var(--g-ink-2)' }}>
+        <div className="text-[12.5px] text-gray-500 dark:text-gray-400">
           {lastReconciledLabel} · 已 {daysUnreconciled} 天未对账
         </div>
       </div>
@@ -206,7 +206,7 @@ export function ReconciliationPage() {
               <span className="text-[14px]" style={{ fontWeight: 'var(--g-weight-demibold)', color: 'var(--g-ink)' }}>
                 {formatMonthDay(selectedDay.date)}
               </span>
-              <span className="text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>
+              <span className="text-[11.5px] text-gray-500 dark:text-gray-400">
                 {selectedDay.date}
               </span>
             </div>
@@ -242,9 +242,9 @@ export function ReconciliationPage() {
               className="flex flex-wrap items-center justify-between gap-2 rounded-[6px] py-2.5 pl-3 pr-3.5"
               style={{ background: 'var(--g-surface)', borderLeft: '3px solid var(--g-danger)' }}
             >
-              <span className="text-[12.5px]" style={{ color: 'var(--g-ink)' }}>
+              <span className="text-[12.5px] text-gray-900 dark:text-gray-100">
                 该日存在对账差异{' '}
-                <span className="font-num" style={{ color: 'var(--g-danger)' }}>
+                <span className="font-num text-red-600 dark:text-red-400">
                   {selectedDiffTotals.map((total) => <span key={total.currency_code || total.currency_symbol} className="mr-2">{total.currency_symbol}{formatAmount(total.amount)}{total.currency_code ? ` ${total.currency_code}` : ''}</span>)}
                 </span>
                 （已有 Reconciliation 调整流水）
@@ -273,7 +273,7 @@ export function ReconciliationPage() {
             ) : txQuery.isError ? (
               <ErrorState message="当日交易加载失败" onRetry={() => void txQuery.refetch()} />
             ) : txList.length === 0 ? (
-              <EmptyState icon={<WalletCards size={36} />} message="当日暂无交易" />
+              <EmptyState icon={<BanknotesIcon aria-hidden className="size-9 text-gray-400" />} message="当日暂无交易" />
             ) : (
               <div ref={txListRef} className="flex flex-col">
                 {txList.map((row) => (

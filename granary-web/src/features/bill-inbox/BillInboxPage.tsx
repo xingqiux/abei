@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArchiveX, Play, Settings } from 'lucide-react'
+import { ArchiveBoxXMarkIcon, Cog6ToothIcon, PlayIcon } from '@heroicons/react/24/outline'
 import {
   useBillInboxSummary,
   useBillTasksByStatuses,
@@ -107,13 +107,13 @@ export function BillInboxPage() {
         </h1>
         <div className="flex flex-wrap items-center gap-1.5">
           {summaryQuery.data && (
-            <div className="mr-2 text-[12.5px]" style={{ color: 'var(--g-ink-2)' }}>
+            <div className="mr-2 text-[12.5px] text-gray-500 dark:text-gray-400">
               共 <span className="font-num">{summaryQuery.data.pending_total}</span> 条待处理
             </div>
           )}
-          <button type="button" title="处理待处理任务" aria-label="处理待处理任务" disabled={processMutation.isPending} onClick={() => void handleProcess()} className="rounded p-1.5 disabled:opacity-50" style={{ color: 'var(--g-accent)' }}><Play size={15} /></button>
-          <button type="button" title="清理过期任务" aria-label="清理过期任务" disabled={cleanupMutation.isPending} onClick={() => void handleCleanup()} className="rounded p-1.5 disabled:opacity-50" style={{ color: 'var(--g-ink-2)' }}><ArchiveX size={15} /></button>
-          <button type="button" title="邮箱设置" aria-label="邮箱设置" onClick={() => setSettingsOpen(true)} className="rounded p-1.5" style={{ color: 'var(--g-ink-2)' }}><Settings size={15} /></button>
+          <button type="button" title="处理待处理任务" aria-label="处理待处理任务" disabled={processMutation.isPending} onClick={() => void handleProcess()} className="rounded p-1.5 disabled:opacity-50 text-indigo-600 dark:text-indigo-400"><PlayIcon aria-hidden className="size-4" /></button>
+          <button type="button" title="清理过期任务" aria-label="清理过期任务" disabled={cleanupMutation.isPending} onClick={() => void handleCleanup()} className="rounded p-1.5 disabled:opacity-50 text-gray-500 dark:text-gray-400"><ArchiveBoxXMarkIcon aria-hidden className="size-4" /></button>
+          <button type="button" title="邮箱设置" aria-label="邮箱设置" onClick={() => setSettingsOpen(true)} className="rounded p-1.5 text-gray-500 dark:text-gray-400"><Cog6ToothIcon aria-hidden className="size-4" /></button>
         </div>
       </div>
 
@@ -139,7 +139,7 @@ export function BillInboxPage() {
             ))}
       </div>
 
-      <div className="flex gap-1" style={{ borderBottom: '1px solid var(--g-border)' }}>
+      <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700">
         {TAB_CONFIG.map((tab) => {
           const active = tab.key === activeTab
           return (

@@ -1,16 +1,22 @@
+import type { ComponentType } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
-import { LayoutDashboard, ArrowLeftRight, Plus, Inbox, User } from 'lucide-react'
+import {
+  ArrowsRightLeftIcon,
+  InboxIcon,
+  PlusIcon,
+  Squares2X2Icon,
+  UserIcon,
+} from '@heroicons/react/24/outline'
 import { useRecordTxStore } from '../../store/recordTxStore'
 import { useMoreSheetStore } from '../../store/moreSheetStore'
 import { useNavBadges } from '../../routes/useNavBadges'
 import type { NavPath } from '../../routes/navItems'
 
-/** 「我的」sheet 覆盖的剩余导航路径，用于判断底部 tab「我的」的高亮态（规范 §3 移动端断点）。 */
+/** 「我的」sheet 覆盖的剩余导航路径，用于判断底部 tab「我的」的高亮态。 */
 const MORE_PATHS: NavPath[] = ['/reconciliation', '/budgets', '/accounts', '/reports', '/settings']
 
 /**
  * 移动端（<768px）底部 5 tab：总览 / 交易 / 记一笔（中间凸起）/ 收件箱（徽标点）/ 我的（弹出 sheet）。
- * 桌面端（md 及以上）不渲染，由 AppShell 用 `md:hidden` 控制显隐。
  */
 export function BottomTabBar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
@@ -23,38 +29,32 @@ export function BottomTabBar() {
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-[150] flex h-16 items-stretch md:hidden"
-      style={{
-        background: 'var(--g-surface)',
-        borderTop: '1px solid var(--g-border)',
-        boxShadow: '0 -8px 24px rgb(0 0 0 / 0.25)',
-        paddingBottom: 'env(safe-area-inset-bottom)',
-      }}
+      className="fixed inset-x-0 bottom-0 z-[150] flex h-16 items-stretch border-t border-gray-200 bg-white shadow-[0_-4px_16px_rgb(0_0_0/0.06)] md:hidden dark:border-gray-800 dark:bg-gray-900"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
-      <TabLink to="/" label="总览" icon={LayoutDashboard} active={pathname === '/'} />
-      <TabLink to="/transactions" label="交易" icon={ArrowLeftRight} active={pathname.startsWith('/transactions')} />
+      <TabLink to="/" label="总览" icon={Squares2X2Icon} active={pathname === '/'} />
+      <TabLink to="/transactions" label="交易" icon={ArrowsRightLeftIcon} active={pathname.startsWith('/transactions')} />
 
       <div className="flex flex-1 items-center justify-center">
         <button
           type="button"
           onClick={openRecordForm}
           aria-label="记一笔"
-          className="flex h-12 w-12 -translate-y-3 items-center justify-center rounded-full"
-          style={{ background: 'var(--g-accent)', boxShadow: 'var(--g-shadow)' }}
+          className="flex h-12 w-12 -translate-y-3 items-center justify-center rounded-full bg-indigo-600 text-white shadow-lg hover:bg-indigo-500"
         >
-          <Plus aria-hidden size={22} strokeWidth={2.5} color="var(--g-accent-ink)" />
+          <PlusIcon aria-hidden className="size-6" strokeWidth={2.5} />
         </button>
       </div>
 
-      <TabLink to="/bill-inbox" label="收件箱" icon={Inbox} active={pathname.startsWith('/bill-inbox')} showDot={!!inboxBadge} dotKind={inboxBadge?.kind} />
+      <TabLink to="/bill-inbox" label="收件箱" icon={InboxIcon} active={pathname.startsWith('/bill-inbox')} showDot={!!inboxBadge} dotKind={inboxBadge?.kind} />
 
       <button
         type="button"
         onClick={openMoreSheet}
-        className="flex flex-1 flex-col items-center justify-center gap-0.5 text-[10px]"
+        className="flex flex-1 flex-col items-center justify-center gap-1 text-[10px] font-medium"
         style={{ color: isMoreActive ? 'var(--g-accent)' : 'var(--g-ink-2)' }}
       >
-        <User aria-hidden size={18} strokeWidth={2} color="currentColor" />
+        <UserIcon aria-hidden className="size-6" />
         我的
       </button>
     </nav>
@@ -71,7 +71,7 @@ function TabLink({
 }: {
   to: NavPath
   label: string
-  icon: typeof LayoutDashboard
+  icon: ComponentType<{ className?: string }>
   active: boolean
   showDot?: boolean
   dotKind?: 'warn' | 'danger'
@@ -79,11 +79,11 @@ function TabLink({
   return (
     <Link
       to={to}
-      className="relative flex flex-1 flex-col items-center justify-center gap-0.5 text-[10px]"
+      className="relative flex flex-1 flex-col items-center justify-center gap-1 text-[10px] font-medium"
       style={{ color: active ? 'var(--g-accent)' : 'var(--g-ink-2)' }}
     >
       <span className="relative">
-        <Icon aria-hidden size={18} strokeWidth={2} color="currentColor" />
+        <Icon aria-hidden className="size-6" />
         {showDot && (
           <span
             className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full"

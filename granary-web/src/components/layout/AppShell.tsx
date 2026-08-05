@@ -18,8 +18,7 @@ export function AppShell() {
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
-        {/* 移动端左右 padding 收窄到 12px，底部留出底部 tab 高度（规范 §3 移动端断点） */}
-        <main className="min-w-0 flex-1 overflow-y-auto px-3 py-5 pb-24 md:px-5 md:pb-5">
+        <main className="min-w-0 flex-1 overflow-y-auto bg-gray-50 px-4 py-6 pb-28 md:px-8 md:pb-8 dark:bg-gray-950">
           <PageTransition key={pathname}>
             <Outlet />
           </PageTransition>

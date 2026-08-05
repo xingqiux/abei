@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { PlusIcon } from '@heroicons/react/20/solid'
 import { useBills, useCreateBudget, useCreateBudgetWithLimit, useCurrencies, usePiggyBanks } from '../../api/queries'
 import { useBudgetsData } from './useBudgetsData'
 import { EmptyState } from '../../components/granary/EmptyState'
@@ -18,7 +18,7 @@ import { isPositiveDecimal, normalizeDecimalString } from '../../lib/decimal'
 
 function TabBar({ active, onChange }: { active: BudgetsTab; onChange: (tab: BudgetsTab) => void }) {
   return (
-    <div className="flex gap-1" style={{ borderBottom: '1px solid var(--g-border)' }}>
+    <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700">
       {BUDGETS_TAB_CONFIG.map((tab) => {
         const isActive = tab.key === active
         return (
@@ -127,16 +127,16 @@ function BudgetsTabContent() {
             fontWeight: 'var(--g-weight-demibold)',
           }}
         >
-          <Plus size={13} />
+          <PlusIcon aria-hidden className="size-3.5" />
           新建预算
         </button>
       </div>
       {budgetsQuery.isLoading ? (
         <ListSkeleton />
       ) : budgetsQuery.isError ? (
-        <div className="px-2 py-8 text-center text-[12.5px]" style={{ color: 'var(--g-danger)' }}>
+        <div className="px-2 py-8 text-center text-[12.5px] text-red-600 dark:text-red-400">
           预算加载失败
-          <div className="mt-1 text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>
+          <div className="mt-1 text-[11.5px] text-gray-500 dark:text-gray-400">
             {budgetsQuery.error instanceof Error ? budgetsQuery.error.message : '请检查 API 或刷新重试'}
           </div>
           <button

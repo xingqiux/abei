@@ -16,12 +16,10 @@ export function KpiCard({
 }) {
   return (
     <div
-      className="rounded-[10px] p-3.5"
-      style={{ background: 'var(--g-surface)', boxShadow: 'var(--g-shadow)' }}
+      className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-700"
     >
       <div
-        className="text-[11px]"
-        style={{ color: 'var(--g-ink-2)', letterSpacing: '.04em', textTransform: 'uppercase' }}
+        className="text-[11px] font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400"
       >
         {label}
       </div>
@@ -38,7 +36,7 @@ export function KpiCard({
         })}
         {amounts.length === 0 && <span style={{ fontSize: 20, fontWeight: 600 }}>--</span>}
       </div>
-      <div className="mt-1 text-[11px]" style={{ color: 'var(--g-ink-2)' }}>
+      <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
         {sublabel}
       </div>
     </div>

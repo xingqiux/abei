@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import gsap from 'gsap'
-import { X } from 'lucide-react'
+import { XMarkIcon } from '@heroicons/react/20/solid'
 import { prefersReducedMotion } from '../../motion/reducedMotion'
 import { useDialogBehavior } from './useDialogBehavior'
 
@@ -54,33 +54,27 @@ export function Modal({
         aria-label={title}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[86vh] w-full flex-col rounded-[10px]"
-        style={{
-          maxWidth: width,
-          background: 'var(--g-surface)',
-          boxShadow: 'var(--g-shadow)',
-          border: '1px solid var(--g-border)',
-        }}
+        className="flex max-h-[86vh] w-full flex-col rounded-xl bg-white shadow-2xl ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-700"
+        style={{ maxWidth: width }}
       >
-        <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5" style={{ borderBottom: '1px solid var(--g-border)' }}>
-          <div className="text-[14px]" style={{ fontWeight: 'var(--g-weight-demibold)', color: 'var(--g-ink)' }}>
+        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
             {title}
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="关闭"
-            className="rounded p-1 leading-none"
-            style={{ color: 'var(--g-ink-2)' }}
+            className="rounded p-1 leading-none text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
           >
-            <X size={15} />
+            <XMarkIcon aria-hidden className="size-4" />
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-[12.5px]" style={{ color: 'var(--g-ink)' }}>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-[13px] text-gray-900 dark:text-gray-100">
           {children}
         </div>
         {footer && (
-          <div className="flex justify-end gap-2 px-4 pb-3.5 pt-2.5" style={{ borderTop: '1px solid var(--g-border)' }}>
+          <div className="flex justify-end gap-2 border-t border-gray-200 px-4 py-3 dark:border-gray-700">
             {footer}
           </div>
         )}

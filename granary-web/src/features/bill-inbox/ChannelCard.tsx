@@ -2,7 +2,7 @@ import type { BillInboxSummary } from '../../api/schemas'
 import { StatusChip } from '../../components/granary/StatusChip'
 import { LottieIcon } from '../../components/granary/LottieIcon'
 import { formatDateTime } from '../../lib/format'
-import { RefreshCw } from 'lucide-react'
+import { ArrowPathIcon } from '@heroicons/react/24/outline'
 
 type Channel = BillInboxSummary['channels'][number]
 
@@ -52,7 +52,7 @@ export function ChannelCard({
           {syncing ? (
             <LottieIcon kind="loading" size={16} colorVar="--g-accent" />
           ) : (
-            <RefreshCw size={13} strokeWidth={1.75} />
+            <ArrowPathIcon aria-hidden className="size-3.5" />
           )}
         </button>
       )}
@@ -71,13 +71,13 @@ export function ChannelCard({
         <div className="flex items-center justify-between gap-2">
           <StatusChip label={`待存入 ${channel.to_store}`} kind={channel.to_store > 0 ? 'warn' : 'muted'} />
           {channel.unprocessed > 0 && (
-            <span className="text-[11px]" style={{ color: 'var(--g-ink-2)' }}>
+            <span className="text-[11px] text-gray-500 dark:text-gray-400">
               处理中 {channel.unprocessed}
             </span>
           )}
         </div>
 
-        <div className="text-[11px]" style={{ color: 'var(--g-ink-2)' }}>
+        <div className="text-[11px] text-gray-500 dark:text-gray-400">
           最近收到：{lastReceivedLabel}
         </div>
       </button>

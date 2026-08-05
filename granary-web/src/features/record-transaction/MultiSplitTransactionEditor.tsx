@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { PlusIcon, TrashIcon } from '@heroicons/react/24/outline'
 import {
   useAssetAccounts,
   useBills,
@@ -267,8 +267,8 @@ export function MultiSplitTransactionEditor({
     }
   }
 
-  if (groupId && query.isLoading) return <div className="py-6 text-center text-[12px]" style={{ color: 'var(--g-ink-2)' }}>加载交易详情…</div>
-  if (groupId && query.isError) return <div className="flex items-center justify-between py-4 text-[12px]" style={{ color: 'var(--g-danger)' }}><span>交易详情加载失败</span><button type="button" onClick={() => void query.refetch()} style={{ color: 'var(--g-accent)' }}>重试</button></div>
+  if (groupId && query.isLoading) return <div className="py-6 text-center text-[12px] text-gray-500 dark:text-gray-400">加载交易详情…</div>
+  if (groupId && query.isError) return <div className="flex items-center justify-between py-4 text-[12px] text-red-600 dark:text-red-400"><span>交易详情加载失败</span><button type="button" onClick={() => void query.refetch()} style={{ color: 'var(--g-accent)' }}>重试</button></div>
 
   const pending = mutation.isPending || createMutation.isPending
   const minimumSplits = groupId ? 1 : 2
@@ -276,8 +276,8 @@ export function MultiSplitTransactionEditor({
   return <div className="flex flex-col gap-3">
     <div className="flex gap-1" role="tablist" aria-label="拆分交易类型">{(['withdrawal', 'deposit', 'transfer'] as const).map((type) => <button key={type} type="button" role="tab" aria-selected={groupType === type} onClick={() => changeType(type)} className="flex-1 rounded-[5px] px-2 py-1.5 text-[12px]" style={{ background: groupType === type ? 'var(--g-accent)' : 'var(--g-surface-2)', color: groupType === type ? 'var(--g-accent-ink)' : 'var(--g-ink-2)' }}>{type === 'withdrawal' ? '支出' : type === 'deposit' ? '收入' : '转账'}</button>)}</div>
     <input aria-label="交易组标题" value={groupTitle} onChange={(event) => { setGroupTitle(event.target.value); onDirtyChange(true) }} placeholder="默认使用第一条拆分描述" className="rounded-[5px] px-2 py-1.5" style={inputStyle} />
-    {drafts.map((draft, index) => <section key={draft.clientId} className="flex flex-col gap-2 border-b pb-3" style={{ borderColor: 'var(--g-border)' }}>
-      <div className="flex items-center justify-between"><span className="font-num text-[11px]" style={{ color: 'var(--g-ink-2)' }}>拆分 {index + 1}</span><button type="button" title="删除拆分" aria-label={`删除拆分 ${index + 1}`} disabled={drafts.length <= minimumSplits} onClick={() => removeDraft(draft.clientId)} className="rounded p-1 disabled:opacity-30" style={{ color: 'var(--g-danger)' }}><Trash2 size={13} /></button></div>
+    {drafts.map((draft, index) => <section key={draft.clientId} className="flex flex-col gap-2 border-b pb-3 border-gray-200 dark:border-gray-700">
+      <div className="flex items-center justify-between"><span className="font-num text-[11px] text-gray-500 dark:text-gray-400">拆分 {index + 1}</span><button type="button" title="删除拆分" aria-label={`删除拆分 ${index + 1}`} disabled={drafts.length <= minimumSplits} onClick={() => removeDraft(draft.clientId)} className="rounded p-1 disabled:opacity-30 text-red-600 dark:text-red-400"><TrashIcon aria-hidden className="size-3.5" /></button></div>
       <div className="grid grid-cols-[120px_1fr] gap-2"><input inputMode="decimal" aria-label={`拆分 ${index + 1} 金额`} value={draft.amount} onChange={(event) => update(index, { amount: event.target.value.replace(/[^0-9.]/g, '') })} className="font-num rounded-[5px] px-2 py-1.5 text-right" style={inputStyle} /><input aria-label={`拆分 ${index + 1} 描述`} value={draft.description} onChange={(event) => update(index, { description: event.target.value })} className="rounded-[5px] px-2 py-1.5" style={inputStyle} /></div>
       <div className="grid grid-cols-2 gap-2">
         {groupType === 'deposit' ? <input aria-label={`拆分 ${index + 1} 来源`} value={draft.sourceName} onChange={(event) => update(index, { sourceName: event.target.value })} placeholder="收入来源" className="rounded-[5px] px-2 py-1.5" style={inputStyle} /> : <AccountSelect label={`拆分 ${index + 1} 来源账户`} value={draft.sourceId} accounts={accounts.data ?? []} onChange={(sourceId) => update(index, { sourceId })} />}
@@ -289,7 +289,7 @@ export function MultiSplitTransactionEditor({
       <div className="grid grid-cols-2 gap-2"><select aria-label={`拆分 ${index + 1} 外币`} value={draft.foreignCurrencyId ?? ''} onChange={(event) => { const currency = currencies.data?.data.find((item) => item.id === event.target.value); update(index, { foreignCurrencyId: currency?.id, foreignCurrencyCode: currency?.attributes.code, foreignAmount: currency ? draft.foreignAmount : '' }) }} className="rounded-[5px] px-2 py-1.5" style={inputStyle}><option value="">无外币金额</option>{(currencies.data?.data ?? []).filter((item) => item.attributes.enabled !== false && item.id !== draft.currencyId).map((item) => <option key={item.id} value={item.id}>{item.attributes.code} · {item.attributes.name}</option>)}</select><input inputMode="decimal" aria-label={`拆分 ${index + 1} 外币金额`} disabled={!draft.foreignCurrencyId} value={draft.foreignAmount ?? ''} onChange={(event) => update(index, { foreignAmount: event.target.value.replace(/[^0-9.]/g, '') })} placeholder="外币金额" className="font-num rounded-[5px] px-2 py-1.5 disabled:opacity-50" style={inputStyle} /></div>
       <textarea aria-label={`拆分 ${index + 1} 备注`} rows={2} value={draft.notes} onChange={(event) => update(index, { notes: event.target.value })} placeholder="备注" className="resize-y rounded-[5px] px-2 py-1.5" style={inputStyle} />
     </section>)}
-    <div className="flex items-center justify-between"><button type="button" onClick={addDraft} className="flex items-center gap-1 rounded-[5px] px-2 py-1.5 text-[12px]" style={{ color: 'var(--g-accent)' }}><Plus size={13} />添加拆分</button><button type="button" disabled={pending || drafts.length < minimumSplits} onClick={() => void save()} className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50" style={{ background: 'var(--g-accent)', color: 'var(--g-accent-ink)' }}>{pending ? '保存中…' : groupId ? '保存全部拆分' : '创建多拆分交易'}</button></div>
+    <div className="flex items-center justify-between"><button type="button" onClick={addDraft} className="flex items-center gap-1 rounded-[5px] px-2 py-1.5 text-[12px] text-indigo-600 dark:text-indigo-400"><PlusIcon aria-hidden className="size-3.5" />添加拆分</button><button type="button" disabled={pending || drafts.length < minimumSplits} onClick={() => void save()} className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-500">{pending ? '保存中…' : groupId ? '保存全部拆分' : '创建多拆分交易'}</button></div>
   </div>
 }
 

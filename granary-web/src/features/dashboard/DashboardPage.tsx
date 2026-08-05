@@ -27,11 +27,8 @@ import { topNWithOther } from '../../lib/insight'
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-[10px] p-3.5" style={{ background: 'var(--g-surface)', boxShadow: 'var(--g-shadow)' }}>
-      <div
-        className="mb-3 text-[12px]"
-        style={{ color: 'var(--g-ink-2)', fontWeight: 'var(--g-weight-demibold)', letterSpacing: '.02em' }}
-      >
+    <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-700">
+      <div className="mb-3 text-[13px] font-semibold text-gray-900 dark:text-gray-100">
         {title}
       </div>
       {children}
@@ -95,7 +92,7 @@ export function DashboardPage() {
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {summaryQuery.isError ? (
-          <div className="col-span-full rounded-[10px]" style={{ background: 'var(--g-surface)' }}>
+          <div className="col-span-full rounded-xl bg-white ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-700">
             <ErrorState message="财务汇总加载失败" onRetry={() => void summaryQuery.refetch()} />
           </div>
         ) : summaryQuery.isLoading || !kpis ? (

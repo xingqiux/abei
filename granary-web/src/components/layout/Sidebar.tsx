@@ -13,26 +13,13 @@ export function Sidebar() {
   const navItems: NavItem[] = NAV_ITEMS.map((item) => ({ ...item, badge: badges[item.to] }))
 
   return (
-    <aside
-      className="hidden h-full w-[200px] shrink-0 flex-col md:flex"
-      style={{
-        background: 'var(--g-sidebar-bg)',
-        borderRight: '1px solid var(--g-sidebar-border)',
-      }}
-    >
-      <div className="px-4 pb-5 pt-6">
-        <div style={{ fontFamily: 'var(--g-font-ui)', fontWeight: 'var(--g-weight-demibold)', fontSize: 16, color: 'var(--g-ink)' }}>
-          谷仓
-        </div>
-        <div
-          className="font-num mt-1"
-          style={{ fontSize: 8.5, letterSpacing: '.28em', color: 'var(--g-accent)' }}
-        >
-          GRANARY
-        </div>
+    <aside className="hidden h-full w-64 shrink-0 flex-col border-r border-gray-200 bg-white md:flex dark:border-gray-800 dark:bg-gray-900">
+      <div className="flex h-16 shrink-0 items-center gap-2 px-6">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">谷</span>
+        <div className="text-sm font-semibold text-gray-900 dark:text-white">谷仓 Granary</div>
       </div>
 
-      <nav className="flex flex-col gap-0.5 px-2">
+      <nav className="flex flex-col gap-1 px-3">
         {navItems.map((item) => {
           const active = item.to === '/' ? pathname === '/' : pathname.startsWith(item.to)
           const Icon = item.icon
@@ -40,24 +27,30 @@ export function Sidebar() {
             <Link
               key={item.to}
               to={item.to}
-              className="flex items-center justify-between rounded-[6px] px-2.5 py-1.5 text-[13px] transition-colors"
-              style={{
-                background: active ? 'var(--g-accent)' : 'transparent',
-                color: active ? 'var(--g-accent-ink)' : 'var(--g-ink-2)',
-                fontWeight: active ? 'var(--g-weight-demibold)' : 'var(--g-weight-regular)',
-              }}
+              className={`group flex items-center justify-between gap-x-3 rounded-md p-2 text-sm/6 font-semibold ${
+                active
+                  ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400'
+                  : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white'
+              }`}
             >
-              <span className="flex items-center gap-2">
-                <Icon aria-hidden size={16} strokeWidth={2} color="currentColor" />
+              <span className="flex items-center gap-x-3">
+                <Icon
+                  aria-hidden
+                  className={`size-5 shrink-0 ${
+                    active
+                      ? 'text-indigo-600 dark:text-indigo-400'
+                      : 'text-gray-400 group-hover:text-gray-500 dark:text-gray-500 dark:group-hover:text-gray-400'
+                  }`}
+                />
                 {item.label}
               </span>
               {item.badge && (
                 <span
-                  className="font-num rounded-[4px] px-1.5 text-[10px] leading-[16px]"
-                  style={{
-                    background: item.badge.kind === 'warn' ? 'var(--g-warn)' : 'var(--g-danger)',
-                    color: item.badge.kind === 'warn' ? 'var(--g-accent-ink)' : '#fff',
-                  }}
+                  className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                    item.badge.kind === 'warn'
+                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+                      : 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'
+                  }`}
                 >
                   {item.badge.text}
                 </span>

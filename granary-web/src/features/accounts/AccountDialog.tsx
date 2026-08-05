@@ -92,8 +92,8 @@ export function AccountDialog({
 
   return (
     <Modal open={open} onClose={onClose} title={account ? '编辑账户' : '新建账户'} width={480} footer={<>
-      <button type="button" onClick={onClose} className="rounded-[6px] px-3 py-1.5 text-[12.5px]" style={{ color: 'var(--g-ink-2)' }}>取消</button>
-      <button type="button" disabled={pending} onClick={() => void save()} className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50" style={{ background: 'var(--g-accent)', color: 'var(--g-accent-ink)' }}>{pending ? '保存中...' : '保存'}</button>
+      <button type="button" onClick={onClose} className="rounded-[6px] px-3 py-1.5 text-[12.5px] text-gray-500 dark:text-gray-400">取消</button>
+      <button type="button" disabled={pending} onClick={() => void save()} className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-500">{pending ? '保存中...' : '保存'}</button>
     </>}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="名称"><input autoFocus value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} className="rounded-[6px] px-2.5 py-1.5" style={inputStyle} /></Field>
@@ -105,5 +105,5 @@ export function AccountDialog({
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="flex flex-col gap-1 text-[12px]" style={{ color: 'var(--g-ink-2)' }}><span>{label}</span>{children}</label>
+  return <label className="flex flex-col gap-1 text-[12px] text-gray-500 dark:text-gray-400"><span>{label}</span>{children}</label>
 }

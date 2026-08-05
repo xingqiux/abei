@@ -12,8 +12,7 @@ import { useDialogBehavior } from '../granary/useDialogBehavior'
 const MORE_PATHS: NavPath[] = ['/reconciliation', '/budgets', '/accounts', '/reports', '/settings']
 
 /**
- * 移动端底部弹出 sheet：列出侧栏剩余五个导航项，240ms 上滑入场（规范 §3/§6）。
- * 只在移动端渲染有意义，但组件本身用 `md:hidden` 兜底，避免桌面视口下意外挂载。
+ * 移动端底部弹出 sheet：列出侧栏剩余五个导航项，240ms 上滑入场。
  */
 export function MoreSheet() {
   const open = useMoreSheetStore((s) => s.open)
@@ -36,18 +35,17 @@ export function MoreSheet() {
 
   return createPortal(
     <div className="fixed inset-0 z-[200] md:hidden" role="presentation">
-      <div className="absolute inset-0" style={{ background: 'rgb(0 0 0 / 0.5)' }} onClick={close} />
+      <div className="absolute inset-0 bg-gray-900/50" onClick={close} />
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="更多"
         tabIndex={-1}
-        className="absolute inset-x-0 bottom-0 flex flex-col rounded-t-[10px] pb-[env(safe-area-inset-bottom)]"
-        style={{ background: 'var(--g-surface)', boxShadow: 'var(--g-shadow)', border: '1px solid var(--g-border)', borderBottom: 'none' }}
+        className="absolute inset-x-0 bottom-0 flex flex-col rounded-t-2xl border border-b-0 border-gray-200 bg-white pb-[env(safe-area-inset-bottom)] shadow-xl dark:border-gray-700 dark:bg-gray-900"
       >
-        <div className="mx-auto mt-2.5 h-1 w-9 rounded-full" style={{ background: 'var(--g-border)' }} />
-        <div className="flex flex-col gap-0.5 px-3 py-3">
+        <div className="mx-auto mt-3 h-1 w-9 rounded-full bg-gray-200 dark:bg-gray-700" />
+        <div className="flex flex-col gap-1 px-3 py-3">
           {items.map((item) => {
             const Icon = item.icon
             const badge = badges[item.to]
@@ -56,20 +54,19 @@ export function MoreSheet() {
                 key={item.to}
                 to={item.to}
                 onClick={close}
-                className="flex items-center justify-between rounded-[6px] px-3 py-3 text-[13.5px]"
-                style={{ color: 'var(--g-ink)' }}
+                className="flex items-center justify-between rounded-md px-3 py-3 text-sm font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-800"
               >
-                <span className="flex items-center gap-2.5">
-                  <Icon aria-hidden size={18} strokeWidth={2} color="var(--g-ink-2)" />
+                <span className="flex items-center gap-3">
+                  <Icon aria-hidden className="size-5 text-gray-400" />
                   {item.label}
                 </span>
                 {badge && (
                   <span
-                    className="font-num rounded-[4px] px-1.5 text-[10px] leading-[16px]"
-                    style={{
-                      background: badge.kind === 'warn' ? 'var(--g-warn)' : 'var(--g-danger)',
-                      color: badge.kind === 'warn' ? 'var(--g-accent-ink)' : '#fff',
-                    }}
+                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      badge.kind === 'warn'
+                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+                        : 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'
+                    }`}
                   >
                     {badge.text}
                   </span>

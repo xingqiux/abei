@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FlaskConical, Play } from 'lucide-react'
+import { PlayIcon, SparklesIcon } from '@heroicons/react/24/outline'
 import {
   useRecurrences,
   useRuleGroups,
@@ -106,11 +106,11 @@ export function AutomationPanel() {
 }
 
 function AutomationGroup({ label, loading, error, onRetry, children }: { label: string; loading: boolean; error: boolean; onRetry: () => void; children: React.ReactNode }) {
-  return <section><h3 className="mb-1.5 text-[12px]" style={{ color: 'var(--g-ink-2)' }}>{label}</h3>{loading ? <span className="text-[12px]">加载中…</span> : error ? <div className="flex items-center gap-2 text-[12px]" style={{ color: 'var(--g-danger)' }}><span>加载失败</span><button type="button" onClick={onRetry} style={{ color: 'var(--g-accent)' }}>重试</button></div> : <div className="flex flex-col gap-1">{children}</div>}</section>
+  return <section><h3 className="mb-1.5 text-[12px] text-gray-500 dark:text-gray-400">{label}</h3>{loading ? <span className="text-[12px]">加载中…</span> : error ? <div className="flex items-center gap-2 text-[12px] text-red-600 dark:text-red-400"><span>加载失败</span><button type="button" onClick={onRetry} style={{ color: 'var(--g-accent)' }}>重试</button></div> : <div className="flex flex-col gap-1">{children}</div>}</section>
 }
 
 function RuleRow({ title, active, count, execution, pending, onTest, onTrigger }: { title: string; active?: boolean; count?: number; execution?: ExecutionResult; pending: boolean; onTest: () => void; onTrigger: () => void }) {
-  return <div className="flex min-h-8 items-center gap-2 rounded-[4px] px-2" style={{ background: 'var(--g-surface-2)' }}><span className="min-w-0 flex-1 truncate text-[12.5px]" style={{ color: active === false ? 'var(--g-ink-2)' : 'var(--g-ink)' }}>{title}</span>{count !== undefined && <span className="font-num text-[11px]" style={{ color: 'var(--g-ink-2)' }}>匹配 {count}</span>}{execution && <span className="font-num text-[11px]" title={`${execution.range.start} 至 ${execution.range.end}`} style={{ color: 'var(--g-income)' }}>已执行 {execution.count} · {formatDateTime(execution.completedAt)}</span>}<button type="button" title="测试规则" aria-label={`测试 ${title}`} disabled={active === false || pending} onClick={onTest} className="rounded p-1 disabled:opacity-30" style={{ color: 'var(--g-ink-2)' }}><FlaskConical size={13} /></button><button type="button" title="执行规则" aria-label={`执行 ${title}`} disabled={active === false || pending || count === undefined} onClick={onTrigger} className="rounded p-1 disabled:opacity-30" style={{ color: 'var(--g-accent)' }}><Play size={13} /></button></div>
+  return <div className="flex min-h-8 items-center gap-2 rounded-[4px] px-2" style={{ background: 'var(--g-surface-2)' }}><span className="min-w-0 flex-1 truncate text-[12.5px]" style={{ color: active === false ? 'var(--g-ink-2)' : 'var(--g-ink)' }}>{title}</span>{count !== undefined && <span className="font-num text-[11px] text-gray-500 dark:text-gray-400">匹配 {count}</span>}{execution && <span className="font-num text-[11px]" title={`${execution.range.start} 至 ${execution.range.end}`} style={{ color: 'var(--g-income)' }}>已执行 {execution.count} · {formatDateTime(execution.completedAt)}</span>}<button type="button" title="测试规则" aria-label={`测试 ${title}`} disabled={active === false || pending} onClick={onTest} className="rounded p-1 disabled:opacity-30 text-gray-500 dark:text-gray-400"><SparklesIcon aria-hidden className="size-3.5" /></button><button type="button" title="执行规则" aria-label={`执行 ${title}`} disabled={active === false || pending || count === undefined} onClick={onTrigger} className="rounded p-1 disabled:opacity-30 text-indigo-600 dark:text-indigo-400"><PlayIcon aria-hidden className="size-3.5" /></button></div>
 }
 
 function RecurrenceRow({ recurrence, result, pending, onTrigger }: { recurrence: Recurrence; result?: RecurrenceResult; pending: boolean; onTrigger: () => void }) {
@@ -123,13 +123,13 @@ function RecurrenceRow({ recurrence, result, pending, onTrigger }: { recurrence:
     <div className="rounded-[4px] px-2 py-1.5" style={{ background: 'var(--g-surface-2)' }}>
       <div className="flex min-h-6 items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-[12.5px]" style={{ color: attributes.active === false ? 'var(--g-ink-2)' : 'var(--g-ink)' }}>{attributes.title}</span>
-        <button type="button" title="触发定期交易" aria-label={`触发 ${attributes.title}`} disabled={attributes.active === false || pending} onClick={onTrigger} className="rounded p-1 disabled:opacity-30" style={{ color: 'var(--g-accent)' }}><Play size={13} /></button>
+        <button type="button" title="触发定期交易" aria-label={`触发 ${attributes.title}`} disabled={attributes.active === false || pending} onClick={onTrigger} className="rounded p-1 disabled:opacity-30 text-indigo-600 dark:text-indigo-400"><PlayIcon aria-hidden className="size-3.5" /></button>
       </div>
-      <div className="font-num flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]" style={{ color: 'var(--g-ink-2)' }}>
+      <div className="font-num flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-500 dark:text-gray-400">
         <span>最近 {executionLabel}</span>
         <span>下次 {nextLabel}</span>
         {result && <span style={{ color: 'var(--g-income)' }}>本次生成 {result.ids.length} 个 · {formatDateTime(result.completedAt)}</span>}
-        {result?.ids[0] && <a href={`/transactions?transaction=${encodeURIComponent(result.ids[0])}`} className="font-sans" style={{ color: 'var(--g-accent)' }}>查看生成交易</a>}
+        {result?.ids[0] && <a href={`/transactions?transaction=${encodeURIComponent(result.ids[0])}`} className="font-sans text-indigo-600 dark:text-indigo-400">查看生成交易</a>}
       </div>
     </div>
   )

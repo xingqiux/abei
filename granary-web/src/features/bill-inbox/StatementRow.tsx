@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Pencil, Scissors, X } from 'lucide-react'
+import { CheckIcon, PencilIcon, ScissorsIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import type { BillStatementRow } from '../../api/schemas'
 import { useUpdateBillStatementRow } from '../../api/queries'
 import { CategoryChip } from '../../components/granary/CategoryChip'
@@ -211,7 +211,7 @@ export function StatementRow({
             className="rounded p-1 disabled:opacity-50"
             style={{ color: 'var(--g-accent)' }}
           >
-            <Check size={14} />
+            <CheckIcon aria-hidden className="size-3.5" />
           </button>
           <button
             type="button"
@@ -221,7 +221,7 @@ export function StatementRow({
             className="rounded p-1 disabled:opacity-50"
             style={{ color: 'var(--g-ink-2)' }}
           >
-            <X size={14} />
+            <XMarkIcon aria-hidden className="size-3.5" />
           </button>
         </div>
       </div>
@@ -238,16 +238,16 @@ export function StatementRow({
         onChange={onToggle}
         className="shrink-0 disabled:opacity-30"
       />
-      <span className="font-num w-[48px] shrink-0" style={{ color: 'var(--g-ink-2)' }}>
+      <span className="font-num w-[48px] shrink-0 text-gray-500 dark:text-gray-400">
         {effectiveDate ? formatMonthDay(effectiveDate) : '--'}
       </span>
-      <span className="min-w-0 flex-1 truncate" style={{ color: 'var(--g-ink)' }}>
+      <span className="min-w-0 flex-1 truncate text-gray-900 dark:text-gray-100">
         {rowDescription(a)}
       </span>
       <span className="w-[80px] shrink-0">
         {a.category_name ? <CategoryChip label={a.category_name} /> : null}
       </span>
-      <span className="w-[180px] shrink-0 truncate text-[11.5px]" style={{ color: 'var(--g-ink-2)' }}>
+      <span className="w-[180px] shrink-0 truncate text-[11.5px] text-gray-500 dark:text-gray-400">
         {a.source_name ?? '?'} → {a.destination_name ?? '?'}
       </span>
       <span className="font-num w-[110px] shrink-0 text-right" style={{ color: directionColorVar(a.direction) }}>
@@ -256,8 +256,8 @@ export function StatementRow({
       <span className="flex w-[64px] shrink-0 items-center justify-end gap-0.5">
         {badge && <StatusChip label={badge.label} kind={badge.kind} />}
         {a.status === 'needs_split' && (
-          <button type="button" title="拆分组合支付" aria-label="拆分组合支付" onClick={() => setSplitOpen(true)} className="rounded p-1" style={{ color: 'var(--g-accent)' }}>
-            <Scissors size={13} />
+          <button type="button" title="拆分组合支付" aria-label="拆分组合支付" onClick={() => setSplitOpen(true)} className="rounded p-1 text-indigo-600 dark:text-indigo-400">
+            <ScissorsIcon aria-hidden className="size-3.5" />
           </button>
         )}
         {editable && (
@@ -268,7 +268,7 @@ export function StatementRow({
             className="rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
             style={{ color: 'var(--g-ink-2)' }}
           >
-            <Pencil size={13} />
+            <PencilIcon aria-hidden className="size-3.5" />
           </button>
         )}
       </span>
