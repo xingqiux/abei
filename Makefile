@@ -59,9 +59,13 @@ test: test-web test-backend test-cli
 test-web:
 	cd $(WEB_DIR) && npm run test:run
 
+# test-db 的数据在 tmpfs 里，随容器存活。跑前跑后都清掉，保证每次都是空库开始，
+# 中途失败也不会把半截迁移状态留给下一次。
 test-backend:
 	$(COMPOSE) build backend-test
-	$(COMPOSE) run --rm backend-test
+	@$(COMPOSE) rm -fsv test-db >/dev/null 2>&1 || true
+	@trap '$(COMPOSE) rm -fsv test-db >/dev/null 2>&1 || true' EXIT INT TERM; \
+		$(COMPOSE) run --rm backend-test
 
 test-cli:
 	$(COMPOSE) run --rm cli-test
