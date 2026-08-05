@@ -2,6 +2,12 @@
 
 这是给 JD `xkqq` 服务器准备的最小部署方案：一个 Firefly 应用镜像、一个 PostgreSQL、一个每天跑一次的 Firefly cron 容器。
 
+> **cron 容器只跑 `--create-auto-budgets`，不要改回不带参数的 `firefly-iii:cron`。**
+> 不带参数会执行全部六项，其中 `--create-recurring` 会自动生成定期交易。本项目的
+> 「订阅」建在定期交易上，交易由用户在界面点「记这一笔」手动触发，而定期交易又必须
+> 保持 `active=true` 才允许手动触发，所以一旦自动生成打开，每笔订阅会变成一天两条。
+> 详见 `docs/implementation-plan.md` 的「阶段 0 验证结论」第 2 条。
+
 ## 1. 本地构建镜像
 
 ```bash
@@ -163,17 +169,17 @@ docker compose pull
 docker compose up -d
 ```
 
-## 谷仓 Granary 新前端（granary-web）
+## Abaku 算珠 新前端（abaku-web）
 
 新前端是纯静态 nginx 镜像，构建期**不注入任何令牌**（运行时由 TokenGate 保存到浏览器 localStorage）。
 
 ### 构建推送
 
 ```bash
-cd /Users/youla/proj/firefly-ai-accounting/granary-web
+cd /Users/youla/proj/firefly-ai-accounting/abaku-web
 docker buildx build --platform linux/amd64 \
   --build-arg VITE_LEGACY_URL=https://firefly.xkqq.top \
-  -t docker.xkqq.top/firefly/granary-web:latest \
+  -t docker.xkqq.top/firefly/abaku-web:latest \
   --push .
 ```
 
@@ -184,16 +190,16 @@ docker buildx build --platform linux/amd64 \
 `.env` 追加：
 
 ```text
-GRANARY_WEB_IMAGE=docker.xkqq.top/firefly/granary-web:latest
-GRANARY_WEB_PORT=18002
+ABAKU_WEB_IMAGE=docker.xkqq.top/firefly/abaku-web:latest
+ABAKU_WEB_PORT=18002
 ```
 
-`docker compose up -d granary-web` 后，反向代理把新域名（如 granary.xkqq.top）指向 `127.0.0.1:18002`。
+`docker compose up -d abaku-web` 后，反向代理把新域名（如 abaku.xkqq.top）指向 `127.0.0.1:18002`。
 `/api` 与 `/oauth` 由容器内 nginx 同域反代到 `app` 服务，浏览器无跨域问题；
 旧界面 `firefly.xkqq.top` → `18001` 保留为过渡期兜底。
 
 ### 首次打开
 
 页面会显示令牌设置页（TokenGate）：在旧界面 个人资料 → OAuth → 个人访问令牌 创建一个 PAT，
-粘贴保存即可（存 localStorage，仅本浏览器）。更换令牌：谷仓 设置 → 关于 → 更换 API 令牌。
-回滚：`.env` 里 `GRANARY_WEB_IMAGE` 改回旧 tag 后 `docker compose up -d granary-web`。
+粘贴保存即可（存 localStorage，仅本浏览器）。更换令牌：Abaku 设置 → 关于 → 更换 API 令牌。
+回滚：`.env` 里 `ABAKU_WEB_IMAGE` 改回旧 tag 后 `docker compose up -d abaku-web`。

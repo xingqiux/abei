@@ -20,9 +20,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - project: Granary Web
-            directory: granary-web
-            commands: npm run lint && npm run test:run && npm run build
+          - project: Abaku Web
+            directory: abaku-web
+            commands: npm run lint && npm run test:run && npm run check:colors && npm run build
           - project: Firefly CLI
             directory: firefly-cli
             commands: npm run lint && npm run format:check && npm run test:run && npm run build
@@ -46,6 +46,30 @@ jobs:
       - run: cp .env.example .env
       - run: make test-backend
 
+  e2e:
+    name: Abaku Web Playwright
+    runs-on: ubuntu-latest
+    # 要起真的 Firefly（db + mail + app 三个容器）再跑浏览器，比其他 job 慢，单列一个。
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: abaku-web/package-lock.json
+      - run: npm ci
+        working-directory: abaku-web
+      - run: npx playwright install --with-deps chromium
+        working-directory: abaku-web
+      - run: make test-e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-failure
+          path: abaku-web/test-results/
+          retention-days: 7
+
   images:
     name: Build ${{ matrix.image }} image
     runs-on: ubuntu-latest
@@ -57,8 +81,8 @@ jobs:
           - image: firefly-iii
             context: ./firefly-iii
             target: production
-          - image: granary-web
-            context: ./granary-web
+          - image: abaku-web
+            context: ./abaku-web
             target: runtime
     steps:
       - uses: actions/checkout@v5

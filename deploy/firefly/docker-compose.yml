@@ -20,17 +20,35 @@ services:
       timeout: 5s
       retries: 5
 
-  # 谷仓 Granary 新前端：纯静态 nginx，/api 与 /oauth 同域反代到 app（见 granary-web/nginx.conf）。
+  # Abaku 算珠 新前端：纯静态 nginx，/api 与 /oauth 同域反代到 app（见 abaku-web/nginx.conf）。
   # 反代域名建议指到这个端口；旧界面 app 保留原端口作过渡期兜底。
-  granary-web:
-    image: ${GRANARY_WEB_IMAGE}
+  abaku-web:
+    image: ${ABAKU_WEB_IMAGE}
     restart: unless-stopped
     depends_on:
       app:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${GRANARY_WEB_PORT:-18002}:80"
+      - "127.0.0.1:${ABAKU_WEB_PORT:-18002}:80"
 
+  # 只跑 auto-budget（预算按月自动续期），其余分项一律不跑。
+  #
+  # 不带参数的 firefly-iii:cron 会跑全部六项，其中 --create-recurring 会自动生成
+  # active 的定期交易。我们的「订阅」就是建在定期交易上的，交易由用户在界面点
+  # 「记这一笔」手动触发；定期交易又必须保持 active=true 才允许手动触发
+  # （TriggerController 用 setForce(false)，validRecurrence() 对 active=false 无条件跳过）。
+  # 所以一旦这里跑了 create-recurring，每笔订阅会变成一天两条：手动一条、cron 一条。
+  #
+  # 另外五项对本项目都无意义：download-cer（只记人民币，汇率功能已删）、
+  # check-version（自托管不需要外发版本检查）、send-subscription-warnings
+  # （Firefly 的 Bills 功能未接入）、send-webhook-messages（Webhooks 已删）。
+  #
+  # 带任一分项开关时命令内部的 $doAll 为 false，只跑指定项，见
+  # firefly-iii/app/Console/Commands/Tools/Cron.php:60。
+  #
+  # 注：`auto_budgets` 表目前是空的（前端只在 schema 里透传 auto_budget_* 字段，没有
+  # 创建入口），所以这个容器现在实际上是空转。留着是为了以后启用自动预算时开箱即用；
+  # 若不想要多一个容器，整个 cron 服务可以直接删掉，不影响任何现有功能。
   cron:
     image: ${FIREFLY_IMAGE}
     restart: unless-stopped
@@ -40,7 +58,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: sh -lc 'while true; do php artisan firefly-iii:cron || true; sleep 86400; done'
+    command: sh -lc 'while true; do php artisan firefly-iii:cron --create-auto-budgets || true; sleep 86400; done'
     volumes:
       - ./storage:/var/www/html/storage
 
