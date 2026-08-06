@@ -5,12 +5,8 @@ import { useCreateAccount, useCurrencies, useUpdateAccount } from '../../api/que
 import { Modal } from '../../components/abaku/Modal'
 import { FireflyApiError } from '../../api/client'
 import { showToast } from '../../store/toastStore'
-
-const inputStyle = {
-  background: 'var(--surface-hover)',
-  color: 'var(--text-primary)',
-  border: '1px solid var(--border-subtle)',
-} as const
+import { Button } from '../../components/ui/Button'
+import { Field, Input, Select } from '../../components/ui/Field'
 
 function defaultRole(type: AccountType): string {
   if (type === 'cash') return 'cash'
@@ -31,6 +27,13 @@ function initialForm(type: AccountType, account: Account | null): AccountInput {
   }
 }
 
+function validate(form: AccountInput): { name?: string; currency?: string } {
+  return {
+    name: !form.name.trim() ? '账户名称不能为空' : undefined,
+    currency: !form.currency_code ? '请选择币种' : undefined,
+  }
+}
+
 export function AccountDialog({
   open,
   type,
@@ -43,13 +46,20 @@ export function AccountDialog({
   onClose: () => void
 }) {
   const [form, setForm] = useState<AccountInput>(() => initialForm(type, account))
+  /** 点过保存之后才标红。刚打开就一片红字是在骂人 */
+  const [submitted, setSubmitted] = useState(false)
   const createMutation = useCreateAccount()
   const updateMutation = useUpdateAccount()
   const currenciesQuery = useCurrencies()
   const pending = createMutation.isPending || updateMutation.isPending
 
+  const errors: { name?: string; currency?: string } = submitted ? validate(form) : {}
+
   useEffect(() => {
-    if (open) setForm(initialForm(type, account))
+    if (open) {
+      setForm(initialForm(type, account))
+      setSubmitted(false)
+    }
   }, [account, open, type])
 
   useEffect(() => {
@@ -61,14 +71,9 @@ export function AccountDialog({
   }, [account, currenciesQuery.data, form.currency_code, open])
 
   async function save() {
-    if (!form.name.trim()) {
-      showToast({ kind: 'error', message: '账户名称不能为空' })
-      return
-    }
-    if (!form.currency_code) {
-      showToast({ kind: 'error', message: '请选择币种' })
-      return
-    }
+    setSubmitted(true)
+    // 现算一遍：setSubmitted 要到下一次渲染才生效，这里读 errors 拿到的还是旧值
+    if (Object.values(validate(form)).some(Boolean)) return
     try {
       const input = { ...form, name: form.name.trim() }
       if (account) await updateMutation.mutateAsync({ accountId: account.id, input })
@@ -91,19 +96,47 @@ export function AccountDialog({
       : [['bank', '银行账户'], ['other', '其他资产']]
 
   return (
-    <Modal open={open} onClose={onClose} title={account ? '编辑账户' : '新建账户'} width={480} footer={<>
-      <button type="button" onClick={onClose} className="rounded-[6px] px-3 py-1.5 text-[12.5px] text-[var(--text-secondary)] ">取消</button>
-      <button type="button" disabled={pending} onClick={() => void save()} className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-[var(--brand)] text-white font-semibold shadow-sm hover:bg-[var(--brand-hover)]">{pending ? '保存中...' : '保存'}</button>
-    </>}>
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={account ? '编辑账户' : '新建账户'}
+      width={480}
+      footer={
+        <>
+          <Button variant="secondary" size="md" onClick={onClose}>取消</Button>
+          {/* 不做「填完才能点」：按钮灰着不说明缺什么，点一下把缺口标红更清楚 */}
+          <Button variant="primary" size="md" disabled={pending} onClick={() => void save()}>
+            {pending ? '保存中…' : '保存'}
+          </Button>
+        </>
+      }
+    >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label="名称"><input autoFocus value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} className="rounded-[6px] px-2.5 py-1.5" style={inputStyle} /></Field>
-        <Field label="币种"><select value={form.currency_code ?? ''} disabled={currenciesQuery.isLoading || !!account} onChange={(event) => setForm((current) => ({ ...current, currency_code: event.target.value }))} className="font-mono tabular-nums rounded-[6px] px-2.5 py-1.5" style={inputStyle}><option value="">选择币种...</option>{(currenciesQuery.data?.data ?? []).map((currency) => <option key={currency.id} value={currency.attributes.code}>{currency.attributes.code} · {currency.attributes.name}</option>)}</select></Field>
-        <Field label="账户角色"><select value={form.account_role} onChange={(event) => setForm((current) => ({ ...current, account_role: event.target.value }))} className="rounded-[6px] px-2.5 py-1.5" style={inputStyle}>{roles.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+        <Field label="名称" error={errors.name}>
+          <Input autoFocus value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+        </Field>
+        {/* 币种建号后不能改（Firefly 不允许换币种），所以直接说明，而不是让人点了没反应 */}
+        <Field label="币种" error={errors.currency} hint={account ? '账户建好后不能改币种' : undefined}>
+          <Select
+            className="font-mono tabular-nums"
+            value={form.currency_code ?? ''}
+            disabled={currenciesQuery.isLoading || !!account}
+            onChange={(event) => setForm((current) => ({ ...current, currency_code: event.target.value }))}
+          >
+            <option value="">选择币种…</option>
+            {(currenciesQuery.data?.data ?? []).map((currency) => (
+              <option key={currency.id} value={currency.attributes.code}>
+                {currency.attributes.code} · {currency.attributes.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="账户角色">
+          <Select value={form.account_role} onChange={(event) => setForm((current) => ({ ...current, account_role: event.target.value }))}>
+            {roles.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </Select>
+        </Field>
       </div>
     </Modal>
   )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)] "><span>{label}</span>{children}</label>
 }

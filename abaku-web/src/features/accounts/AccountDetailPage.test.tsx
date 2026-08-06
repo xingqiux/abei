@@ -91,7 +91,7 @@ function renderPage() {
   )
 }
 
-const confirmInput = () => screen.getByLabelText('输入账户名确认删除')
+const confirmInput = () => screen.getByLabelText('输入账户名确认')
 const deleteButton = () => screen.getByRole('button', { name: '删除账户' })
 
 beforeEach(() => {
@@ -172,7 +172,8 @@ describe('AccountDetailPage 危险区守卫', () => {
     expect(warning).toHaveTextContent('这会同时删除该账户下的 … 笔交易，不可撤销。')
 
     await waitFor(() => expect(warning).toHaveTextContent('这会同时删除该账户下的 42 笔交易，不可撤销。'))
-    expect(warning).toHaveTextContent('请输入账户名「招行储蓄卡」确认后删除。')
+    // 「要一字不差输什么」写在输入框正下方的说明里，不塞进上面那段后果描述
+    expect(screen.getByText('需要一字不差地输入「招行储蓄卡」')).toBeInTheDocument()
     expect(mocks.fireflyFetch).toHaveBeenCalledWith(
       '/api/v1/accounts/7/transactions',
       expect.objectContaining({ start: '2000-01-01', end: '2100-01-01', limit: 1 }),
@@ -236,7 +237,7 @@ describe('AccountDetailPage 概览', () => {
     renderPage()
     await screen.findByRole('heading', { name: '招行储蓄卡' })
 
-    expect(screen.getByText('¥500.00').style.color).toBe('var(--danger)')
+    expect(screen.getByText('¥500.00')).toHaveClass('text-[var(--danger)]')
   })
 
   it('账户加载失败时只给错误态，不渲染危险区', async () => {

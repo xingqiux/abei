@@ -1,9 +1,11 @@
 import { useLayoutEffect, useRef } from 'react'
 import { Link } from '@tanstack/react-router'
+import { XMarkIcon } from '@heroicons/react/20/solid'
 import gsap from 'gsap'
 import { useToastStore, type ToastItem } from '../../store/toastStore'
 import { prefersReducedMotion } from '../../motion/reducedMotion'
 import { LottieIcon, type LottieIconKind } from './LottieIcon'
+import { IconButton } from '../ui/Button'
 
 const ICON_KIND: Record<ToastItem['kind'], LottieIconKind> = {
   success: 'success',
@@ -12,13 +14,20 @@ const ICON_KIND: Record<ToastItem['kind'], LottieIconKind> = {
   inbox: 'inbox',
 }
 
-const BORDER_COLOR: Record<ToastItem['kind'], string> = {
-  success: 'var(--done)',
-  error: 'var(--danger)',
-  loading: 'var(--brand)',
-  inbox: 'var(--attention)',
+/** 左侧竖条颜色：不靠图标一个信号传达「成功还是出错」 */
+const ACCENT: Record<ToastItem['kind'], string> = {
+  success: 'border-l-[var(--done)]',
+  error: 'border-l-[var(--danger)]',
+  loading: 'border-l-[var(--brand-text)]',
+  inbox: 'border-l-[var(--attention-mark)]',
 }
 
+/**
+ * 提示卡片。版式取自 tailwind-plus `overlays/notifications/simple`：
+ * 左图标 / 中文案 / 右关闭，关闭是 XMarkIcon 而不是一个「×」字符
+ * （字符在不同字体下大小和基线都会飘）。
+ * 进场动画留 GSAP，已经处理了 reduced-motion。
+ */
 function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
 
@@ -37,34 +46,26 @@ function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => vo
     <div
       ref={ref}
       role="status"
-      className="flex items-center gap-2.5 rounded-lg bg-[var(--surface-1)] py-2.5 pl-3 pr-3.5 shadow-lg ring-1 ring-[var(--border-subtle)]  "
-      style={{
-        borderLeft: `3px solid ${BORDER_COLOR[toast.kind]}`,
-        minWidth: 260,
-        maxWidth: 360,
-      }}
+      className={`pointer-events-auto flex w-full max-w-sm min-w-[260px] items-start gap-3 rounded-lg border-l-[3px] bg-[var(--surface-2)] p-3 shadow-[var(--shadow-pop)] ring-1 ring-[var(--border-subtle)] ${ACCENT[toast.kind]}`}
     >
-      <LottieIcon kind={ICON_KIND[toast.kind]} size={18} />
-      <div className="flex-1 text-[13px] text-[var(--text-primary)] ">
-      {toast.message}
-      {toast.action && (
-        <Link
-          to={toast.action.to}
-          onClick={onDismiss}
-          className="ml-1 shrink-0 font-semibold text-[var(--brand)] hover:text-[var(--brand-hover)]"
-        >
-          {toast.action.label}
-        </Link>
-      )}
-      </div>
-      <button
-        type="button"
-        onClick={onDismiss}
-        aria-label="关闭"
-        className="shrink-0 text-[13px] leading-none text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] "
-      >
-        ×
-      </button>
+      <span className="mt-0.5 shrink-0">
+        <LottieIcon kind={ICON_KIND[toast.kind]} size={18} />
+      </span>
+      <p className="flex-1 text-sm text-[var(--text-primary)]">
+        {toast.message}
+        {toast.action && (
+          <Link
+            to={toast.action.to}
+            onClick={onDismiss}
+            className="ml-2 font-semibold text-[var(--brand-text)] underline-offset-2 hover:underline"
+          >
+            {toast.action.label}
+          </Link>
+        )}
+      </p>
+      <IconButton label="关闭" className="-m-1 size-6" onClick={onDismiss}>
+        <XMarkIcon aria-hidden className="size-4" />
+      </IconButton>
     </div>
   )
 }
@@ -78,8 +79,7 @@ export function ToastContainer() {
 
   return (
     <div
-      className="fixed right-5 top-5 flex flex-col gap-2"
-      style={{ zIndex: 100 }}
+      className="pointer-events-none fixed top-5 right-5 z-100 flex flex-col items-end gap-2"
       aria-live="polite"
     >
       {toasts.map((toast) => (

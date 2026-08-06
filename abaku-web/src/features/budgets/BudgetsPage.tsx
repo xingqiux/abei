@@ -4,7 +4,12 @@ import { useSearch, useNavigate } from '@tanstack/react-router'
 import { useCreateBudget, useCreateBudgetWithLimit, useCurrencies } from '../../api/queries'
 import { useBudgetsData } from './useBudgetsData'
 import { EmptyState } from '../../components/abaku/EmptyState'
+import { ErrorState } from '../../components/abaku/ErrorState'
 import { Skeleton } from '../../components/abaku/Skeleton'
+import { Button } from '../../components/ui/Button'
+import { Card } from '../../components/ui/Card'
+import { Field, Input, Select } from '../../components/ui/Field'
+import { Tabs } from '../../components/ui/Tabs'
 import { useStaggerIn } from '../../motion/useStaggerIn'
 import { usePageRange } from '../../store/dateRangeStore'
 import { BudgetRow } from './BudgetRow'
@@ -15,34 +20,9 @@ import { Modal } from '../../components/abaku/Modal'
 import { isPositiveDecimal, normalizeDecimalString } from '../../lib/decimal'
 import { SubscriptionsTab } from './SubscriptionsTab'
 
-function TabBar({ active, onChange }: { active: BudgetsTab; onChange: (tab: BudgetsTab) => void }) {
-  return (
-    <div className="flex gap-1 border-b border-[var(--border-subtle)] ">
-      {BUDGETS_TAB_CONFIG.map((tab) => {
-        const isActive = tab.key === active
-        return (
-          <button
-            key={tab.key}
-            type="button"
-            onClick={() => onChange(tab.key)}
-            className="relative px-3 py-2 text-[12.5px]"
-            style={{
-              color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
-              fontWeight: isActive ? '600' : '400',
-            }}
-          >
-            {tab.label}
-            {isActive && <span className="absolute inset-x-0 -bottom-px h-[2px] bg-[var(--brand)] "  />}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
 function ListSkeleton({ rows = 6 }: { rows?: number }) {
   return (
-    <div className="flex flex-col gap-1 p-2">
+    <div className="flex flex-col gap-1 p-2" role="status" aria-label="加载中">
       {Array.from({ length: rows }).map((_, i) => (
         <Skeleton key={i} className="h-8" />
       ))}
@@ -116,35 +96,20 @@ function BudgetsTabContent() {
   return (
     <>
       <div className="mb-2 flex justify-end px-1">
-        <button
-          type="button"
-          onClick={openCreate}
-          className="flex items-center gap-1 rounded-[6px] px-2.5 py-1 text-[12px] bg-[var(--brand)]  text-white font-semibold"
-
-        >
-          <PlusIcon aria-hidden className="size-3.5" />
+        <Button variant="primary" size="sm" onClick={openCreate}>
+          <PlusIcon aria-hidden className="size-4" />
           新建预算
-        </button>
+        </Button>
       </div>
       {budgetsQuery.isLoading ? (
         <ListSkeleton />
       ) : budgetsQuery.isError ? (
-        <div className="px-2 py-8 text-center text-[12.5px] text-[var(--danger)] ">
-          预算加载失败
-          <div className="mt-1 text-[11.5px] text-[var(--text-secondary)] ">
-            {budgetsQuery.error instanceof Error ? budgetsQuery.error.message : '请检查 API 或刷新重试'}
-          </div>
-          <button
-            type="button"
-            onClick={() => void budgetsQuery.refetch()}
-            className="mt-3 rounded-[6px] px-3 py-1.5 text-[12px] bg-[var(--surface-hover)]  text-[var(--text-primary)] "
-
-          >
-            重试
-          </button>
-        </div>
+        <ErrorState
+          message={budgetsQuery.error instanceof Error ? `预算加载失败：${budgetsQuery.error.message}` : '预算加载失败，请检查 API 或刷新重试'}
+          onRetry={() => void budgetsQuery.refetch()}
+        />
       ) : budgets.length === 0 ? (
-        <EmptyState message="还没有预算——点右上角新建，或在 CLI 里创建" />
+        <EmptyState message="还没有预算" actionLabel="新建预算" onAction={openCreate} />
       ) : (
         <div ref={listRef} className="flex flex-col">
           {budgets.map((b) => (
@@ -160,56 +125,44 @@ function BudgetsTabContent() {
         width={400}
         footer={
           <>
-            <button
-              type="button"
-              onClick={() => setCreateOpen(false)}
-              className="rounded-[6px] px-3 py-1.5 text-[12.5px] bg-[var(--surface-hover)]  text-[var(--text-primary)] "
-
-            >
+            <Button variant="secondary" size="md" onClick={() => setCreateOpen(false)}>
               取消
-            </button>
-            <button
-              type="button"
-              disabled={createBudget.isPending || createWithLimit.isPending}
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              disabled={createBudget.isPending || createWithLimit.isPending || !name.trim()}
               onClick={() => void handleCreate()}
-              className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-[var(--brand)]  text-white font-semibold"
-
             >
               {createBudget.isPending || createWithLimit.isPending ? '创建中…' : '创建'}
-            </button>
+            </Button>
           </>
         }
       >
-        <div className="flex flex-col gap-3 text-[12.5px]">
-          <label className="flex flex-col gap-1">
-            <span style={{ color: 'var(--text-secondary)' }}>名称</span>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="rounded-[6px] px-2.5 py-1.5 outline-none bg-[var(--surface-hover)]  text-[var(--text-primary)] "
-              style={{ border: '1px solid var(--border-subtle)' }}
-              autoFocus
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span style={{ color: 'var(--text-secondary)' }}>限额币种</span>
-            <select value={currencyCode} onChange={(event) => setCurrencyCode(event.target.value)} className="font-mono tabular-nums rounded-[6px] px-2.5 py-1.5 outline-none bg-[var(--surface-hover)]  text-[var(--text-primary)] " style={{ border: '1px solid var(--border-subtle)' }}>
+        <div className="flex flex-col gap-3">
+          <Field label="名称">
+            <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
+          <Field label="限额币种">
+            <Select className="font-mono tabular-nums" value={currencyCode} onChange={(event) => setCurrencyCode(event.target.value)}>
               <option value="">选择币种…</option>
-              {(currenciesQuery.data?.data ?? []).filter((currency) => currency.attributes.enabled !== false).map((currency) => <option key={currency.id} value={currency.attributes.code}>{currency.attributes.code} · {currency.attributes.name}</option>)}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">
-            <span style={{ color: 'var(--text-secondary)' }}>
-              当期限额（可选，范围 {range.start} → {range.end}）
-            </span>
-            <input
+              {(currenciesQuery.data?.data ?? [])
+                .filter((currency) => currency.attributes.enabled !== false)
+                .map((currency) => (
+                  <option key={currency.id} value={currency.attributes.code}>
+                    {currency.attributes.code} · {currency.attributes.name}
+                  </option>
+                ))}
+            </Select>
+          </Field>
+          <Field label="当期限额" hint={`可选。作用范围 ${range.start} → ${range.end}`}>
+            <Input
+              className="text-right font-mono tabular-nums"
               value={limitAmount}
               onChange={(e) => setLimitAmount(e.target.value.replace(/[^0-9.]/g, ''))}
               placeholder="如 2000"
-              className="font-mono tabular-nums rounded-[6px] px-2.5 py-1.5 outline-none bg-[var(--surface-hover)]  text-[var(--text-primary)] "
-              style={{ border: '1px solid var(--border-subtle)' }}
             />
-          </label>
+          </Field>
         </div>
       </Modal>
     </>
@@ -233,17 +186,16 @@ export function BudgetsPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-[18px] font-semibold text-[var(--text-primary)] ">
-          预算
-        </h1>
-      </div>
+      <h1 className="text-lg font-semibold text-[var(--text-primary)]">预算</h1>
 
-      <TabBar active={activeTab} onChange={changeTab} />
+      <Tabs
+        aria-label="预算视图"
+        tabs={BUDGETS_TAB_CONFIG.map((tab) => ({ value: tab.key, label: tab.label }))}
+        value={activeTab}
+        onChange={changeTab}
+      />
 
-      <div className="rounded-[10px] p-2 bg-[var(--surface-1)]  shadow-sm">
-        {content}
-      </div>
+      <Card padded={false} className="p-2">{content}</Card>
     </div>
   )
 }

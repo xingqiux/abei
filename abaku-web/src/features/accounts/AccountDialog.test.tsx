@@ -36,7 +36,8 @@ describe('AccountDialog', () => {
     render(<AccountDialog open type="asset" account={null} onClose={mocks.close} />)
 
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
-    expect(mocks.toast).toHaveBeenLastCalledWith({ kind: 'error', message: '账户名称不能为空' })
+    // 校验结果标在字段上，不弹 toast——toast 会飘走，字段旁边的红字不会
+    expect(screen.getByText('账户名称不能为空')).toBeInTheDocument()
     expect(mocks.create).not.toHaveBeenCalled()
 
     fireEvent.change(screen.getByLabelText('名称'), { target: { value: 'Checking' } })

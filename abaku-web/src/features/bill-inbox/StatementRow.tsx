@@ -10,12 +10,17 @@ import { FireflyApiError } from '../../api/client'
 import { directionColorClass, directionSign, isRowSelectable, rowBadge } from './billInboxHelpers'
 import { SplitBillRowDialog } from './SplitBillRowDialog'
 import { isPositiveDecimal, normalizeDecimalString } from '../../lib/decimal'
+import { IconButton } from '../../components/ui/Button'
 
-const inputStyle = {
-  background: 'var(--surface-2)',
-  color: 'var(--text-primary)',
-  border: '1px solid var(--border-subtle)',
-} as const
+/**
+ * 行内编辑器的控件。不能直接用 `Field`——那套是竖排的 label + 控件，
+ * 这里整行只有一行高度，label 只能走 aria-label。所以复用 Field 的
+ * outline 边框写法（聚焦时 1px→2px 不顶动布局），尺寸压到行高。
+ */
+const CELL =
+  'rounded px-1.5 py-0.5 text-xs bg-[var(--surface-2)] text-[var(--text-primary)] ' +
+  'outline-1 -outline-offset-1 outline-[var(--border-strong)] placeholder:text-[var(--text-tertiary)] ' +
+  'focus:outline-2 focus:-outline-offset-2 focus:outline-[var(--focus-ring)]'
 
 function asText(v: unknown): string {
   return typeof v === 'string' ? v : ''
@@ -125,19 +130,31 @@ export function StatementRow({
   }
 
   if (editing) {
+    /** Esc 退出编辑、Enter 保存。挂在容器上而不是逐个 input 上——
+     *  原先只有描述/分类/金额三格挂了，在日期或账户格里按 Esc 没反应。 */
+    function onRowKeyDown(e: React.KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        cancelEdit()
+      }
+      if (e.key === 'Enter' && !(e.target instanceof HTMLButtonElement)) {
+        e.preventDefault()
+        void saveEdit()
+      }
+    }
+
     return (
       <div
         id={`bill-row-${row.id}`}
-        className="flex min-h-8 flex-wrap items-center gap-2 rounded-[4px] px-2 py-1.5 text-[12.5px] bg-[var(--surface-hover)] "
-
+        onKeyDown={onRowKeyDown}
+        className="flex min-h-8 flex-wrap items-center gap-2 rounded bg-[var(--surface-hover)] px-2 py-1.5 text-[12.5px]"
       >
         <span className="w-4 shrink-0" aria-hidden />
         <select
           value={transactionType}
           onChange={(e) => setTransactionType(e.target.value)}
           aria-label="交易类型"
-          className="w-[96px] shrink-0 rounded-[4px] px-1.5 py-0.5 text-[12px] outline-none"
-          style={inputStyle}
+          className={`${CELL} w-[96px] shrink-0`}
         >
           <option value="">类型</option>
           <option value="withdrawal">支出</option>
@@ -149,80 +166,55 @@ export function StatementRow({
           value={date}
           onChange={(e) => setDate(e.target.value)}
           aria-label="交易日期"
-          className="w-[126px] shrink-0 rounded-[4px] px-1.5 py-0.5 text-[12px] outline-none"
-          style={inputStyle}
+          className={`${CELL} w-[126px] shrink-0`}
         />
         <input
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
           aria-label="描述"
-          className="min-w-[120px] flex-1 rounded-[4px] px-1.5 py-0.5 text-[12.5px] outline-none"
-          style={inputStyle}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void saveEdit()
-            if (e.key === 'Escape') cancelEdit()
-          }}
+          className={`${CELL} min-w-[120px] flex-1`}
         />
         <input
           value={category}
           onChange={(e) => setCategory(e.target.value)}
           aria-label="分类"
           placeholder="分类"
-          className="w-[80px] shrink-0 rounded-[4px] px-1.5 py-0.5 text-[12.5px] outline-none"
-          style={inputStyle}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void saveEdit()
-            if (e.key === 'Escape') cancelEdit()
-          }}
+          className={`${CELL} w-[80px] shrink-0`}
         />
         <input
           value={source}
           onChange={(e) => setSource(e.target.value)}
           aria-label="来源账户"
           placeholder="来源账户"
-          className="w-[120px] shrink-0 rounded-[4px] px-1.5 py-0.5 text-[12px] outline-none"
-          style={inputStyle}
+          className={`${CELL} w-[120px] shrink-0`}
         />
         <input
           value={destination}
           onChange={(e) => setDestination(e.target.value)}
           aria-label="目标账户"
           placeholder="目标账户"
-          className="w-[120px] shrink-0 rounded-[4px] px-1.5 py-0.5 text-[12px] outline-none"
-          style={inputStyle}
+          className={`${CELL} w-[120px] shrink-0`}
         />
         <input
           value={amount}
           onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
           aria-label="金额"
-          className="font-mono tabular-nums w-[90px] shrink-0 rounded-[4px] px-1.5 py-0.5 text-right text-[12.5px] outline-none"
-          style={inputStyle}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void saveEdit()
-            if (e.key === 'Escape') cancelEdit()
-          }}
+          inputMode="decimal"
+          className={`${CELL} w-[90px] shrink-0 text-right font-mono tabular-nums`}
         />
         <div className="flex w-[64px] shrink-0 items-center justify-end gap-0.5">
-          <button
-            type="button"
-            aria-label="保存"
+          <IconButton
+            label="保存"
+            variant="soft"
+            className="size-6"
             disabled={updateMutation.isPending}
             onClick={() => void saveEdit()}
-            className="rounded p-1 disabled:opacity-50 text-[var(--brand)] "
-
           >
             <CheckIcon aria-hidden className="size-3.5" />
-          </button>
-          <button
-            type="button"
-            aria-label="取消"
-            disabled={updateMutation.isPending}
-            onClick={cancelEdit}
-            className="rounded p-1 disabled:opacity-50 text-[var(--text-secondary)] "
-
-          >
+          </IconButton>
+          <IconButton label="取消" className="size-6" disabled={updateMutation.isPending} onClick={cancelEdit}>
             <XMarkIcon aria-hidden className="size-3.5" />
-          </button>
+          </IconButton>
         </div>
       </div>
     )
@@ -256,20 +248,19 @@ export function StatementRow({
       <span className="flex w-[64px] shrink-0 items-center justify-end gap-0.5">
         {badge && <StatusChip label={badge.label} kind={badge.kind} />}
         {a.status === 'needs_split' && (
-          <button type="button" title="拆分组合支付" aria-label="拆分组合支付" onClick={() => setSplitOpen(true)} className="rounded p-1 text-[var(--brand)] ">
+          <IconButton label="拆分组合支付" variant="soft" className="size-6" onClick={() => setSplitOpen(true)}>
             <ScissorsIcon aria-hidden className="size-3.5" />
-          </button>
+          </IconButton>
         )}
         {editable && (
-          <button
-            type="button"
-            aria-label="编辑行"
+          // 悬停才显形，但键盘聚焦时必须现出来，否则 Tab 到这里是个隐形按钮
+          <IconButton
+            label="编辑行"
+            className="size-6 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
             onClick={startEdit}
-            className="rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 text-[var(--text-secondary)] "
-
           >
             <PencilIcon aria-hidden className="size-3.5" />
-          </button>
+          </IconButton>
         )}
       </span>
       <SplitBillRowDialog row={row} open={splitOpen} onClose={() => setSplitOpen(false)} />

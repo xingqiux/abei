@@ -99,11 +99,12 @@ describe('TodayPage 有待办时首屏列待办', () => {
 
     const items = within(hero()).getAllByRole('link')
     expect(items).toHaveLength(4)
+    // 行尾那个箭头现在是 svg 图标（aria-hidden），不再是「→」字符
     expect(items.map((el) => el.textContent)).toEqual([
-      '待审账单3→',
-      '待验证码1→',
-      '未对账2→',
-      '本月待付订阅2→',
+      '待审账单3',
+      '待验证码1',
+      '未对账2',
+      '本月待付订阅2',
     ])
     expect(items[0]).toHaveAttribute('href', '/bill-inbox')
     expect(items[2]).toHaveAttribute('href', '/reconciliation')
@@ -182,15 +183,15 @@ describe('TodayPage 待办清空 + 有预算', () => {
     render(<TodayPage />)
 
     const amount = screen.getByText('-¥500.00')
-    expect(amount.style.color).toBe('var(--attention)')
-    expect(amount.style.color).not.toBe('var(--danger)')
+    expect(amount).toHaveClass('text-[var(--attention)]')
+    expect(amount).not.toHaveClass('text-[var(--danger)]')
     expect(screen.getByText('已花 ¥2,500.00')).toBeInTheDocument()
   })
 
   it('没超预算时大数字用正文色', () => {
     render(<TodayPage />)
 
-    expect(screen.getByText('¥1,500.00').style.color).toBe('var(--text-primary)')
+    expect(screen.getByText('¥1,500.00')).toHaveClass('text-[var(--text-primary)]')
   })
 })
 

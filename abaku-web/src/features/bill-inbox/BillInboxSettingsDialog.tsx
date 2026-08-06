@@ -4,12 +4,9 @@ import { useBillInboxSettings, useUpdateBillInboxSettings } from '../../api/quer
 import type { BillInboxSettingsInput } from '../../api/firefly'
 import { FireflyApiError } from '../../api/client'
 import { showToast } from '../../store/toastStore'
-
-const fieldStyle = {
-  background: 'var(--surface-hover)',
-  color: 'var(--text-primary)',
-  border: '1px solid var(--border-subtle)',
-} as const
+import { Button } from '../../components/ui/Button'
+import { Field, Input, Select } from '../../components/ui/Field'
+import { InlineError } from '../../components/abaku/ErrorState'
 
 const EMPTY: BillInboxSettingsInput = {
   enabled: false,
@@ -28,10 +25,14 @@ export function BillInboxSettingsDialog({ open, onClose }: { open: boolean; onCl
   const mutation = useUpdateBillInboxSettings()
   const [form, setForm] = useState<BillInboxSettingsInput>(EMPTY)
   const [initialized, setInitialized] = useState(false)
+  /** 点过保存之后才标红。刚打开就一片红字是在骂人 */
+  const [submitted, setSubmitted] = useState(false)
+  const hasPassword = query.data?.data.attributes.has_password ?? false
 
   useEffect(() => {
     if (!open) {
       setInitialized(false)
+      setSubmitted(false)
       return
     }
     if (initialized || query.isFetching || query.isError) return
@@ -55,8 +56,36 @@ export function BillInboxSettingsDialog({ open, onClose }: { open: boolean; onCl
     setForm((current) => ({ ...current, [key]: value }))
   }
 
+  /**
+   * 启用时才校验：没启用的邮箱可以留一堆空格子存着。
+   * 校验结果就地挂在对应格子下（Field 的 error），不再是提交后弹一条 toast——
+   * toast 不告诉你是哪一格错了。
+   */
+  const errors: Partial<Record<keyof BillInboxSettingsInput, string>> = {}
+  if (submitted && form.enabled) {
+    if (!form.email?.trim()) errors.email = '启用后必须填邮箱地址'
+    else if (!form.email.includes('@')) errors.email = '邮箱地址格式不对'
+    if (!form.username?.trim()) errors.username = '启用后必须填用户名'
+    if (form.provider === 'imap') {
+      if (!form.host?.trim()) errors.host = 'IMAP 必须填主机'
+      if (!form.port || form.port < 1 || form.port > 65535) errors.port = '端口需在 1–65535 之间'
+    }
+    if (!hasPassword && !form.password?.trim()) errors.password = '首次启用必须填密码'
+  }
+  const hasErrors = Object.keys(errors).length > 0
+
   async function save() {
     if (!initialized || !query.data || query.isError || query.isLoading) return
+    setSubmitted(true)
+    // 上面的 errors 是这次渲染算出来的，submitted 还是 false，所以这里重算一遍
+    if (form.enabled) {
+      const emailBad = !form.email?.trim() || !form.email.includes('@')
+      const imapBad = form.provider === 'imap' && (!form.host?.trim() || !form.port || form.port < 1 || form.port > 65535)
+      if (emailBad || imapBad || !form.username?.trim() || (!hasPassword && !form.password?.trim())) {
+        showToast({ kind: 'error', message: '请先补全标红的字段' })
+        return
+      }
+    }
     try {
       await mutation.mutateAsync({
         ...form,
@@ -73,7 +102,7 @@ export function BillInboxSettingsDialog({ open, onClose }: { open: boolean; onCl
     }
   }
 
-  const hasPassword = query.data?.data.attributes.has_password ?? false
+  const isGmail = form.provider === 'gmail'
 
   return (
     <Modal
@@ -83,77 +112,73 @@ export function BillInboxSettingsDialog({ open, onClose }: { open: boolean; onCl
       width={560}
       footer={
         <>
-          <button type="button" onClick={onClose} className="rounded-[6px] px-3 py-1.5 text-[12.5px] text-[var(--text-secondary)] ">
+          <Button variant="secondary" size="md" onClick={onClose}>
             取消
-          </button>
-          <button
-            type="button"
-            disabled={mutation.isPending || !initialized || query.isLoading || query.isError || !query.data}
+          </Button>
+          <Button
+            variant="primary"
+            size="md"
+            disabled={mutation.isPending || !initialized || query.isLoading || query.isError || !query.data || hasErrors}
             onClick={() => void save()}
-            className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-[var(--brand)]  text-white"
-
           >
             {mutation.isPending ? '保存中…' : '保存'}
-          </button>
+          </Button>
         </>
       }
     >
       {query.isError ? (
-        <div className="flex items-center justify-between gap-3 py-4 text-[12.5px] text-[var(--danger)] ">
-          <span>邮箱设置加载失败</span>
-          <button type="button" onClick={() => void query.refetch()} style={{ color: 'var(--brand)' }}>重试</button>
-        </div>
+        <InlineError message="邮箱设置加载失败" onRetry={() => void query.refetch()} />
       ) : !initialized ? (
-        <div role="status" className="py-4 text-[12.5px] text-[var(--text-secondary)] ">邮箱设置加载中…</div>
+        <div role="status" className="py-4 text-sm text-[var(--text-secondary)]">邮箱设置加载中…</div>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <label className="flex items-center gap-2 sm:col-span-2 text-[12.5px] text-[var(--text-primary)] ">
-            <input type="checkbox" checked={form.enabled ?? false} onChange={(event) => set('enabled', event.target.checked)} />
+          <label className="flex items-center gap-2 text-sm text-[var(--text-primary)] sm:col-span-2">
+            <input
+              type="checkbox"
+              className="accent-[var(--brand)]"
+              checked={form.enabled ?? false}
+              onChange={(event) => set('enabled', event.target.checked)}
+            />
             启用账单邮箱
           </label>
-          <Field label="提供商">
-            <select value={form.provider} onChange={(event) => set('provider', event.target.value as 'gmail' | 'imap')} className="rounded-[6px] px-2.5 py-1.5" style={fieldStyle}>
+          <Field label="提供商" hint={isGmail ? 'Gmail 的主机与加密方式固定' : undefined}>
+            <Select value={form.provider} onChange={(event) => set('provider', event.target.value as 'gmail' | 'imap')}>
               <option value="gmail">Gmail</option>
               <option value="imap">IMAP</option>
-            </select>
+            </Select>
           </Field>
-          <Field label="邮箱地址">
-            <input type="email" value={form.email ?? ''} onChange={(event) => set('email', event.target.value)} className="rounded-[6px] px-2.5 py-1.5" style={fieldStyle} />
+          <Field label="邮箱地址" error={errors.email}>
+            <Input type="email" autoComplete="email" value={form.email ?? ''} onChange={(event) => set('email', event.target.value)} />
           </Field>
-          <Field label="主机">
-            <input value={form.host ?? ''} onChange={(event) => set('host', event.target.value)} disabled={form.provider === 'gmail'} className="rounded-[6px] px-2.5 py-1.5 disabled:opacity-60" style={fieldStyle} />
+          <Field label="主机" error={errors.host}>
+            <Input value={form.host ?? ''} onChange={(event) => set('host', event.target.value)} disabled={isGmail} />
           </Field>
-          <Field label="端口">
-            <input type="number" min={1} max={65535} value={form.port ?? ''} onChange={(event) => set('port', Number(event.target.value))} disabled={form.provider === 'gmail'} className="font-mono tabular-nums rounded-[6px] px-2.5 py-1.5 disabled:opacity-60" style={fieldStyle} />
+          <Field label="端口" error={errors.port}>
+            <Input type="number" min={1} max={65535} className="font-mono tabular-nums" value={form.port ?? ''} onChange={(event) => set('port', Number(event.target.value))} disabled={isGmail} />
           </Field>
           <Field label="加密">
-            <select value={form.encryption} onChange={(event) => set('encryption', event.target.value as 'none' | 'ssl' | 'tls' | 'starttls')} disabled={form.provider === 'gmail'} className="rounded-[6px] px-2.5 py-1.5 disabled:opacity-60" style={fieldStyle}>
+            <Select value={form.encryption} onChange={(event) => set('encryption', event.target.value as 'none' | 'ssl' | 'tls' | 'starttls')} disabled={isGmail}>
               <option value="ssl">SSL</option>
               <option value="tls">TLS</option>
               <option value="starttls">STARTTLS</option>
               <option value="none">无</option>
-            </select>
+            </Select>
           </Field>
           <Field label="文件夹">
-            <input value={form.folder ?? ''} onChange={(event) => set('folder', event.target.value)} className="rounded-[6px] px-2.5 py-1.5" style={fieldStyle} />
+            <Input value={form.folder ?? ''} onChange={(event) => set('folder', event.target.value)} />
           </Field>
-          <Field label="用户名">
-            <input value={form.username ?? ''} onChange={(event) => set('username', event.target.value)} className="rounded-[6px] px-2.5 py-1.5" style={fieldStyle} />
+          <Field label="用户名" error={errors.username}>
+            <Input autoComplete="username" value={form.username ?? ''} onChange={(event) => set('username', event.target.value)} />
           </Field>
-          <Field label={hasPassword ? '替换密码' : '密码'}>
-            <input type="password" autoComplete="new-password" value={form.password ?? ''} onChange={(event) => set('password', event.target.value)} placeholder={hasPassword ? '留空保持不变' : ''} className="rounded-[6px] px-2.5 py-1.5" style={fieldStyle} />
+          <Field
+            label={hasPassword ? '替换密码' : '密码'}
+            error={errors.password}
+            hint={hasPassword ? '留空保持不变' : undefined}
+          >
+            <Input type="password" autoComplete="new-password" value={form.password ?? ''} onChange={(event) => set('password', event.target.value)} />
           </Field>
         </div>
       )}
     </Modal>
-  )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)] ">
-      <span>{label}</span>
-      {children}
-    </label>
   )
 }

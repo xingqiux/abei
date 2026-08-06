@@ -13,9 +13,13 @@ import { formatDateTime, formatSignedAmount, semanticOf } from '../../lib/format
 import { LottieIcon } from '../../components/abaku/LottieIcon'
 import { prefersReducedMotion } from '../../motion/reducedMotion'
 import { useDialogBehavior } from '../../components/abaku/useDialogBehavior'
+import { InlineError } from '../../components/abaku/ErrorState'
 import { toTransactionGroupView } from '../../lib/transactionGroup'
 
 const RECORD_KEYWORDS = ['记一笔', '记账', '新增交易', 'record', 'add', '+']
+
+const LISTBOX_ID = 'command-palette-listbox'
+const optionId = (index: number) => `command-palette-option-${index}`
 
 interface ActionItem {
   key: 'action'
@@ -247,9 +251,9 @@ export function CommandPalette() {
   const accountTotal = accountSearchQuery.data?.meta?.pagination?.total ?? accountSearchItems.length
 
   return createPortal(
+    // 手机上顶到 10vh：软键盘一弹起来会吃掉大半个屏，25vh 起跳的话结果列表基本都在键盘底下
     <div
-      className="fixed inset-0 z-[300] flex justify-center p-4"
-      style={{ background: 'rgb(0 0 0 / 0.5)', paddingTop: '25vh' }}
+      className="fixed inset-0 z-[300] flex justify-center bg-black/50 p-4 pt-[10vh] sm:pt-[25vh]"
       onClick={close}
       role="presentation"
     >
@@ -260,10 +264,12 @@ export function CommandPalette() {
         aria-label="命令面板"
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        className="flex h-fit max-h-[60vh] w-full max-w-[560px] flex-col rounded-xl bg-[var(--surface-1)] shadow-2xl ring-1 ring-[var(--border-subtle)]  "
+        className="flex h-fit max-h-[60vh] w-full max-w-[560px] flex-col rounded-xl bg-[var(--surface-1)] shadow-2xl ring-1 ring-[var(--border-subtle)]"
       >
-        <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-4 py-3 ">
+        <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-4 py-3">
           <MagnifyingGlassIcon aria-hidden className="size-4 text-[var(--text-tertiary)]" />
+          {/* combobox + activedescendant：上下键移动的是「高亮」而不是焦点，
+              不这么标读屏只会念输入框，完全不知道当前停在哪一条 */}
           <input
             ref={inputRef}
             value={query}
@@ -271,14 +277,19 @@ export function CommandPalette() {
             onKeyDown={handleInputKeyDown}
             placeholder="搜索交易、跳转页面、记一笔…"
             aria-label="命令面板搜索"
-            className="w-full bg-transparent text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)] "
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={flatItems.length > 0}
+            aria-controls={LISTBOX_ID}
+            aria-activedescendant={flatItems.length > 0 ? optionId(activeIndex) : undefined}
+            className="w-full bg-transparent text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
           />
-          <kbd className="shrink-0 rounded border border-[var(--border-strong)] px-1.5 py-0.5 font-sans text-[10px] text-[var(--text-tertiary)] ">
+          <kbd className="shrink-0 rounded border border-[var(--border-strong)] px-1.5 py-0.5 font-sans text-[10px] text-[var(--text-tertiary)]">
             Esc
           </kbd>
         </div>
 
-        <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1.5">
+        <div ref={listRef} id={LISTBOX_ID} role="listbox" aria-label="命令面板结果" className="min-h-0 flex-1 overflow-y-auto py-1.5">
           {actionItems.length > 0 && (
             <PaletteSection label="动作">
               {actionItems.map((item) => (
@@ -313,29 +324,24 @@ export function CommandPalette() {
 
           {(showSearchSection || searchQuery.isError || searchCountQuery.isError) && (
             <PaletteSection label={`搜索交易组${searchCountQuery.data ? ` · ${searchCountQuery.data.count}` : ''}`} loading={searchQuery.isFetching || searchCountQuery.isFetching}>
-              {(searchQuery.isError || searchCountQuery.isError) && <SearchError label="交易搜索失败" onRetry={() => { void searchQuery.refetch(); void searchCountQuery.refetch() }} />}
+              {(searchQuery.isError || searchCountQuery.isError) && (
+                <div className="mx-3">
+                  <InlineError message="交易搜索失败" onRetry={() => { void searchQuery.refetch(); void searchCountQuery.refetch() }} />
+                </div>
+              )}
               {searchItems.map((item) => {
                 const idx = indexById.get(item.id) ?? 0
-                const active = idx === activeIndex
                 return (
-                  <div
-                    key={item.id}
-                    data-index={idx}
-                    role="option"
-                    aria-selected={active}
-                    onMouseEnter={() => setActiveIndex(idx)}
-                    onClick={item.run}
-                    className={`mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 ${active ? 'bg-[var(--surface-hover)] ' : ''}`}
-                  >
+                  <PaletteOption key={item.id} index={idx} active={idx === activeIndex} onSelect={item.run} onHover={() => setActiveIndex(idx)}>
                     <MagnifyingGlassIcon aria-hidden className="size-4 shrink-0 text-[var(--text-tertiary)]" />
-                    <div className="min-w-0 flex-1 truncate text-[13px] text-[var(--text-primary)] ">
+                    <div className="min-w-0 flex-1 truncate text-[13px] text-[var(--text-primary)]">
                       {item.description}
                     </div>
                     <div className="shrink-0 font-mono text-[11px] text-[var(--text-tertiary)]">
                       {formatDateTime(item.date)}
                     </div>
-                    <span className="shrink-0 font-mono text-[13px] text-[var(--text-primary)] ">{item.amountLabel}</span>
-                  </div>
+                    <span className="shrink-0 font-mono text-[13px] text-[var(--text-primary)]">{item.amountLabel}</span>
+                  </PaletteOption>
                 )
               })}
             </PaletteSection>
@@ -343,16 +349,19 @@ export function CommandPalette() {
 
           {searchEnabled && (accountSearchQuery.isFetching || accountSearchItems.length > 0 || accountSearchQuery.isError) && (
             <PaletteSection label={`搜索账户${accountSearchQuery.data ? ` · ${accountTotal}` : ''}`} loading={accountSearchQuery.isFetching}>
-              {accountSearchQuery.isError && <SearchError label="账户搜索失败" onRetry={() => void accountSearchQuery.refetch()} />}
+              {accountSearchQuery.isError && (
+                <div className="mx-3">
+                  <InlineError message="账户搜索失败" onRetry={() => void accountSearchQuery.refetch()} />
+                </div>
+              )}
               {accountSearchItems.map((item) => {
                 const idx = indexById.get(item.id) ?? 0
-                const active = idx === activeIndex
                 return (
-                  <div key={item.id} data-index={idx} role="option" aria-selected={active} onMouseEnter={() => setActiveIndex(idx)} onClick={item.run} className={`mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 ${active ? 'bg-[var(--surface-hover)] ' : ''}`}>
-                    <BanknotesIcon aria-hidden className="size-4 text-[var(--text-tertiary)]" />
-                    <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--text-primary)] ">{item.name}</span>
+                  <PaletteOption key={item.id} index={idx} active={idx === activeIndex} onSelect={item.run} onHover={() => setActiveIndex(idx)}>
+                    <BanknotesIcon aria-hidden className="size-4 shrink-0 text-[var(--text-tertiary)]" />
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--text-primary)]">{item.name}</span>
                     <span className="text-[11px] text-[var(--text-tertiary)]">{item.accountType}</span>
-                  </div>
+                  </PaletteOption>
                 )
               })}
             </PaletteSection>
@@ -370,10 +379,14 @@ export function CommandPalette() {
   )
 }
 
+/**
+ * 分组。listbox 里合法的分组容器是 role="group"，标题那行做成纯装饰
+ * （组名已经由 aria-label 承担），否则读屏会把它当成一个可选项念出来。
+ */
 function PaletteSection({ label, loading, children }: { label: string; loading?: boolean; children: ReactNode }) {
   return (
-    <div className="py-1">
-      <div className="flex items-center gap-1.5 px-4 py-1 text-[10.5px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">
+    <div role="group" aria-label={label} className="py-1">
+      <div aria-hidden className="flex items-center gap-1.5 px-4 py-1 text-[10.5px] font-medium tracking-wider text-[var(--text-tertiary)] uppercase">
         {label}
         {loading && <LottieIcon kind="loading" size={12} />}
       </div>
@@ -382,8 +395,33 @@ function PaletteSection({ label, loading, children }: { label: string; loading?:
   )
 }
 
-function SearchError({ label, onRetry }: { label: string; onRetry: () => void }) {
-  return <div className="mx-3 flex items-center justify-between rounded px-2 py-1.5 text-[11.5px] text-[var(--danger)] "><span>{label}</span><button type="button" onClick={onRetry} className="text-[var(--brand)] ">重试</button></div>
+/** 一个候选项。三处结果列表共用，省得样式和 ARIA 各写各的 */
+function PaletteOption({
+  index,
+  active,
+  onSelect,
+  onHover,
+  children,
+}: {
+  index: number
+  active: boolean
+  onSelect: () => void
+  onHover: () => void
+  children: ReactNode
+}) {
+  return (
+    <div
+      id={optionId(index)}
+      data-index={index}
+      role="option"
+      aria-selected={active}
+      onMouseEnter={onHover}
+      onClick={onSelect}
+      className={`mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 ${active ? 'bg-[var(--surface-hover)]' : ''}`}
+    >
+      {children}
+    </div>
+  )
 }
 
 function PaletteRow({
@@ -402,18 +440,9 @@ function PaletteRow({
   onHover: () => void
 }) {
   return (
-    <div
-      data-index={index}
-      role="option"
-      aria-selected={active}
-      onMouseEnter={onHover}
-      onClick={onSelect}
-      className={`mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 ${active ? 'bg-[var(--surface-hover)] ' : ''}`}
-    >
-      <Icon aria-hidden className={`size-4 ${active ? 'text-[var(--text-primary)] ' : 'text-[var(--text-tertiary)]'}`} />
-      <span className="text-[13px] text-[var(--text-primary)] ">
-        {label}
-      </span>
-    </div>
+    <PaletteOption index={index} active={active} onSelect={onSelect} onHover={onHover}>
+      <Icon aria-hidden className={`size-4 ${active ? 'text-[var(--text-primary)]' : 'text-[var(--text-tertiary)]'}`} />
+      <span className="text-[13px] text-[var(--text-primary)]">{label}</span>
+    </PaletteOption>
   )
 }

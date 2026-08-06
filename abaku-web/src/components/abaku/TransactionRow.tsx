@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { EllipsisHorizontalIcon, EyeIcon, PencilIcon, TrashIcon } from '@heroicons/react/20/solid'
 import type { TransactionSplit } from '../../api/schemas'
@@ -6,6 +5,8 @@ import { txSearch } from '../../routes/transactionSearch'
 import { CategoryChip } from './CategoryChip'
 import { MoneyText } from './MoneyText'
 import { splitFlowLabel, splitSemantic } from '../../lib/transactionGroup'
+import { IconButton } from '../ui/Button'
+import { Dropdown, DropdownDivider, DropdownItem, DROPDOWN_ITEM, MenuItem } from '../ui/Dropdown'
 
 export interface TransactionRowIds {
   groupId: string
@@ -89,6 +90,10 @@ export function TransactionRow({
   )
 }
 
+/**
+ * 行尾的次级操作。原先是手写的 open 状态 + pointerdown 关闭：
+ * 没有键盘上下选、没有 Esc、关闭后焦点也不回到触发器。全部换成 headlessui Menu。
+ */
 function TransactionActions({
   ids,
   onEdit,
@@ -100,43 +105,43 @@ function TransactionActions({
   onDelete?: (ids: TransactionRowIds) => void
   desktop?: boolean
 }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function onPointerDown(event: PointerEvent) {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [open])
-
   return (
-    <div ref={ref} className={`relative shrink-0 ${desktop ? 'opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100' : 'ml-1'}`}>
-      <button type="button" aria-label="交易操作" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="rounded p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] ">
-        <EllipsisHorizontalIcon aria-hidden className="size-4" />
-      </button>
-      {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 min-w-[138px] overflow-hidden rounded-lg bg-[var(--surface-1)] py-1 whitespace-nowrap shadow-lg ring-1 ring-[var(--border-subtle)]  " role="menu">
-          <Link to="/transactions" search={txSearch({ transaction: Number(ids.groupId) })} role="menuitem" className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[13px] text-[var(--text-primary)] hover:bg-[var(--surface-hover)]  " onClick={() => setOpen(false)}>
+    <div
+      className={`shrink-0 ${desktop ? 'opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100' : 'ml-1'}`}
+    >
+      <Dropdown
+        trigger={
+          <IconButton label="交易操作" className="size-6">
+            <EllipsisHorizontalIcon aria-hidden className="size-4" />
+          </IconButton>
+        }
+      >
+        <MenuItem>
+          <Link
+            to="/transactions"
+            search={txSearch({ transaction: Number(ids.groupId) })}
+            className={`${DROPDOWN_ITEM} text-[var(--text-primary)]`}
+          >
             <EyeIcon aria-hidden className="size-3.5 text-[var(--text-tertiary)]" />
             查看详情
           </Link>
-          {onEdit && (
-            <button type="button" role="menuitem" className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[13px] text-[var(--text-primary)] hover:bg-[var(--surface-hover)]  " onClick={() => { setOpen(false); onEdit(ids) }}>
-              <PencilIcon aria-hidden className="size-3.5 text-[var(--text-tertiary)]" />
-              编辑
-            </button>
-          )}
-          {onDelete && (
-            <button type="button" role="menuitem" className="flex w-full items-center gap-2 border-t border-[var(--border-subtle)] px-2.5 py-1.5 text-left text-[13px] text-[var(--danger)] hover:bg-[var(--danger-soft)]   " onClick={() => { setOpen(false); onDelete(ids) }}>
+        </MenuItem>
+        {onEdit && (
+          <DropdownItem onClick={() => onEdit(ids)}>
+            <PencilIcon aria-hidden className="size-3.5 text-[var(--text-tertiary)]" />
+            编辑
+          </DropdownItem>
+        )}
+        {onDelete && (
+          <>
+            <DropdownDivider />
+            <DropdownItem danger onClick={() => onDelete(ids)}>
               <TrashIcon aria-hidden className="size-3.5" />
               移入回收站
-            </button>
-          )}
-        </div>
-      )}
+            </DropdownItem>
+          </>
+        )}
+      </Dropdown>
     </div>
   )
 }

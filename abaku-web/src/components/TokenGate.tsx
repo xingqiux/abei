@@ -10,18 +10,10 @@ import {
 import { useDialogBehavior } from './abaku/useDialogBehavior'
 import { REQUEST_TOKEN_EVENT } from './tokenEvents'
 import { resetUserScopedState } from '../store/resetUserScopedState'
-
-const cardStyle = {
-  background: 'var(--surface-2)',
-  boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.08)',
-  border: '1px solid var(--border-subtle)',
-} as const
-
-const inputStyle = {
-  background: 'var(--surface-hover)',
-  color: 'var(--text-primary)',
-  border: '1px solid var(--border-subtle)',
-} as const
+import { AbakuMark } from './abaku/AbakuMark'
+import { Button } from './ui/Button'
+import { Card } from './ui/Card'
+import { Field, Textarea } from './ui/Field'
 
 export function TokenGate({ children }: { children?: ReactNode }) {
   const [open, setOpen] = useState(() => !hasActiveToken())
@@ -76,24 +68,25 @@ export function TokenGate({ children }: { children?: ReactNode }) {
 
   return (
     <div
-      className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-[var(--surface-0)] "
+      className="fixed inset-0 z-[300] flex items-center justify-center bg-[var(--surface-0)] p-4"
       role="dialog"
       aria-modal="true"
       aria-label="设置 API 令牌"
     >
-      <div ref={cardRef} tabIndex={-1} className="flex w-full max-w-[420px] flex-col gap-4 rounded-[10px] p-5" style={cardStyle}>
+      <Card ref={cardRef} tabIndex={-1} className="flex w-full max-w-[420px] flex-col gap-4 p-5">
         <div className="flex flex-col gap-1.5">
-          <div className="text-[15px] font-semibold text-[var(--text-primary)] ">
-            Abaku 算珠
+          <div className="flex items-center gap-2">
+            <AbakuMark className="size-6" />
+            <span className="text-[15px] font-semibold text-[var(--text-primary)]">Abaku 算珠</span>
           </div>
-          <div className="text-[12.5px] leading-relaxed text-[var(--text-secondary)] ">
+          <p className="text-[12.5px] leading-relaxed text-[var(--text-secondary)]">
             需要 Firefly III 个人访问令牌才能继续。在 Firefly III 个人资料 → OAuth → 个人访问令牌 创建，
             粘贴到下面并保存；令牌只保留在当前浏览器会话，不会经过任何第三方服务器。
-          </div>
+          </p>
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <textarea
+        <Field label="个人访问令牌" srOnlyLabel error={error ?? undefined} hint="粘贴后按 Cmd/Ctrl + Enter 也能保存">
+          <Textarea
             value={value}
             onChange={(e) => {
               setValue(e.target.value)
@@ -102,28 +95,17 @@ export function TokenGate({ children }: { children?: ReactNode }) {
             placeholder="粘贴个人访问令牌…"
             rows={5}
             autoFocus
-            className="font-mono tabular-nums w-full resize-none rounded-[6px] px-2.5 py-2 text-[11.5px] outline-none"
-            style={{ ...inputStyle, border: `1px solid ${error ? 'var(--danger)' : 'var(--border-subtle)'}` }}
+            className="resize-none font-mono text-[11.5px] tabular-nums"
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void handleSave()
             }}
           />
-          {error && (
-            <div className="text-[11px] text-[var(--danger)] ">
-              {error}
-            </div>
-          )}
-        </div>
+        </Field>
 
-        <button
-          type="button"
-          onClick={() => void handleSave()}
-          className="w-full rounded-[6px] px-3 py-2 text-[12.5px] bg-[var(--brand)]  text-white font-semibold"
-
-        >
+        <Button variant="primary" size="md" block onClick={() => void handleSave()}>
           保存并继续
-        </button>
-      </div>
+        </Button>
+      </Card>
     </div>
   )
 }

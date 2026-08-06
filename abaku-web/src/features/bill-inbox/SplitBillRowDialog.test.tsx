@@ -73,6 +73,7 @@ describe('SplitBillRowDialog', () => {
     render(<SplitBillRowDialog row={invalidRow} open onClose={mocks.close} />)
 
     expect(screen.getByRole('button', { name: '确认拆分' })).toBeDisabled()
-    expect(screen.getByText(new RegExp(`/ ${amount ?? '--'}$`))).toBeInTheDocument()
+    // 合计行是 role=status（数字分散在子 span 里），按角色取整行再看文本
+    expect(screen.getByRole('status')).toHaveTextContent(`原金额 ${amount ?? '--'}`)
   })
 })

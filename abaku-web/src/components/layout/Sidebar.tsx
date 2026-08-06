@@ -2,11 +2,18 @@ import { Link, useRouterState } from '@tanstack/react-router'
 import { NAV_ITEMS, type NavItemDef } from '../../routes/navItems'
 import { useNavBadges, type NavBadge } from '../../routes/useNavBadges'
 import { AbakuMark } from '../abaku/AbakuMark'
+import { Badge } from '../ui/Badge'
 
 interface NavItem extends NavItemDef {
   badge?: NavBadge
 }
 
+/**
+ * 侧栏导航。结构取自 tailwind-plus `navigation/sidebar-navigation`。
+ *
+ * 选中态用「靛色底 + 靛色字 + 左侧竖条」三重表达，不是只换个背景灰——
+ * 上一版选中项是近白字配深灰底，在深色主题下几乎看不出选了哪一项。
+ */
 export function Sidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const badges = useNavBadges()
@@ -14,18 +21,20 @@ export function Sidebar() {
   const navItems: NavItem[] = NAV_ITEMS.map((item) => ({ ...item, badge: badges[item.to] }))
 
   return (
-    <aside className="hidden h-full w-64 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--surface-1)] md:flex  ">
-      <div className="flex h-16 shrink-0 items-center gap-2 px-6">
-        <span className="flex items-center gap-2">
-          <AbakuMark className="size-6 text-[var(--brand)]" />
-          <span className="flex flex-col leading-none">
-            <span className="text-[13px] font-semibold tracking-tight">Abaku</span>
-            <span className="text-[10px] tracking-[0.28em] text-[var(--text-tertiary)]">算珠</span>
+    <aside className="hidden h-full w-60 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--surface-1)] md:flex">
+      <div className="flex h-16 shrink-0 items-center gap-2.5 px-5">
+        <AbakuMark className="size-6 text-[var(--brand-text)]" />
+        <span className="flex flex-col leading-none">
+          <span className="text-[13px] font-semibold tracking-tight text-[var(--text-primary)]">
+            Abaku
+          </span>
+          <span className="mt-1 text-[10px] tracking-[0.28em] text-[var(--text-tertiary)]">
+            算珠
           </span>
         </span>
       </div>
 
-      <nav className="flex flex-col gap-1 px-3">
+      <nav aria-label="主导航" className="flex flex-col gap-0.5 px-3 py-2">
         {navItems.map((item) => {
           const active = item.to === '/' ? pathname === '/' : pathname.startsWith(item.to)
           const Icon = item.icon
@@ -33,33 +42,35 @@ export function Sidebar() {
             <Link
               key={item.to}
               to={item.to}
-              className={`group flex items-center justify-between gap-x-3 rounded-md p-2 text-sm/6 font-semibold ${
+              aria-current={active ? 'page' : undefined}
+              className={`group relative flex items-center justify-between gap-x-3 rounded-md py-2 pr-2 pl-3 text-sm font-medium transition-colors ${
                 active
-                  ? 'bg-[var(--surface-selected)] text-[var(--brand)]  '
-                  : 'text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]   '
+                  ? 'bg-[var(--brand-soft)] font-semibold text-[var(--brand-text)]'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]'
               }`}
             >
+              {/* 竖条：不依赖颜色也能看出选中，色觉障碍下同样成立 */}
+              {active && (
+                <span
+                  aria-hidden
+                  className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-[var(--brand)]"
+                />
+              )}
               <span className="flex items-center gap-x-3">
                 <Icon
                   aria-hidden
                   className={`size-5 shrink-0 ${
                     active
-                      ? 'text-[var(--brand)] '
+                      ? 'text-[var(--brand-text)]'
                       : 'text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)]'
                   }`}
                 />
                 {item.label}
               </span>
               {item.badge && (
-                <span
-                  className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                    item.badge.kind === 'warn'
-                      ? 'bg-[var(--attention-soft)] text-[var(--attention)]  '
-                      : 'bg-[var(--danger-soft)] text-[var(--danger)]  '
-                  }`}
-                >
+                <Badge tone={item.badge.kind === 'warn' ? 'attention' : 'danger'}>
                   {item.badge.text}
-                </span>
+                </Badge>
               )}
             </Link>
           )

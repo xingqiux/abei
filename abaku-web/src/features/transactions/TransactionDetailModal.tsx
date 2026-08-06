@@ -7,6 +7,7 @@ import { formatDateTime, formatSignedAmount, semanticColorClass, semanticOf } fr
 import { hasReconciledTransactionSplit, toTransactionGroupView } from '../../lib/transactionGroup'
 import { useRecordTxStore } from '../../store/recordTxStore'
 import { buildEditPayload, isEditableTransactionGroup } from '../record-transaction/editPayload'
+import { Button } from '../../components/ui/Button'
 
 const TYPE_LABELS: Record<string, string> = {
   withdrawal: '支出',
@@ -38,14 +39,14 @@ export function TransactionDetailModal({ groupId, onClose }: { groupId: string |
       width={560}
       footer={
         <>
-          <button type="button" onClick={onClose} className="rounded-md bg-[var(--surface-hover)] px-3 py-1.5 text-[13px] text-[var(--text-primary)] hover:bg-[var(--surface-selected)]   ">
+          <Button variant="secondary" size="md" onClick={onClose}>
             关闭
-          </button>
+          </Button>
           {editable && (
-            <button type="button" onClick={edit} className="flex items-center gap-1.5 rounded-md bg-[var(--brand)] px-3 py-1.5 text-[13px] font-semibold text-white shadow-sm hover:bg-[var(--brand-hover)]">
-              <PencilIcon aria-hidden className="size-3.5" />
+            <Button variant="primary" size="md" onClick={edit}>
+              <PencilIcon aria-hidden className="size-4" />
               编辑交易
-            </button>
+            </Button>
           )}
         </>
       }
@@ -69,15 +70,16 @@ export function TransactionDetailModal({ groupId, onClose }: { groupId: string |
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-x-5 gap-y-3 text-[12px]">
+          {/* 键值对走 dl/dt/dd：读屏会把「来源」和它的值当成一对，而不是两段无关文字 */}
+          <dl className="grid grid-cols-2 gap-x-5 gap-y-3 text-xs">
             <Detail label="来源">{first.source_name || '未记录'}</Detail>
             <Detail label="去向">{first.destination_name || '未记录'}</Detail>
             <Detail label="分类">{first.category_name || '未分类'}</Detail>
             <Detail label="标签">{first.tags?.length ? first.tags.join('、') : '无'}</Detail>
-          </div>
+          </dl>
 
           <div>
-            <div className="mb-1 text-[11px] text-[var(--text-secondary)] ">明细{view.splits.length > 1 ? ` · ${view.splits.length} 项` : ''}</div>
+            <div className="mb-1 text-[11px] font-medium text-[var(--text-tertiary)] uppercase">明细{view.splits.length > 1 ? ` · ${view.splits.length} 项` : ''}</div>
             <div className="border-y border-[var(--border-subtle)] ">
               {view.splits.map((split, index) => (
                 <div key={String(split.transaction_journal_id ?? index)} className="flex items-start justify-between gap-3 border-b border-[var(--border-subtle)] py-2.5 last:border-b-0 ">
@@ -100,5 +102,10 @@ export function TransactionDetailModal({ groupId, onClose }: { groupId: string |
 }
 
 function Detail({ label, children }: { label: string; children: string }) {
-  return <div><div className="text-[10.5px] text-[var(--text-secondary)] ">{label}</div><div className="mt-0.5 truncate text-[var(--text-primary)] ">{children}</div></div>
+  return (
+    <div>
+      <dt className="text-[10.5px] text-[var(--text-tertiary)]">{label}</dt>
+      <dd className="mt-0.5 truncate text-[var(--text-primary)]">{children}</dd>
+    </div>
+  )
 }

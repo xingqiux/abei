@@ -189,7 +189,7 @@ describe('AccountsPage 分类页签', () => {
     renderPage()
     await screen.findByText('招行储蓄卡')
 
-    fireEvent.click(screen.getByRole('button', { name: '负债' }))
+    fireEvent.click(screen.getByRole('tab', { name: '负债' }))
 
     await waitFor(() => expect(mocks.fireflyFetch).toHaveBeenCalledWith(
       '/api/v1/accounts',

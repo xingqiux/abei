@@ -39,7 +39,9 @@ describe('ExportPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '导出' }))
 
     expect(mocks.exportData).not.toHaveBeenCalled()
-    expect(mocks.toast).toHaveBeenCalledWith({ kind: 'error', message: '开始日期不能晚于结束日期' })
+    // 报错标在出错的那一格上，不再弹 toast——toast 浮在右上角，看完还得自己找回输入框
+    expect(screen.getByText('开始日期不能晚于结束日期')).toBeInTheDocument()
+    expect(mocks.toast).not.toHaveBeenCalled()
   })
 
   it('passes the selected date range and accounts to the CSV endpoint', async () => {

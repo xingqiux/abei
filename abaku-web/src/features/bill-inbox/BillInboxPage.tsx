@@ -9,7 +9,10 @@ import {
 } from '../../api/queries'
 import { EmptyState } from '../../components/abaku/EmptyState'
 import { Skeleton } from '../../components/abaku/Skeleton'
-import { ErrorState } from '../../components/abaku/ErrorState'
+import { ErrorState, InlineError } from '../../components/abaku/ErrorState'
+import { IconButton } from '../../components/ui/Button'
+import { Card } from '../../components/ui/Card'
+import { Tabs } from '../../components/ui/Tabs'
 import { useStaggerIn } from '../../motion/useStaggerIn'
 import { ChannelCard } from './ChannelCard'
 import { TaskRow } from './TaskRow'
@@ -102,26 +105,27 @@ export function BillInboxPage() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-[18px] font-semibold text-[var(--text-primary)] ">
-          账单收件箱
-        </h1>
+        <h1 className="text-lg font-semibold text-[var(--text-primary)]">账单收件箱</h1>
         <div className="flex flex-wrap items-center gap-1.5">
           {summaryQuery.data && (
-            <div className="mr-2 text-[12.5px] text-[var(--text-secondary)] ">
+            <div className="mr-2 text-sm text-[var(--text-secondary)]">
               共 <span className="font-mono tabular-nums">{summaryQuery.data.pending_total}</span> 条待处理
             </div>
           )}
-          <button type="button" title="处理待处理任务" aria-label="处理待处理任务" disabled={processMutation.isPending} onClick={() => void handleProcess()} className="rounded p-1.5 disabled:opacity-50 text-[var(--brand)] "><PlayIcon aria-hidden className="size-4" /></button>
-          <button type="button" title="清理过期任务" aria-label="清理过期任务" disabled={cleanupMutation.isPending} onClick={() => void handleCleanup()} className="rounded p-1.5 disabled:opacity-50 text-[var(--text-secondary)] "><ArchiveBoxXMarkIcon aria-hidden className="size-4" /></button>
-          <button type="button" title="邮箱设置" aria-label="邮箱设置" onClick={() => setSettingsOpen(true)} className="rounded p-1.5 text-[var(--text-secondary)] "><Cog6ToothIcon aria-hidden className="size-4" /></button>
+          <IconButton label="处理待处理任务" variant="soft" disabled={processMutation.isPending} onClick={() => void handleProcess()}>
+            <PlayIcon aria-hidden className="size-4" />
+          </IconButton>
+          <IconButton label="清理过期任务" disabled={cleanupMutation.isPending} onClick={() => void handleCleanup()}>
+            <ArchiveBoxXMarkIcon aria-hidden className="size-4" />
+          </IconButton>
+          <IconButton label="邮箱设置" onClick={() => setSettingsOpen(true)}>
+            <Cog6ToothIcon aria-hidden className="size-4" />
+          </IconButton>
         </div>
       </div>
 
       {summaryQuery.isError && (
-        <div className="flex items-center justify-between rounded-[6px] px-3 py-2 text-[12px] bg-[var(--surface-1)]  text-[var(--danger)] ">
-          <span>收件箱汇总加载失败</span>
-          <button type="button" onClick={() => void summaryQuery.refetch()} style={{ color: 'var(--brand)' }}>重试</button>
-        </div>
+        <InlineError message="收件箱汇总加载失败" onRetry={() => void summaryQuery.refetch()} />
       )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -139,30 +143,16 @@ export function BillInboxPage() {
             ))}
       </div>
 
-      <div className="flex gap-1 border-b border-[var(--border-subtle)] ">
-        {TAB_CONFIG.map((tab) => {
-          const active = tab.key === activeTab
-          return (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => setActiveTab(tab.key)}
-              className="relative px-3 py-2 text-[12.5px]"
-              style={{
-                color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
-                fontWeight: active ? '600' : '400',
-              }}
-            >
-              {tab.label}
-              {active && <span className="absolute inset-x-0 -bottom-px h-[2px] bg-[var(--brand)] "  />}
-            </button>
-          )
-        })}
-      </div>
+      <Tabs
+        aria-label="账单任务状态"
+        tabs={TAB_CONFIG.map((tab) => ({ value: tab.key, label: tab.label }))}
+        value={activeTab}
+        onChange={setActiveTab}
+      />
 
-      <div className="rounded-[10px] p-2 bg-[var(--surface-1)]  shadow-sm">
+      <Card padded={false} className="p-2">
         {isLoading ? (
-          <div className="flex flex-col gap-1 p-2">
+          <div className="flex flex-col gap-1 p-2" role="status" aria-label="账单任务加载中">
             {Array.from({ length: 8 }).map((_, i) => (
               <Skeleton key={i} className="h-8" />
             ))}
@@ -190,8 +180,7 @@ export function BillInboxPage() {
             })}
           </div>
         )}
-
-      </div>
+      </Card>
 
       <BillInboxSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>

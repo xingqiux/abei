@@ -7,6 +7,9 @@ import { Skeleton } from '../../components/abaku/Skeleton'
 import { EmptyState } from '../../components/abaku/EmptyState'
 import { ErrorState } from '../../components/abaku/ErrorState'
 import type { Recurrence } from '../../api/schemas'
+import { Badge } from '../../components/ui/Badge'
+import { Button } from '../../components/ui/Button'
+import { StackedList, StackedListItem } from '../../components/ui/Card'
 
 function dueLabel(d: Date | null): string {
   if (!d) return '暂无计划'
@@ -86,7 +89,7 @@ export function SubscriptionsTab() {
   }
 
   return (
-    <div className="flex flex-col">
+    <StackedList>
       {list.map((r) => {
         const next = nextOccurrence(r)
         const tx = r.attributes.transactions[0]
@@ -94,10 +97,10 @@ export function SubscriptionsTab() {
         const done = recorded.has(r.id)
         const pending = triggeringId === r.id
         return (
-          <div key={r.id} className="flex min-h-10 items-center gap-3 border-b border-[var(--border-subtle)] px-2 py-2 last:border-b-0">
+          <StackedListItem key={r.id} className="min-h-10">
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="truncate text-[13px] font-semibold text-[var(--text-primary)] ">{r.attributes.title}</span>
-              <span className="truncate text-[11px] text-[var(--text-secondary)] ">
+              <span className="truncate text-[13px] font-semibold text-[var(--text-primary)]">{r.attributes.title}</span>
+              <span className="truncate text-[11px] text-[var(--text-secondary)]">
                 {tx ? `${tx.source_name ?? '?'} → ${tx.destination_name ?? '?'}` : '未配置账户模板'}
                 {tx?.category_name ? ` · ${tx.category_name}` : ''}
               </span>
@@ -105,27 +108,27 @@ export function SubscriptionsTab() {
             <div className="hidden w-[150px] shrink-0 text-right text-[11.5px] text-[var(--text-secondary)] sm:block">
               {dueLabel(next)}
             </div>
-            <div className="w-[92px] shrink-0 text-right font-mono tabular-nums text-[13px] text-[var(--text-primary)] ">
+            <div className="w-[92px] shrink-0 text-right font-mono text-[13px] tabular-nums text-[var(--text-primary)]">
               {amount}
             </div>
             <div className="w-[88px] shrink-0 text-right">
               {done ? (
-                <span className="text-[11.5px] text-[var(--text-secondary)] ">本期已记</span>
+                <Badge tone="done">本期已记</Badge>
               ) : (
-                <button
-                  type="button"
+                <Button
+                  variant="primary"
+                  size="sm"
                   disabled={pending || r.attributes.active === false}
                   onClick={() => void record(r)}
                   title={r.attributes.active === false ? '停用的定期交易不能手动触发' : undefined}
-                  className="rounded-md bg-[var(--brand)] px-2.5 py-1.5 text-[12px] font-semibold text-[var(--brand-on)] hover:bg-[var(--brand-hover)] disabled:opacity-50"
                 >
                   {pending ? '记录中…' : '记这一笔'}
-                </button>
+                </Button>
               )}
             </div>
-          </div>
+          </StackedListItem>
         )
       })}
-    </div>
+    </StackedList>
   )
 }

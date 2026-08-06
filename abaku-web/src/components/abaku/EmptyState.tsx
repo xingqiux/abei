@@ -3,6 +3,7 @@ import { lottieArt, type LottieArtName } from '../../assets/lottie'
 import { AbakuMark } from './AbakuMark'
 import { LottieArt } from './LottieArt'
 import { LottieIcon, type LottieIconKind } from './LottieIcon'
+import { Button } from '../ui/Button'
 
 export function EmptyState({
   icon = <AbakuMark className="size-8" />,
@@ -39,15 +40,11 @@ export function EmptyState({
       ) : (
         <div className="h-10">{staticIcon}</div>
       )}
-      <div className="text-[13px] text-[var(--text-secondary)] ">{message}</div>
+      <p className="max-w-sm text-sm text-[var(--text-secondary)]">{message}</p>
       {actionLabel && (
-        <button
-          type="button"
-          onClick={onAction}
-          className="rounded-md bg-[var(--brand)] px-3 py-1.5 text-[13px] font-semibold text-[var(--brand-on)] shadow-sm hover:bg-[var(--brand-hover)]"
-        >
+        <Button variant="primary" size="sm" onClick={onAction}>
           {actionLabel}
-        </button>
+        </Button>
       )}
     </div>
   )

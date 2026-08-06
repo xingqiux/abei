@@ -2,6 +2,7 @@ import { Modal } from './Modal'
 import type { TransactionSplit } from '../../api/schemas'
 import { toTransactionGroupView } from '../../lib/transactionGroup'
 import { formatAmount } from '../../lib/format'
+import { Button } from '../ui/Button'
 
 /**
  * 移入回收站确认框：正文展示描述和金额。
@@ -25,22 +26,12 @@ export function DeleteTransactionDialog({
 
   const footer = (
     <>
-      <button
-        type="button"
-        disabled={pending}
-        onClick={onClose}
-        className="rounded-md bg-[var(--surface-hover)] px-3 py-1.5 text-[13px] text-[var(--text-primary)] hover:bg-[var(--surface-selected)] disabled:opacity-50   "
-      >
+      <Button variant="secondary" size="md" disabled={pending} onClick={onClose}>
         取消
-      </button>
-      <button
-        type="button"
-        disabled={pending}
-        onClick={onConfirm}
-        className="rounded-md bg-[var(--danger)] px-3 py-1.5 text-[13px] font-semibold text-white shadow-sm hover:bg-[var(--danger-hover)] disabled:opacity-50"
-      >
+      </Button>
+      <Button variant="danger" size="md" disabled={pending} onClick={onConfirm}>
         {pending ? '移动中…' : '移入回收站'}
-      </button>
+      </Button>
     </>
   )
 

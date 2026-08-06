@@ -3,6 +3,9 @@ import { ChevronDownIcon } from '@heroicons/react/20/solid'
 import gsap from 'gsap'
 import { Modal } from '../../components/abaku/Modal'
 import { Combobox, type ComboboxItem } from '../../components/abaku/Combobox'
+import { SegmentedControl } from '../../components/ui/SegmentedControl'
+import { Button } from '../../components/ui/Button'
+import { Field, Input, Select, Textarea } from '../../components/ui/Field'
 import {
   useAssetAccounts,
   useAutocompleteAccounts,
@@ -67,15 +70,12 @@ function todayInput(): string {
   return toDateInputValue(new Date())
 }
 
-const fieldLabelStyle = { color: 'var(--text-secondary)', fontSize: 11 } as const
-const errorStyle = { color: 'var(--danger)', fontSize: 11 } as const
+const MORE_PANEL_ID = 'record-tx-more-options'
 
-function inputStyle(hasError?: string) {
-  return {
-    background: 'var(--surface-hover)',
-    color: 'var(--text-primary)',
-    border: `1px solid ${hasError ? 'var(--danger)' : 'var(--border-subtle)'}`,
-  }
+/** 关掉表单前要确认放弃的那次点击。存下提示语和确认后要做的事 */
+interface DiscardIntent {
+  message: string
+  confirm: () => void
 }
 
 /**
@@ -110,6 +110,7 @@ export function RecordTransactionModal() {
   const [errors, setErrors] = useState<FieldErrors>({})
   const [multiSplitDirty, setMultiSplitDirty] = useState(false)
   const [createMode, setCreateMode] = useState<'single' | 'split'>('single')
+  const [discard, setDiscard] = useState<DiscardIntent | null>(null)
 
   const [descQuery, setDescQuery] = useState('')
   const [sourceAcQuery, setSourceAcQuery] = useState('')
@@ -256,22 +257,41 @@ export function RecordTransactionModal() {
     return amount.trim() !== '' || description.trim() !== ''
   }
 
-  function handleRequestClose() {
-    if (showMultiSplitEditor) {
-      if ((multiSplitDirty || isDirty()) && !window.confirm('放弃已修改的拆分内容？')) return
-      setMultiSplitDirty(false)
-      resetAll()
-      close()
-      return
-    }
-    if (isDirty() && !window.confirm(isEdit ? '放弃已修改的内容？' : '放弃已填写的记一笔内容？')) return
+  function discardAndClose() {
+    setMultiSplitDirty(false)
     resetAll()
     close()
   }
 
+  /**
+   * 「有没填完的东西就直接关」这条防线原先走 window.confirm：不受主题控制，
+   * 也说不清放弃的是哪一部分。换成和其他破坏性确认一致的对话框。
+   */
+  function handleRequestClose() {
+    const dirty = showMultiSplitEditor ? multiSplitDirty || isDirty() : isDirty()
+    if (!dirty) {
+      discardAndClose()
+      return
+    }
+    setDiscard({
+      message: showMultiSplitEditor
+        ? '已修改的拆分内容会全部丢掉，这笔交易不会被保存。'
+        : isEdit
+          ? '这次编辑的改动会全部丢掉，原交易保持不变。'
+          : '已填写的内容会全部丢掉，不会记下这一笔。',
+      confirm: discardAndClose,
+    })
+  }
+
   function selectCreateMode(next: 'single' | 'split') {
     if (next === createMode) return
-    if (next === 'single' && multiSplitDirty && !window.confirm('放弃已修改的拆分内容？')) return
+    if (next === 'single' && multiSplitDirty) {
+      setDiscard({
+        message: '切回单笔会丢掉已填写的拆分行。',
+        confirm: () => { setMultiSplitDirty(false); setCreateMode('single') },
+      })
+      return
+    }
     setMultiSplitDirty(false)
     setCreateMode(next)
   }
@@ -363,78 +383,52 @@ export function RecordTransactionModal() {
   const title = isEdit ? '编辑交易' : '记一笔'
 
   const footer = showMultiSplitEditor ? (
-    <button
-      type="button"
-      onClick={handleRequestClose}
-      className="rounded-[6px] px-3 py-1.5 text-[12.5px] bg-[var(--surface-hover)]  text-[var(--text-primary)] "
-
-    >
-      关闭
-    </button>
+    <Button variant="secondary" size="md" onClick={handleRequestClose}>关闭</Button>
   ) : (
     <>
-      <button
-        type="button"
-        disabled={mutationPending}
-        onClick={() => handleSave()}
-        className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-[var(--brand)]  text-white font-semibold"
-
-      >
+      <Button variant="secondary" size="md" onClick={handleRequestClose}>取消</Button>
+      <Button variant="primary" size="md" disabled={mutationPending} onClick={() => handleSave()}>
         {mutationPending ? '保存中…' : isEdit ? '保存修改' : '保存'}
-      </button>
+      </Button>
     </>
   )
 
   return (
+    <>
     <Modal open={open} onClose={handleRequestClose} title={title} width={520} footer={footer}>
       {!isEdit && (
-        <div className="mb-3 flex gap-0.5 rounded-[6px] p-0.5 bg-[var(--surface-hover)] "  role="tablist" aria-label="记账模式">
-          {([['single', '单笔'], ['split', '多拆分']] as const).map(([value, label]) => (
-            <button key={value} type="button" role="tab" aria-selected={createMode === value} onClick={() => selectCreateMode(value)} className="flex-1 rounded-[4px] py-1.5 text-[12.5px]" style={{ background: createMode === value ? 'var(--brand)' : 'transparent', color: createMode === value ? 'var(--color-white)' : 'var(--text-secondary)', fontWeight: createMode === value ? '600' : '400' }}>{label}</button>
-          ))}
-        </div>
+        <SegmentedControl
+          aria-label="记账模式"
+          className="mb-3"
+          value={createMode}
+          onChange={selectCreateMode}
+          segments={[
+            { value: 'single', label: '单笔' },
+            { value: 'split', label: '多拆分' },
+          ]}
+        />
       )}
       {showMultiSplitEditor ? (
         <MultiSplitTransactionEditor groupId={editingMultiSplit ? edit?.groupId : undefined} onDirtyChange={setMultiSplitDirty} onSaved={() => { setMultiSplitDirty(false); resetAll(); close() }} />
       ) : (
         <div className="flex flex-col gap-3.5">
-          <div
-            className="flex gap-0.5 rounded-[6px] p-0.5 bg-[var(--surface-hover)] "
-            role="tablist"
+          <SegmentedControl
             aria-label="交易类型"
-          >
-            {TYPE_OPTIONS.map((opt) => {
-              const active = opt.value === type
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => {
-                    setType(opt.value)
-                    setSourceId('')
-                    setSourceName('')
-                    setDestId('')
-                    setDestName('')
-                    setErrors({})
-                  }}
-                  className="flex-1 rounded-[4px] py-1.5 text-[12.5px] transition-colors"
-                  style={{
-                    background: active ? 'var(--brand)' : 'transparent',
-                    color: active ? 'var(--color-white)' : 'var(--text-secondary)',
-                    fontWeight: active ? '600' : '400',
-                  }}
-                >
-                  {opt.label}
-                </button>
-              )
-            })}
-          </div>
+            value={type}
+            segments={TYPE_OPTIONS}
+            onChange={(next) => {
+              setType(next)
+              setSourceId('')
+              setSourceName('')
+              setDestId('')
+              setDestName('')
+              setErrors({})
+            }}
+          />
 
           <div ref={fieldsRef} className="flex flex-col gap-3">
-            <div>
-              <input
+            <Field label="金额" error={errors.amount}>
+              <Input
                 ref={amountRef}
                 autoFocus
                 inputMode="decimal"
@@ -444,15 +438,11 @@ export function RecordTransactionModal() {
                   setErrors((prev) => ({ ...prev, amount: undefined }))
                 }}
                 placeholder="0.00"
-                aria-label="金额"
-                className="font-mono tabular-nums w-full rounded-[6px] px-3 py-2 text-right outline-none"
-                style={{ ...inputStyle(errors.amount), fontSize: 24, fontWeight: 600 }}
+                className="py-2 text-right font-mono text-2xl font-semibold tabular-nums"
               />
-              {errors.amount && <div style={errorStyle}>{errors.amount}</div>}
-            </div>
+            </Field>
 
-            <div className="flex flex-col gap-1">
-              <label style={fieldLabelStyle}>描述</label>
+            <Field label="描述" error={errors.description}>
               <Combobox
                 value={description}
                 onChange={(v) => {
@@ -463,113 +453,94 @@ export function RecordTransactionModal() {
                 items={descItems}
                 isLoading={transactionsQ.isFetching}
                 placeholder="这笔钱花在了哪里…"
-                hasError={errors.description}
-                aria-label="描述"
               />
-              {errors.description && <div style={errorStyle}>{errors.description}</div>}
-            </div>
+            </Field>
 
-            <div className="flex gap-3">
-              <div className="flex flex-1 flex-col gap-1">
-                <label style={fieldLabelStyle}>来源账户</label>
-                {type === 'deposit' ? (
-                  <Combobox
-                    value={sourceName}
-                    onChange={setSourceName}
-                    onDebouncedQuery={onSourceAcQuery}
-                    items={revenueItems}
-                    isLoading={revenueAccountsQ.isFetching}
-                    placeholder="收入来源（可留空）"
-                    aria-label="来源账户"
-                  />
-                ) : (
-                  <select
-                    aria-label="来源账户"
-                    value={sourceId}
-                    onChange={(e) => {
-                      setSourceId(e.target.value)
-                      setErrors((prev) => ({ ...prev, source: undefined }))
-                    }}
-                    className="w-full rounded-[6px] px-2.5 py-1.5 text-[12.5px] outline-none"
-                    style={inputStyle(errors.source)}
-                  >
-                    <option value="">{accountsQuery.isLoading ? '加载中…' : '选择账户…'}</option>
-                    {accounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {errors.source && <div style={errorStyle}>{errors.source}</div>}
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <div className="flex-1">
+                <Field label="来源账户" error={errors.source}>
+                  {type === 'deposit' ? (
+                    <Combobox
+                      value={sourceName}
+                      onChange={setSourceName}
+                      onDebouncedQuery={onSourceAcQuery}
+                      items={revenueItems}
+                      isLoading={revenueAccountsQ.isFetching}
+                      placeholder="收入来源（可留空）"
+                    />
+                  ) : (
+                    <Select
+                      className="py-1.5 text-[12.5px]"
+                      value={sourceId}
+                      onChange={(e) => {
+                        setSourceId(e.target.value)
+                        setErrors((prev) => ({ ...prev, source: undefined }))
+                      }}
+                    >
+                      <option value="">{accountsQuery.isLoading ? '加载中…' : '选择账户…'}</option>
+                      {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </Select>
+                  )}
+                </Field>
               </div>
 
-              <div className="flex flex-1 flex-col gap-1">
-                <label style={fieldLabelStyle}>目标账户</label>
-                {type === 'withdrawal' ? (
-                  <Combobox
-                    value={destName}
-                    onChange={setDestName}
-                    onDebouncedQuery={onDestAcQuery}
-                    items={expenseItems}
-                    isLoading={expenseAccountsQ.isFetching}
-                    placeholder="商家/用途（可留空）"
-                    aria-label="目标账户"
-                  />
-                ) : (
-                  <select
-                    aria-label="目标账户"
-                    value={destId}
-                    onChange={(e) => {
-                      setDestId(e.target.value)
-                      setErrors((prev) => ({ ...prev, destination: undefined }))
-                    }}
-                    className="w-full rounded-[6px] px-2.5 py-1.5 text-[12.5px] outline-none"
-                    style={inputStyle(errors.destination)}
-                  >
-                    <option value="">{accountsQuery.isLoading ? '加载中…' : '选择账户…'}</option>
-                    {accounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {errors.destination && <div style={errorStyle}>{errors.destination}</div>}
+              <div className="flex-1">
+                <Field label="目标账户" error={errors.destination}>
+                  {type === 'withdrawal' ? (
+                    <Combobox
+                      value={destName}
+                      onChange={setDestName}
+                      onDebouncedQuery={onDestAcQuery}
+                      items={expenseItems}
+                      isLoading={expenseAccountsQ.isFetching}
+                      placeholder="商家/用途（可留空）"
+                    />
+                  ) : (
+                    <Select
+                      className="py-1.5 text-[12.5px]"
+                      value={destId}
+                      onChange={(e) => {
+                        setDestId(e.target.value)
+                        setErrors((prev) => ({ ...prev, destination: undefined }))
+                      }}
+                    >
+                      <option value="">{accountsQuery.isLoading ? '加载中…' : '选择账户…'}</option>
+                      {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </Select>
+                  )}
+                </Field>
               </div>
             </div>
 
-            <div className="flex flex-col gap-1">
-              <label style={fieldLabelStyle}>日期</label>
-              <input
+            <Field label="日期">
+              <Input
                 type="date"
                 value={date}
+                max={todayInput()}
                 onChange={(e) => setDate(e.target.value)}
-                className="font-mono tabular-nums rounded-[6px] px-2.5 py-1.5 text-[12.5px] outline-none"
-                style={inputStyle()}
+                className="py-1.5 font-mono text-[12.5px] tabular-nums"
               />
-            </div>
+            </Field>
           </div>
 
           <div>
             <button
               type="button"
               onClick={() => setMoreOpen((v) => !v)}
-              className="flex items-center gap-1 text-[11.5px] text-[var(--text-secondary)] "
-
+              aria-expanded={moreOpen}
+              aria-controls={MORE_PANEL_ID}
+              className="flex items-center gap-1 rounded text-[11.5px] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             >
               更多选项
               <ChevronDownIcon
                 aria-hidden
-                className="size-3.5 text-[var(--text-tertiary)]"
-                style={{ transform: moreOpen ? 'rotate(180deg)' : 'none', transition: 'transform 120ms' }}
+                className={`size-3.5 text-[var(--text-tertiary)] transition-transform duration-120 motion-reduce:transition-none ${moreOpen ? 'rotate-180' : ''}`}
               />
             </button>
 
             {moreOpen && (
-              <div className="mt-2.5 flex flex-col gap-3">
-                <div className="flex flex-col gap-1">
-                  <label style={fieldLabelStyle}>分类</label>
+              <div id={MORE_PANEL_ID} className="mt-2.5 flex flex-col gap-3">
+                <Field label="分类" error={errors.category}>
                   <Combobox
                     value={category}
                     onChange={setCategory}
@@ -577,13 +548,9 @@ export function RecordTransactionModal() {
                     items={categoryItems}
                     isLoading={categoriesQ.isFetching}
                     placeholder="如：餐饮"
-                    hasError={errors.category}
-                    aria-label="分类"
                   />
-                  {errors.category && <div style={errorStyle}>{errors.category}</div>}
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label style={fieldLabelStyle}>标签（逗号分隔）</label>
+                </Field>
+                <Field label="标签" hint="多个标签用逗号分隔">
                   <Combobox
                     value={tagsRaw}
                     onChange={setTagsRaw}
@@ -592,20 +559,16 @@ export function RecordTransactionModal() {
                     applySelection={applyTagSelection}
                     items={tagItems}
                     isLoading={tagsQ.isFetching}
-                    placeholder="如：报销, 出差"
-                    aria-label="标签"
                   />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label style={fieldLabelStyle}>备注</label>
-                  <textarea
+                </Field>
+                <Field label="备注">
+                  <Textarea
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     rows={2}
-                    className="w-full resize-none rounded-[6px] px-2.5 py-1.5 text-[12.5px] outline-none"
-                    style={inputStyle()}
+                    className="resize-none py-1.5 text-[12.5px]"
                   />
-                </div>
+                </Field>
               </div>
             )}
           </div>
@@ -613,5 +576,31 @@ export function RecordTransactionModal() {
       )}
       {isEdit && edit && <TransactionAttachments groupId={edit.groupId} journalId={edit.journalId} />}
     </Modal>
+
+    <Modal
+      open={discard !== null}
+      onClose={() => setDiscard(null)}
+      title="放弃未保存的内容？"
+      width={380}
+      footer={
+        <>
+          <Button variant="secondary" size="md" onClick={() => setDiscard(null)}>继续编辑</Button>
+          <Button
+            variant="danger"
+            size="md"
+            onClick={() => {
+              const run = discard?.confirm
+              setDiscard(null)
+              run?.()
+            }}
+          >
+            放弃
+          </Button>
+        </>
+      }
+    >
+      <p className="text-[var(--text-secondary)]">{discard?.message}</p>
+    </Modal>
+    </>
   )
 }

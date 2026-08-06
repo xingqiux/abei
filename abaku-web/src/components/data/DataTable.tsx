@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { useListKeyboard } from '../../hooks/useListKeyboard'
+import { Skeleton } from '../abaku/Skeleton'
 
 export interface Column<T> {
   key: string
@@ -69,9 +70,9 @@ export function DataTable<T>({
     return (
       <div role="grid" aria-busy="true" className="flex flex-col">
         {Array.from({ length: skeletonRows }).map((_, i) => (
-          <div key={i} role="row" className="flex items-center gap-2 px-2" style={{ height: 'var(--row-h)' }}>
-            <div className="h-4 flex-1 animate-pulse rounded bg-[var(--surface-hover)] " />
-            <div className="h-4 w-24 animate-pulse rounded bg-[var(--surface-hover)] " />
+          <div key={i} role="row" className="flex h-[var(--row-h)] items-center gap-2 px-2">
+            <Skeleton className="h-4 flex-1" />
+            <Skeleton className="h-4 w-24" />
           </div>
         ))}
       </div>
@@ -118,8 +119,7 @@ export function DataTable<T>({
               }}
               onClick={onActivate ? () => onActivate(row) : undefined}
               onMouseEnter={() => setCursor(index)}
-              className={`${ROW_CLASS} ${selected ? 'bg-[var(--surface-selected)] ' : ''} ${onActivate ? 'cursor-pointer' : ''}`}
-              style={{ height: 'var(--row-h)' }}
+              className={`${ROW_CLASS} h-[var(--row-h)] ${selected ? 'bg-[var(--surface-selected)]' : ''} ${onActivate ? 'cursor-pointer' : ''}`}
             >
               {selection && (
                 <span role="gridcell" className="flex w-10 shrink-0 items-center justify-center">

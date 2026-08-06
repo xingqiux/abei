@@ -5,18 +5,20 @@ import type { DateRange } from '../../api/firefly'
 import { useCreateBudgetLimit, useCurrencies, useDeleteBudget, useUpdateBudget, useUpdateBudgetLimit } from '../../api/queries'
 import { ProgressBar } from '../../components/abaku/ProgressBar'
 import { Modal } from '../../components/abaku/Modal'
+import { InlineError } from '../../components/abaku/ErrorState'
+import { Button, IconButton } from '../../components/ui/Button'
+import { Field, Input, Select } from '../../components/ui/Field'
 import { formatAmount } from '../../lib/format'
 import { absoluteDecimalString, compareDecimalStrings, decimalPercentage, isPositiveDecimal, normalizeDecimalString, sumDecimalStrings } from '../../lib/decimal'
 import { showToast } from '../../store/toastStore'
 import { FireflyApiError } from '../../api/client'
 import type { BudgetLimitInfo } from './useBudgetsData'
 
-const inputStyle = { background: 'var(--surface-hover)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' } as const
-
 export function BudgetRow({ budget, limits, range, limitsLoading = false, limitsError = false, onRetryLimits }: { budget: Budget; limits: BudgetLimitInfo[]; range: DateRange; limitsLoading?: boolean; limitsError?: boolean; onRetryLimits?: () => void }) {
   const attrs = budget.attributes
   const [limitsOpen, setLimitsOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const [editName, setEditName] = useState(attrs.name)
   const [editActive, setEditActive] = useState(attrs.active !== false)
   const [drafts, setDrafts] = useState<Record<string, { amount: string; start: string; end: string }>>({})
@@ -105,9 +107,9 @@ export function BudgetRow({ budget, limits, range, limitsLoading = false, limits
   }
 
   async function removeBudget() {
-    if (!window.confirm(`删除预算“${attrs.name}”？交易不会删除，但会失去预算关联。`)) return
     try {
       await deleteBudgetMutation.mutateAsync(budget.id)
+      setDeleteOpen(false)
       setEditOpen(false)
       showToast({ kind: 'success', message: '预算已删除' })
     } catch (error) {
@@ -156,29 +158,223 @@ export function BudgetRow({ budget, limits, range, limitsLoading = false, limits
 
   const rangeLabel = useMemo(() => limits.length === 1 ? `${limits[0].start} 至 ${limits[0].end}` : `${limits.length} 个重叠限额`, [limits])
 
-  return <>
-    <div className="group flex min-h-8 flex-wrap items-center gap-2 rounded-[4px] px-2 py-1 text-[12.5px] hover:bg-[var(--surface-hover)] sm:flex-nowrap sm:gap-3">
-      <div className="min-w-0 flex-1 truncate text-[var(--text-primary)] ">{attrs.name}</div>
-      {limitsLoading ? <div className="order-2 w-full text-left text-[11px] sm:order-none sm:w-[350px] sm:text-right text-[var(--text-secondary)] ">限额加载中…</div> : limitsError ? <div className="order-2 flex w-full items-center gap-2 text-[11px] sm:order-none sm:w-[350px] sm:justify-end text-[var(--danger)] "><span>限额加载失败</span><button type="button" onClick={onRetryLimits} style={{ color: 'var(--brand)' }}>重试</button></div> : <div className="order-2 flex w-full shrink-0 flex-col gap-1 sm:order-none sm:w-[350px]">{currencySummaries.map((summary) => <div key={summary.code || summary.symbol} className="flex min-w-0 items-center gap-3"><div className="flex min-w-[90px] flex-1 items-center sm:w-[150px] sm:flex-none">{summary.hasLimit ? <ProgressBar pct={summary.pct} colorVar={summary.over ? 'var(--danger)' : 'var(--brand)'} /> : <span className="text-[11px] text-[var(--text-secondary)] ">未设限额</span>}</div><div className="font-mono tabular-nums min-w-0 flex-1 text-right sm:w-[187px] sm:flex-none" title={summary.code} style={{ color: summary.over ? 'var(--danger)' : 'var(--text-primary)' }}>{summary.symbol}{formatAmount(summary.spent)}{summary.hasLimit && <span style={{ color: 'var(--text-secondary)' }}> / {summary.symbol}{formatAmount(summary.total)}</span>}</div></div>)}</div>}
-      <button type="button" title="管理限额" aria-label={`管理 ${attrs.name} 的限额`} disabled={limitsLoading || limitsError} onClick={() => setLimitsOpen(true)} className="rounded p-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100 disabled:opacity-20 text-[var(--text-secondary)] "><AdjustmentsHorizontalIcon aria-hidden className="size-3.5" /></button>
-      <button type="button" title="编辑预算" aria-label={`编辑预算 ${attrs.name}`} onClick={openEdit} className="rounded p-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100 text-[var(--text-secondary)] "><PencilIcon aria-hidden className="size-3.5" /></button>
-    </div>
-    <Modal open={limitsOpen} onClose={() => setLimitsOpen(false)} title={`${attrs.name} · 限额`} width={620} footer={<button type="button" onClick={() => setLimitsOpen(false)} className="rounded-[6px] px-3 py-1.5 text-[12.5px] bg-[var(--surface-hover)] text-[var(--text-primary)] hover:bg-[var(--surface-selected)]   ">完成</button>}>
-      <div className="flex flex-col gap-3">
-        {limits.map((limit, index) => <div key={limit.limitId} className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_1fr_110px_60px]"><label className="flex min-w-0 flex-col gap-1 text-[11px] text-[var(--text-secondary)] ">开始<input type="date" aria-label={`限额 ${index + 1} 开始`} value={drafts[limit.limitId]?.start ?? ''} onChange={(event) => setDrafts((current) => ({ ...current, [limit.limitId]: { ...current[limit.limitId], start: event.target.value } }))} className="font-mono tabular-nums min-w-0 rounded-[5px] px-2 py-1.5" style={inputStyle} /></label><label className="flex min-w-0 flex-col gap-1 text-[11px] text-[var(--text-secondary)] ">结束<input type="date" aria-label={`限额 ${index + 1} 结束`} value={drafts[limit.limitId]?.end ?? ''} onChange={(event) => setDrafts((current) => ({ ...current, [limit.limitId]: { ...current[limit.limitId], end: event.target.value } }))} className="font-mono tabular-nums min-w-0 rounded-[5px] px-2 py-1.5" style={inputStyle} /></label><label className="flex min-w-0 flex-col gap-1 text-[11px] text-[var(--text-secondary)] ">金额<input inputMode="decimal" aria-label={`限额 ${index + 1} 金额`} value={drafts[limit.limitId]?.amount ?? ''} onChange={(event) => setDrafts((current) => ({ ...current, [limit.limitId]: { ...current[limit.limitId], amount: event.target.value.replace(/[^0-9.]/g, '') } }))} className="font-mono tabular-nums min-w-0 rounded-[5px] px-2 py-1.5 text-right" style={inputStyle} /></label><button type="button" aria-label={`保存限额 ${index + 1}`} disabled={updateMutation.isPending} onClick={() => void update(limit)} className="justify-self-end rounded-[5px] px-2 py-1.5 text-[11.5px] disabled:opacity-50 text-[var(--brand)] ">保存</button></div>)}
-        {limits.length > 0 && <div className="text-[11px] text-[var(--text-secondary)] ">{rangeLabel}</div>}
-        <div className="grid grid-cols-1 items-end gap-2 border-t pt-3 sm:grid-cols-[1fr_1fr_90px_110px_32px] border-[var(--border-subtle)] "><label className="flex min-w-0 flex-col gap-1 text-[11px] text-[var(--text-secondary)] ">新限额开始<input type="date" value={newStart} onChange={(event) => setNewStart(event.target.value)} className="font-mono tabular-nums min-w-0 rounded-[5px] px-2 py-1.5" style={inputStyle} /></label><label className="flex min-w-0 flex-col gap-1 text-[11px] text-[var(--text-secondary)] ">结束<input type="date" value={newEnd} onChange={(event) => setNewEnd(event.target.value)} className="font-mono tabular-nums min-w-0 rounded-[5px] px-2 py-1.5" style={inputStyle} /></label><label className="flex min-w-0 flex-col gap-1 text-[11px] text-[var(--text-secondary)] ">币种<select value={newCurrencyCode} onChange={(event) => setNewCurrencyCode(event.target.value)} className="min-w-0 rounded-[5px] px-2 py-1.5" style={inputStyle}>{(currenciesQuery.data?.data ?? []).filter((currency) => currency.attributes.enabled !== false).map((currency) => <option key={currency.id} value={currency.attributes.code}>{currency.attributes.code}</option>)}</select></label><label className="flex min-w-0 flex-col gap-1 text-[11px] text-[var(--text-secondary)] ">金额<input inputMode="decimal" value={newAmount} onChange={(event) => setNewAmount(event.target.value.replace(/[^0-9.]/g, ''))} className="font-mono tabular-nums min-w-0 rounded-[5px] px-2 py-1.5 text-right" style={inputStyle} /></label><button type="button" title="添加限额" aria-label="添加限额" disabled={createMutation.isPending} onClick={() => void create()} className="justify-self-end rounded p-1.5 disabled:opacity-50 text-[var(--brand)] "><PlusIcon aria-hidden className="size-4" /></button></div>
+  function patchDraft(limitId: string, patch: Partial<{ amount: string; start: string; end: string }>) {
+    setDrafts((current) => ({ ...current, [limitId]: { ...current[limitId], ...patch } }))
+  }
+
+  return (
+    <>
+      <div className="group flex min-h-8 flex-wrap items-center gap-2 rounded px-2 py-1 text-[12.5px] hover:bg-[var(--surface-hover)] sm:flex-nowrap sm:gap-3">
+        <div className="min-w-0 flex-1 truncate text-[var(--text-primary)]">{attrs.name}</div>
+
+        {limitsLoading ? (
+          <div
+            role="status"
+            className="order-2 w-full text-left text-[11px] text-[var(--text-secondary)] sm:order-none sm:w-[350px] sm:text-right"
+          >
+            限额加载中…
+          </div>
+        ) : limitsError ? (
+          <div className="order-2 w-full sm:order-none sm:w-[350px]">
+            <InlineError message="限额加载失败" onRetry={onRetryLimits} />
+          </div>
+        ) : (
+          <div className="order-2 flex w-full shrink-0 flex-col gap-1 sm:order-none sm:w-[350px]">
+            {currencySummaries.map((summary) => (
+              <div key={summary.code || summary.symbol} className="flex min-w-0 items-center gap-3">
+                <div className="flex min-w-[90px] flex-1 items-center sm:w-[150px] sm:flex-none">
+                  {summary.hasLimit ? (
+                    <ProgressBar
+                      pct={summary.pct}
+                      tone={summary.over ? 'danger' : 'brand'}
+                      label={`${budget.attributes.name}${summary.code ? ` · ${summary.code}` : ''} 已用`}
+                    />
+                  ) : (
+                    <span className="text-[11px] text-[var(--text-secondary)]">未设限额</span>
+                  )}
+                </div>
+                <div
+                  title={summary.code}
+                  className={`min-w-0 flex-1 text-right font-mono tabular-nums sm:w-[187px] sm:flex-none ${
+                    summary.over ? 'text-[var(--danger)]' : 'text-[var(--text-primary)]'
+                  }`}
+                >
+                  {summary.symbol}{formatAmount(summary.spent)}
+                  {summary.hasLimit && (
+                    <span className="text-[var(--text-secondary)]"> / {summary.symbol}{formatAmount(summary.total)}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 桌面上悬停才显形，移动端一直在——触屏没有 hover，藏起来等于没有 */}
+        <IconButton
+          label={`管理 ${attrs.name} 的限额`}
+          className="size-6 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+          disabled={limitsLoading || limitsError}
+          onClick={() => setLimitsOpen(true)}
+        >
+          <AdjustmentsHorizontalIcon aria-hidden className="size-3.5" />
+        </IconButton>
+        <IconButton
+          label={`编辑预算 ${attrs.name}`}
+          className="size-6 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+          onClick={openEdit}
+        >
+          <PencilIcon aria-hidden className="size-3.5" />
+        </IconButton>
       </div>
-    </Modal>
-    <Modal open={editOpen} onClose={() => setEditOpen(false)} title="编辑预算" width={420} footer={<>
-      <button type="button" title="删除预算" aria-label={`删除预算 ${attrs.name}`} disabled={deleteBudgetMutation.isPending} onClick={() => void removeBudget()} className="mr-auto rounded p-1.5 disabled:opacity-50 text-[var(--danger)] "><TrashIcon aria-hidden className="size-4" /></button>
-      <button type="button" disabled={updateBudgetMutation.isPending} onClick={() => setEditOpen(false)} className="rounded-[6px] px-3 py-1.5 text-[12px] text-[var(--text-secondary)] ">取消</button>
-      <button type="button" disabled={updateBudgetMutation.isPending} onClick={() => void saveBudget()} className="rounded-[6px] px-3 py-1.5 text-[12px] disabled:opacity-50 bg-[var(--brand)] text-white font-semibold shadow-sm hover:bg-[var(--brand-hover)]">{updateBudgetMutation.isPending ? '保存中…' : '保存'}</button>
-    </>}>
-      <div className="flex flex-col gap-3">
-        <label className="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)] ">名称<input autoFocus value={editName} onChange={(event) => setEditName(event.target.value)} className="rounded-[6px] px-2.5 py-1.5" style={inputStyle} /></label>
-        <label className="flex items-center gap-2 text-[12px] text-[var(--text-primary)] "><input type="checkbox" checked={editActive} onChange={(event) => setEditActive(event.target.checked)} />启用预算</label>
-      </div>
-    </Modal>
-  </>
+
+      <Modal
+        open={limitsOpen}
+        onClose={() => setLimitsOpen(false)}
+        title={`${attrs.name} · 限额`}
+        width={620}
+        footer={<Button variant="secondary" size="md" onClick={() => setLimitsOpen(false)}>完成</Button>}
+      >
+        <div className="flex flex-col gap-3">
+          {limits.map((limit, index) => (
+            <div key={limit.limitId} className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_1fr_110px_60px]">
+              <Field label="开始">
+                <Input
+                  type="date"
+                  aria-label={`限额 ${index + 1} 开始`}
+                  className="font-mono tabular-nums"
+                  value={drafts[limit.limitId]?.start ?? ''}
+                  max={drafts[limit.limitId]?.end}
+                  onChange={(event) => patchDraft(limit.limitId, { start: event.target.value })}
+                />
+              </Field>
+              <Field label="结束">
+                <Input
+                  type="date"
+                  aria-label={`限额 ${index + 1} 结束`}
+                  className="font-mono tabular-nums"
+                  value={drafts[limit.limitId]?.end ?? ''}
+                  min={drafts[limit.limitId]?.start}
+                  onChange={(event) => patchDraft(limit.limitId, { end: event.target.value })}
+                />
+              </Field>
+              <Field label="金额">
+                <Input
+                  inputMode="decimal"
+                  aria-label={`限额 ${index + 1} 金额`}
+                  className="text-right font-mono tabular-nums"
+                  value={drafts[limit.limitId]?.amount ?? ''}
+                  onChange={(event) => patchDraft(limit.limitId, { amount: event.target.value.replace(/[^0-9.]/g, '') })}
+                />
+              </Field>
+              <Button
+                variant="soft"
+                size="sm"
+                aria-label={`保存限额 ${index + 1}`}
+                disabled={updateMutation.isPending}
+                onClick={() => void update(limit)}
+              >
+                保存
+              </Button>
+            </div>
+          ))}
+
+          {limits.length > 0 && <div className="text-[11px] text-[var(--text-secondary)]">{rangeLabel}</div>}
+
+          <div className="grid grid-cols-1 items-end gap-2 border-t border-[var(--border-subtle)] pt-3 sm:grid-cols-[1fr_1fr_90px_110px_32px]">
+            <Field label="新限额开始">
+              <Input type="date" className="font-mono tabular-nums" value={newStart} max={newEnd} onChange={(event) => setNewStart(event.target.value)} />
+            </Field>
+            <Field label="结束">
+              <Input type="date" className="font-mono tabular-nums" value={newEnd} min={newStart} onChange={(event) => setNewEnd(event.target.value)} />
+            </Field>
+            <Field label="币种">
+              <Select value={newCurrencyCode} onChange={(event) => setNewCurrencyCode(event.target.value)}>
+                {(currenciesQuery.data?.data ?? [])
+                  .filter((currency) => currency.attributes.enabled !== false)
+                  .map((currency) => (
+                    <option key={currency.id} value={currency.attributes.code}>{currency.attributes.code}</option>
+                  ))}
+              </Select>
+            </Field>
+            <Field label="金额">
+              <Input
+                inputMode="decimal"
+                className="text-right font-mono tabular-nums"
+                value={newAmount}
+                onChange={(event) => setNewAmount(event.target.value.replace(/[^0-9.]/g, ''))}
+              />
+            </Field>
+            <IconButton label="添加限额" variant="soft" disabled={createMutation.isPending} onClick={() => void create()}>
+              <PlusIcon aria-hidden className="size-4" />
+            </IconButton>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        title="编辑预算"
+        width={420}
+        footer={
+          <>
+            <IconButton
+              label={`删除预算 ${attrs.name}`}
+              variant="ghost-danger"
+              className="mr-auto"
+              disabled={deleteBudgetMutation.isPending}
+              onClick={() => setDeleteOpen(true)}
+            >
+              <TrashIcon aria-hidden className="size-4" />
+            </IconButton>
+            <Button variant="secondary" size="md" disabled={updateBudgetMutation.isPending} onClick={() => setEditOpen(false)}>
+              取消
+            </Button>
+            <Button variant="primary" size="md" disabled={updateBudgetMutation.isPending} onClick={() => void saveBudget()}>
+              {updateBudgetMutation.isPending ? '保存中…' : '保存'}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <Field label="名称" error={editName.trim() ? undefined : '预算名称不能为空'}>
+            <Input autoFocus value={editName} onChange={(event) => setEditName(event.target.value)} />
+          </Field>
+          <label className="flex items-center gap-2 text-sm text-[var(--text-primary)]">
+            <input
+              type="checkbox"
+              className="accent-[var(--brand)]"
+              checked={editActive}
+              onChange={(event) => setEditActive(event.target.checked)}
+            />
+            启用预算
+          </label>
+        </div>
+      </Modal>
+
+      {/* 删除原先走 window.confirm：既不受主题控制，也说不清「会丢什么」。
+          换成跟其他破坏性操作一致的确认框 */}
+      <Modal
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        title="删除预算"
+        width={420}
+        footer={
+          <>
+            <Button variant="secondary" size="md" disabled={deleteBudgetMutation.isPending} onClick={() => setDeleteOpen(false)}>
+              取消
+            </Button>
+            <Button variant="danger" size="md" disabled={deleteBudgetMutation.isPending} onClick={() => void removeBudget()}>
+              {deleteBudgetMutation.isPending ? '删除中…' : '确认删除'}
+            </Button>
+          </>
+        }
+      >
+        <p>
+          确定删除预算「<span className="font-semibold">{attrs.name}</span>」？
+          交易本身不会被删除，但它们与这个预算的关联会丢失，此操作不可撤销。
+        </p>
+      </Modal>
+    </>
+  )
 }

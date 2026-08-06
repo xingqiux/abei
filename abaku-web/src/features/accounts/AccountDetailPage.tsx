@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeftIcon, BanknotesIcon } from '@heroicons/react/24/outline'
+import { ArrowLeftIcon, BanknotesIcon, ChartBarIcon } from '@heroicons/react/24/outline'
 import {
   useAccount,
   useAccountOverviewChart,
@@ -25,6 +25,10 @@ import { isEditableTransactionType } from '../record-transaction/editPayload'
 import { flattenTransactionGroups, type TransactionSplitRow } from '../../lib/transactionGroup'
 import { compareDecimalStrings } from '../../lib/decimal'
 import { ErrorState } from '../../components/abaku/ErrorState'
+import { Badge } from '../../components/ui/Badge'
+import { Button } from '../../components/ui/Button'
+import { Card } from '../../components/ui/Card'
+import { Field, Input } from '../../components/ui/Field'
 
 /** 账户流水每页条数；偏小以便「加载更多」在常见数据量下可用，并便于分页失效回归。 */
 const PAGE_SIZE = 20
@@ -41,27 +45,21 @@ const TYPE_LABEL: Record<string, string> = {
   cash: '现金',
 }
 
-function Card({ title, children }: { title: string; children: ReactNode }) {
+/** 带标题的区块，页面里三处都一样：共享 Card + 一行 h2 */
+function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-[10px] p-3.5 bg-[var(--surface-1)]  shadow-sm">
-      <div
-        className="mb-3 text-[12px] text-[var(--text-secondary)]  font-semibold"
-        style={{ letterSpacing: '.02em' }}
-      >
-        {title}
-      </div>
+    <Card>
+      <h2 className="mb-3 text-[11px] font-medium tracking-wide text-[var(--text-tertiary)] uppercase">{title}</h2>
       {children}
-    </div>
+    </Card>
   )
 }
 
 function InfoRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-1 text-[12.5px]">
-      <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
-      <span className="min-w-0 text-right text-[var(--text-primary)] ">
-        {children}
-      </span>
+      <dt className="text-[var(--text-secondary)]">{label}</dt>
+      <dd className="min-w-0 text-right text-[var(--text-primary)]">{children}</dd>
     </div>
   )
 }
@@ -166,20 +164,11 @@ export function AccountDetailPage() {
             <Skeleton className="h-7 w-40" />
           ) : (
             <>
-              <h1
-                className="truncate text-[18px] font-semibold text-[var(--text-primary)] "
-
-              >
-                {attrs.name}
-              </h1>
-              <div className="flex flex-wrap items-center gap-2 text-[12px] text-[var(--text-secondary)] ">
+              <h1 className="truncate text-lg font-semibold text-[var(--text-primary)]">{attrs.name}</h1>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-secondary)]">
                 <span>{typeLabel}</span>
-                {attrs.active === false && <span style={{ color: 'var(--attention)' }}>已停用</span>}
-                {tail && (
-                  <span className="font-mono tabular-nums">
-                    •••• {tail}
-                  </span>
-                )}
+                {attrs.active === false && <Badge tone="attention">已停用</Badge>}
+                {tail && <span className="font-mono tabular-nums">•••• {tail}</span>}
                 <span>· {rangeLabel}</span>
               </div>
             </>
@@ -187,16 +176,11 @@ export function AccountDetailPage() {
         </div>
         {attrs && (
           <div className="text-right">
-            <div className="text-[11px] text-[var(--text-secondary)] " style={{ letterSpacing: '.04em', textTransform: 'uppercase' }}>
-              当前余额
-            </div>
+            <div className="text-[11px] tracking-wide text-[var(--text-tertiary)] uppercase">当前余额</div>
             <div
-              className="font-mono tabular-nums mt-0.5"
-              style={{
-                fontSize: 20,
-                fontWeight: 600,
-                color: compareDecimalStrings(balance, '0') < 0 ? 'var(--danger)' : 'var(--text-primary)',
-              }}
+              className={`mt-0.5 font-mono text-xl font-semibold tabular-nums ${
+                compareDecimalStrings(balance, '0') < 0 ? 'text-[var(--danger)]' : 'text-[var(--text-primary)]'
+              }`}
             >
               {symbol}
               {formatAmount(balance)}
@@ -206,7 +190,7 @@ export function AccountDetailPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-[0.9fr_1.1fr]">
-        <Card title="基本信息">
+        <Panel title="基本信息">
           {accountQuery.isLoading || !attrs ? (
             <div className="flex flex-col gap-2">
               {Array.from({ length: 5 }).map((_, i) => (
@@ -214,7 +198,7 @@ export function AccountDetailPage() {
               ))}
             </div>
           ) : (
-            <div className="flex flex-col">
+            <dl className="flex flex-col">
               <InfoRow label="类型">{typeLabel}</InfoRow>
               <InfoRow label="币种">
                 <span className="font-mono tabular-nums">
@@ -227,10 +211,7 @@ export function AccountDetailPage() {
                     {symbol}
                     {formatAmount(attrs.opening_balance)}
                     {attrs.opening_balance_date && (
-                      <span style={{ color: 'var(--text-secondary)' }}>
-                        {' '}
-                        · {attrs.opening_balance_date.slice(0, 10)}
-                      </span>
+                      <span className="text-[var(--text-secondary)]"> · {attrs.opening_balance_date.slice(0, 10)}</span>
                     )}
                   </span>
                 </InfoRow>
@@ -250,24 +231,24 @@ export function AccountDetailPage() {
                   <span className="text-[12px] leading-relaxed">{attrs.notes}</span>
                 </InfoRow>
               )}
-            </div>
+            </dl>
           )}
-        </Card>
+        </Panel>
 
-        <Card title="余额趋势">
+        <Panel title="余额趋势">
           {chartQuery.isLoading ? (
             <Skeleton className="h-[200px]" />
           ) : chartQuery.isError ? (
-            <EmptyState icon="📉" message="余额趋势加载失败" />
+            <ErrorState message="余额趋势加载失败" onRetry={() => void chartQuery.refetch()} />
           ) : balanceSeries.length === 0 ? (
-            <EmptyState icon="📉" message="本期暂无余额序列" />
+            <EmptyState icon={<ChartBarIcon aria-hidden className="size-8" />} message="本期暂无余额序列" />
           ) : (
             <BalanceAreaChart series={balanceSeries} height={180} />
           )}
-        </Card>
+        </Panel>
       </div>
 
-      <Card title={typeof totalTx === 'number' ? `流水 · 共 ${totalTx} 笔` : '流水'}>
+      <Panel title={typeof totalTx === 'number' ? `流水 · 共 ${totalTx} 笔` : '流水'}>
         {txQuery.isLoading ? (
           <div className="flex flex-col gap-1">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -295,47 +276,42 @@ export function AccountDetailPage() {
             </div>
             {canLoadMore && (
               <div className="flex justify-center pt-3">
-                <button
-                  type="button"
-                  disabled={txQuery.isFetchingNextPage}
-                  onClick={() => void txQuery.fetchNextPage()}
-                  className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-60 bg-[var(--surface-hover)]  text-[var(--text-primary)] "
-
-                >
+                <Button variant="secondary" size="md" disabled={txQuery.isFetchingNextPage} onClick={() => void txQuery.fetchNextPage()}>
                   {txQuery.isFetchingNextPage ? '加载中…' : '加载更多'}
-                </button>
+                </Button>
               </div>
             )}
           </>
         )}
-      </Card>
+      </Panel>
 
-      <div className="rounded-[10px] border border-[var(--danger)] bg-[var(--surface-1)] p-3.5 shadow-sm">
-        <div className="mb-3 text-[12px] font-semibold text-[var(--danger)] " style={{ letterSpacing: '.02em' }}>
-          删除账户
-        </div>
+      {/* 危险区：整块用 danger 描边圈起来，跟上面的常规面板区分开 */}
+      <section className="rounded-lg border border-[var(--danger)] bg-[var(--surface-1)] p-4 shadow-[var(--shadow-card)]">
+        <h2 className="mb-3 text-[11px] font-medium tracking-wide text-[var(--danger)] uppercase">删除账户</h2>
         <div className="flex flex-col gap-3">
-          <p className="text-[12.5px] text-[var(--text-secondary)] ">
-            这会同时删除该账户下的 <span className="font-mono">{allTimeCount.data ?? '…'}</span> 笔交易，不可撤销。
-            请输入账户名「{attrs?.name ?? ''}」确认后删除。
+          <p className="text-sm text-[var(--text-secondary)]">
+            这会同时删除该账户下的 <span className="font-mono tabular-nums">{allTimeCount.data ?? '…'}</span> 笔交易，不可撤销。
           </p>
-          <input
-            value={confirmName}
-            onChange={(e) => setConfirmName(e.target.value)}
-            placeholder={attrs?.name ?? '账户全名'}
-            aria-label="输入账户名确认删除"
-            className="rounded-md bg-[var(--surface-hover)] px-2.5 py-2 text-[13px] text-[var(--text-primary)] outline-none"
-          />
-          <button
-            type="button"
+          <div className="max-w-sm">
+            <Field
+              label="输入账户名确认"
+              hint={attrs?.name ? `需要一字不差地输入「${attrs.name}」` : undefined}
+              error={confirmName && confirmName !== attrs?.name ? '与账户名不一致' : undefined}
+            >
+              <Input value={confirmName} onChange={(e) => setConfirmName(e.target.value)} placeholder={attrs?.name ?? '账户全名'} />
+            </Field>
+          </div>
+          <Button
+            variant="danger"
+            size="md"
+            className="self-start"
             disabled={confirmName !== attrs?.name || deleteAccountMutation.isPending}
             onClick={() => void confirmDeleteAccount()}
-            className="self-start rounded-md bg-[var(--danger)] px-3 py-1.5 text-[13px] font-semibold text-white hover:bg-[var(--danger-hover)] disabled:opacity-50"
           >
             {deleteAccountMutation.isPending ? '删除中…' : '删除账户'}
-          </button>
+          </Button>
         </div>
-      </div>
+      </section>
 
       <DeleteTransactionDialog
         open={!!pendingDelete}
@@ -352,7 +328,7 @@ function BackLink() {
   return (
     <Link
       to="/accounts"
-      className="inline-flex w-fit items-center gap-1 text-[12.5px] text-[var(--brand)] "
+      className="inline-flex w-fit items-center gap-1 text-[12.5px] text-[var(--brand-text)] "
 
     >
       <ArrowLeftIcon aria-hidden className="size-3.5" />

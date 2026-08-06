@@ -1,22 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { useAbout } from '../../api/queries'
 import pkg from '../../../package.json'
+import { Card, SectionHeading } from '../../components/ui/Card'
+import { Field, Select } from '../../components/ui/Field'
+import { ExportPanel } from './ExportPanel'
 import { ReferenceDataPanel } from './ReferenceDataPanel'
 import { TokensPanel } from './TokensPanel'
-
-function Card({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="rounded-[10px] p-3.5 bg-[var(--surface-1)]  shadow-sm">
-      <div
-        className="mb-3 text-[12px] text-[var(--text-secondary)]  font-semibold"
-        style={{ letterSpacing: '.02em' }}
-      >
-        {title}
-      </div>
-      {children}
-    </div>
-  )
-}
 
 export function SettingsPage() {
   const aboutQuery = useAbout()
@@ -43,63 +32,86 @@ export function SettingsPage() {
     localStorage.setItem('granary.density', density)
   }, [density])
 
+  const version = aboutQuery.isLoading
+    ? '…'
+    : aboutQuery.isError
+      ? '获取失败'
+      : (aboutQuery.data?.data.version ?? '暂无')
+
   return (
-    <div className="flex flex-col gap-5">
-      <h1 className="text-[18px] font-semibold text-[var(--text-primary)] ">
-        设置
-      </h1>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+      <h1 className="text-xl font-semibold text-[var(--text-primary)]">设置</h1>
 
-      <Card title="基础资料"><ReferenceDataPanel /></Card>
+      <Card>
+        <SectionHeading
+          title="基础资料"
+          description="分类和标签在记账时用于归类，归档后不再出现在选择列表里。"
+          className="mb-4"
+        />
+        <ReferenceDataPanel />
+      </Card>
 
-      <Card title="外观">
-        <div className="flex flex-col gap-3 text-[12.5px] text-[var(--text-primary)] ">
-          <label className="flex items-center justify-between gap-3">
-            <span>主题</span>
-            <select
+      <Card>
+        <SectionHeading title="外观" className="mb-4" />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="主题" hint="跟随系统时会随系统深浅色切换">
+            <Select
               value={theme}
               onChange={(e) => setTheme(e.target.value as 'system' | 'light' | 'dark')}
-              className="rounded-md bg-[var(--surface-hover)] px-2 py-1.5 text-[12.5px] text-[var(--text-primary)] outline-none"
             >
               <option value="system">跟随系统</option>
               <option value="light">浅色</option>
               <option value="dark">深色</option>
-            </select>
-          </label>
-          <label className="flex items-center justify-between gap-3">
-            <span>交易行高</span>
-            <select
+            </Select>
+          </Field>
+          <Field label="交易行高" hint="影响交易列表每行的高度">
+            <Select
               value={density}
               onChange={(e) => setDensity(e.target.value as 'compact' | 'comfortable')}
-              className="rounded-md bg-[var(--surface-hover)] px-2 py-1.5 text-[12.5px] text-[var(--text-primary)] outline-none"
             >
               <option value="compact">紧凑 40px</option>
               <option value="comfortable">舒适 48px</option>
-            </select>
-          </label>
+            </Select>
+          </Field>
         </div>
       </Card>
 
-      <Card title="访问令牌">
+      <Card>
+        <SectionHeading
+          title="访问令牌"
+          description="abaku-web 用令牌访问 Firefly，令牌只在签发时显示一次。"
+          className="mb-4"
+        />
         <TokensPanel />
       </Card>
 
-      <Card title="关于">
-        <div className="flex flex-col gap-2.5 text-[12.5px] text-[var(--text-primary)] ">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span>
-              Firefly 版本：
-              <span className="font-mono tabular-nums text-[var(--text-secondary)] ">
-                {aboutQuery.isLoading ? '…' : aboutQuery.isError ? '获取失败' : (aboutQuery.data?.data.version ?? '暂无')}
-              </span>
-            </span>
-            <span>
-              Abaku Web 版本：
-              <span className="font-mono tabular-nums text-[var(--text-secondary)] ">{pkg.version}</span>
-            </span>
-          </div>
-        </div>
+      {/* 导出面板一直存在也有测试，但没有任何页面引到它——从设置页进得去才算做完 */}
+      <Card>
+        <SectionHeading
+          title="导出 CSV"
+          description="从 Firefly 直接下载 CSV，交易类型可以再限定日期范围和账户。"
+          className="mb-4"
+        />
+        <ExportPanel />
       </Card>
 
+      <Card>
+        <SectionHeading title="关于" className="mb-4" />
+        <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+          <div className="flex justify-between gap-4 sm:block">
+            <dt className="text-[var(--text-secondary)]">Firefly 版本</dt>
+            <dd className="font-mono tabular-nums text-[var(--text-primary)] sm:mt-0.5">
+              {version}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-4 sm:block">
+            <dt className="text-[var(--text-secondary)]">Abaku Web 版本</dt>
+            <dd className="font-mono tabular-nums text-[var(--text-primary)] sm:mt-0.5">
+              {pkg.version}
+            </dd>
+          </div>
+        </dl>
+      </Card>
     </div>
   )
 }

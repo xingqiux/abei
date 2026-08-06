@@ -6,6 +6,9 @@ import type { ApiToken } from '../../api/schemas'
 import { Modal } from '../../components/abaku/Modal'
 import { Skeleton } from '../../components/abaku/Skeleton'
 import { ErrorState } from '../../components/abaku/ErrorState'
+import { Badge } from '../../components/ui/Badge'
+import { Button } from '../../components/ui/Button'
+import { StackedList, StackedListItem } from '../../components/ui/Card'
 import { showToast } from '../../store/toastStore'
 import { formatDateTime } from '../../lib/format'
 
@@ -53,7 +56,7 @@ export function TokensPanel() {
   }
 
   return (
-    <div className="flex flex-col gap-3 text-[12.5px] text-[var(--text-primary)] ">
+    <div className="flex flex-col gap-4">
       {tokens.isLoading ? (
         <div className="flex flex-col gap-2">
           {Array.from({ length: 2 }).map((_, i) => (
@@ -63,42 +66,40 @@ export function TokensPanel() {
       ) : tokens.isError ? (
         <ErrorState message="令牌列表加载失败" onRetry={() => void tokens.refetch()} />
       ) : (
-        <div className="flex flex-col">
+        <StackedList className="-mx-4">
           {(tokens.data ?? []).map((t) => (
-            <div key={t.id} className="flex min-h-11 items-center gap-3 border-b border-[var(--border-subtle)] py-2 last:border-b-0">
+            <StackedListItem key={t.id}>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="truncate font-semibold">{t.name}</span>
-                  {t.current && <span className="rounded bg-[var(--surface-selected)] px-1.5 py-0.5 text-[10.5px] text-[var(--text-secondary)] ">当前会话</span>}
+                  <span className="truncate text-sm font-semibold text-[var(--text-primary)]">
+                    {t.name}
+                  </span>
+                  {t.current && <Badge tone="brand">当前会话</Badge>}
                 </div>
-                <div className="text-[11px] text-[var(--text-secondary)] ">
+                <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
                   创建于 {when(t.created_at)} · 最后使用 {when(t.last_used)}
-                </div>
+                </p>
               </div>
               {!t.current && (
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="text-[var(--danger)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"
                   onClick={() => setRevoking(t)}
-                  className="shrink-0 rounded-md px-2.5 py-1.5 text-[12px] text-[var(--danger)] hover:bg-[var(--danger-soft)] "
                 >
                   撤销
-                </button>
+                </Button>
               )}
-            </div>
+            </StackedListItem>
           ))}
-        </div>
+        </StackedList>
       )}
 
       <div>
-        <button
-          type="button"
-          disabled={creating}
-          onClick={() => void create()}
-          className="rounded-[6px] bg-[var(--brand)] px-2.5 py-1.5 text-[12.5px] font-semibold text-[var(--brand-on)] hover:bg-[var(--brand-hover)] disabled:opacity-50"
-        >
+        <Button variant="primary" disabled={creating} onClick={() => void create()}>
           {creating ? '生成中…' : '生成新令牌'}
-        </button>
-        <p className="mt-1.5 text-[11.5px] text-[var(--text-secondary)] ">
+        </Button>
+        <p className="mt-2 text-xs text-[var(--text-secondary)]">
           前端全靠 PAT 访问 Firefly API。令牌只显示一次，生成后请立即保存。
         </p>
       </div>
@@ -109,15 +110,19 @@ export function TokensPanel() {
         title="新令牌已生成"
         footer={
           newToken ? (
-            <button type="button" onClick={() => applyToken(newToken)} className="rounded-md bg-[var(--brand)] px-3 py-1.5 text-[13px] font-semibold text-[var(--brand-on)] hover:bg-[var(--brand-hover)]">
+            <Button variant="primary" onClick={() => applyToken(newToken)}>
               使用此令牌
-            </button>
+            </Button>
           ) : undefined
         }
       >
         <div className="flex flex-col gap-2">
-          <p className="text-[12.5px] text-[var(--text-secondary)] ">此令牌只显示一次，关闭后无法再查看。</p>
-          <code className="break-all rounded-md bg-[var(--surface-hover)] p-2.5 font-mono text-[12px] text-[var(--text-primary)] ">{newToken}</code>
+          <p className="text-sm text-[var(--text-secondary)]">
+            此令牌只显示一次，关闭后无法再查看。
+          </p>
+          <code className="rounded-md bg-[var(--surface-hover)] p-2.5 font-mono text-xs break-all text-[var(--text-primary)]">
+            {newToken}
+          </code>
         </div>
       </Modal>
 
@@ -127,21 +132,20 @@ export function TokensPanel() {
         title="撤销令牌"
         footer={
           <>
-            <button type="button" onClick={() => setRevoking(null)} className="rounded-md px-3 py-1.5 text-[13px] text-[var(--text-secondary)] ">
+            <Button variant="ghost" onClick={() => setRevoking(null)}>
               取消
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="danger"
               disabled={revokeMutation.isPending}
               onClick={() => void confirmRevoke()}
-              className="rounded-md bg-[var(--danger)] px-3 py-1.5 text-[13px] font-semibold text-white hover:bg-[var(--danger-hover)] disabled:opacity-50"
             >
               {revokeMutation.isPending ? '撤销中…' : '确认撤销'}
-            </button>
+            </Button>
           </>
         }
       >
-        <p className="text-[13px] text-[var(--text-primary)] ">
+        <p className="text-sm text-[var(--text-primary)]">
           撤销后使用该令牌的程序会立刻失效。确认撤销「{revoking?.name}」？
         </p>
       </Modal>

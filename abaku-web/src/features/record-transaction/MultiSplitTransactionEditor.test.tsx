@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MultiSplitTransactionEditor } from './MultiSplitTransactionEditor'
 
@@ -27,6 +27,18 @@ vi.mock('../../api/queries', () => ({
 vi.mock('../../store/dateRangeStore', () => ({ useDateRangeStore: () => ({ start: '2026-07-01', end: '2026-07-31' }) }))
 vi.mock('../../store/toastStore', () => ({ showToast: mocks.toast }))
 
+/**
+ * 每个拆分是一个 fieldset，字段名（金额/描述/…）在组内才唯一。
+ * 先按 legend 找到那一组，再在组里找控件——跟读屏的定位方式一致。
+ */
+function split(index: number) {
+  return within(screen.getByRole('group', { name: `拆分 ${index}` }))
+}
+
+async function findSplit(index: number) {
+  return within(await screen.findByRole('group', { name: `拆分 ${index}` }))
+}
+
 describe('MultiSplitTransactionEditor', () => {
   beforeEach(() => {
     mocks.create.mockReset().mockResolvedValue({})
@@ -45,21 +57,21 @@ describe('MultiSplitTransactionEditor', () => {
 
     render(<MultiSplitTransactionEditor onSaved={mocks.saved} onDirtyChange={mocks.dirty} />)
 
-    expect(await screen.findByLabelText('拆分 2 金额')).toBeInTheDocument()
+    expect((await findSplit(2)).getByLabelText('金额')).toBeInTheDocument()
   })
 
   it('creates a new group with at least two complete splits', async () => {
     render(<MultiSplitTransactionEditor onSaved={mocks.saved} onDirtyChange={mocks.dirty} />)
-    await screen.findByLabelText('拆分 2 金额')
+    await findSplit(2)
 
-    fireEvent.change(screen.getByLabelText('拆分 1 金额'), { target: { value: '8.25' } })
-    fireEvent.change(screen.getByLabelText('拆分 1 描述'), { target: { value: 'Lunch' } })
-    fireEvent.change(screen.getByLabelText('拆分 1 来源账户'), { target: { value: '1' } })
-    fireEvent.change(screen.getByLabelText('拆分 1 目标'), { target: { value: 'Cafe' } })
-    fireEvent.change(screen.getByLabelText('拆分 2 金额'), { target: { value: '3.50' } })
-    fireEvent.change(screen.getByLabelText('拆分 2 描述'), { target: { value: 'Dessert' } })
-    fireEvent.change(screen.getByLabelText('拆分 2 来源账户'), { target: { value: '1' } })
-    fireEvent.change(screen.getByLabelText('拆分 2 目标'), { target: { value: 'Bakery' } })
+    fireEvent.change(split(1).getByLabelText('金额'), { target: { value: '8.25' } })
+    fireEvent.change(split(1).getByLabelText('描述'), { target: { value: 'Lunch' } })
+    fireEvent.change(split(1).getByLabelText('来源账户'), { target: { value: '1' } })
+    fireEvent.change(split(1).getByLabelText('目标'), { target: { value: 'Cafe' } })
+    fireEvent.change(split(2).getByLabelText('金额'), { target: { value: '3.50' } })
+    fireEvent.change(split(2).getByLabelText('描述'), { target: { value: 'Dessert' } })
+    fireEvent.change(split(2).getByLabelText('来源账户'), { target: { value: '1' } })
+    fireEvent.change(split(2).getByLabelText('目标'), { target: { value: 'Bakery' } })
     fireEvent.click(screen.getByRole('button', { name: '创建多拆分交易' }))
 
     await waitFor(() => expect(mocks.create).toHaveBeenCalledWith({
@@ -75,12 +87,12 @@ describe('MultiSplitTransactionEditor', () => {
 
   it('submits every existing and newly added split with preserved metadata', async () => {
     render(<MultiSplitTransactionEditor groupId="8" onSaved={mocks.saved} onDirtyChange={mocks.dirty} />)
-    await screen.findByLabelText('拆分 2 金额')
+    await findSplit(2)
 
-    fireEvent.change(screen.getByLabelText('拆分 2 金额'), { target: { value: '6.75' } })
+    fireEvent.change(split(2).getByLabelText('金额'), { target: { value: '6.75' } })
     fireEvent.click(screen.getByRole('button', { name: '添加拆分' }))
-    fireEvent.change(screen.getByLabelText('拆分 3 金额'), { target: { value: '3.5' } })
-    fireEvent.change(screen.getByLabelText('拆分 3 描述'), { target: { value: 'Dessert' } })
+    fireEvent.change(split(3).getByLabelText('金额'), { target: { value: '3.5' } })
+    fireEvent.change(split(3).getByLabelText('描述'), { target: { value: 'Dessert' } })
     fireEvent.click(screen.getByRole('button', { name: '保存全部拆分' }))
 
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith({
@@ -98,11 +110,12 @@ describe('MultiSplitTransactionEditor', () => {
 
   it('clears incompatible account ids and names when the transaction type changes', async () => {
     render(<MultiSplitTransactionEditor groupId="8" onSaved={mocks.saved} onDirtyChange={mocks.dirty} />)
-    await screen.findByLabelText('拆分 1 金额')
-    fireEvent.click(screen.getByRole('tab', { name: '收入' }))
+    await findSplit(1)
+    // 类型切换是 radiogroup 不是 tablist：在选一个值，没有并列的面板
+    fireEvent.click(screen.getByRole('radio', { name: '收入' }))
 
-    expect(screen.getByLabelText('拆分 1 来源')).toHaveValue('')
-    expect(screen.getByLabelText('拆分 1 目标账户')).toHaveValue('')
+    expect(split(1).getByLabelText('来源')).toHaveValue('')
+    expect(split(1).getByLabelText('目标账户')).toHaveValue('')
     fireEvent.click(screen.getByRole('button', { name: '保存全部拆分' }))
 
     expect(mocks.update).not.toHaveBeenCalled()

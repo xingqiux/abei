@@ -2,22 +2,29 @@
 
 /* ── token 层 ────────────────────────────────────────────────
    三组：中性分层 / 语义色 / 品牌色。组件一律用这些变量，
-   不再出现 text-[var(--text-secondary)]、bg-[var(--brand)]、'rgb(220 38 38 / 1)' 这类字面量。
-   深色下「抬升 = 表面变浅」（Carbon 的做法），不靠阴影表达层级。
+   不再出现写死的 rgb() 或 Tailwind 自带色板类名（check:colors 会拦）。
+
+   配色「墨与靛」：中性是冷石墨（微蓝偏移，跟主色同向），主色是靛蓝。
+   上一版中性带橄榄褐、深色三层只差 5 个点，结果是一片看不出层级的
+   泥色；并且深色下 --brand 是近白色，整屏没有任何彩度。这版都修了。
+
+   深色下「抬升 = 表面变浅 + 一道细描边」。光靠变浅在近黑区间分不开，
+   所以 --ring-card 在深色下是可见发丝线、浅色下透明（浅色靠 --shadow-card），
+   这是 tailwind-plus 的做法，在这里落成 token。
    ──────────────────────────────────────────────────────────── */
 @theme {
-  /* 中性：微暖，跟品牌的炭墨同一支 */
-  --color-ink-50: #f7f6f2;
-  --color-ink-100: #efede6;
-  --color-ink-200: #e5e3db;
-  --color-ink-300: #cdcac0;
-  --color-ink-400: #a5a296;
-  --color-ink-500: #8a877b;
-  --color-ink-600: #6e6b60;
-  --color-ink-700: #4a4840;
-  --color-ink-800: #2b2a24;
-  --color-ink-900: #1f1e18;
-  --color-ink-950: #16150f;
+  /* 中性：冷石墨。色相往主色的靛偏一点点，读起来是「选过的灰」而不是默认灰 */
+  --color-ink-50: #f4f6fa;
+  --color-ink-100: #e9ecf3;
+  --color-ink-200: #d9dee9;
+  --color-ink-300: #bfc6d6;
+  --color-ink-400: #949cb0;
+  --color-ink-500: #6e768b;
+  --color-ink-600: #525a6e;
+  --color-ink-700: #3a4154;
+  --color-ink-800: #262c3c;
+  --color-ink-900: #191e2b;
+  --color-ink-950: #0f131e;
 }
 
 :root,
@@ -27,40 +34,48 @@
   /* 表面 */
   --surface-0: var(--color-ink-50); /* 页面底 */
   --surface-1: #ffffff; /* 卡片、表格行 */
-  --surface-2: #ffffff; /* 浮层，靠 border 区分 */
-  --surface-hover: var(--color-ink-100);
-  --surface-selected: var(--color-ink-200);
+  --surface-2: #ffffff; /* 浮层，靠 shadow + border 区分 */
+  --surface-hover: #edf0f6;
+  --surface-selected: #e2e8f6;
 
   /* 描边 */
-  --border-subtle: var(--color-ink-200);
-  --border-strong: var(--color-ink-300);
-  --chart-grid: var(--color-ink-300);
+  --border-subtle: #e3e7f0;
+  --border-strong: #828a9f; /* 控件边界，要够 3:1 */
+  --chart-grid: var(--color-ink-200);
+
+  /* 抬升：浅色用投影，深色用发丝线。两个 token 一起用，永远只有一个可见 */
+  --shadow-card: 0 1px 2px 0 rgb(15 19 30 / 0.05);
+  --shadow-pop: 0 10px 24px -6px rgb(15 19 30 / 0.14), 0 2px 6px -2px rgb(15 19 30 / 0.08);
+  --ring-card: transparent;
 
   /* 文字 */
-  --text-primary: #26251f;
+  --text-primary: #171b27;
   --text-secondary: var(--color-ink-600);
-  --text-tertiary: var(--color-ink-500);
+  --text-tertiary: #646c81;
 
   /* 语义 */
-  --income: #c2382a; /* 收入：红。对比度压深一档自 #d0402f */
-  --income-soft: #fbeae7;
+  --income: #c22b3e; /* 收入：红。5.66:1 on 白、5.10:1 on 页面底 */
+  --income-soft: #fceaec;
   --expense: var(--text-primary); /* 支出：不上色，用正文色 */
-  --transfer: #2c6bd6;
-  --transfer-soft: #e8f0fc;
-  --attention: #8f5d0b; /* 需要注意：琥珀，文字级（自 #b0700f 压深） */
-  --attention-mark: #b0700f; /* 同色系，用于图标/边框/背景点缀 */
-  --attention-soft: #fbf2e0;
-  --danger: #8e241a; /* 只给删除类按钮 */
-  --danger-soft: #f9e9e7;
-  --danger-hover: #a02a1e;
-  --done: #2c6b4c;
-  --done-soft: #e7f2ec;
+  --transfer: #0e6fa8;
+  --transfer-soft: #e4f0f8;
+  --attention: #95610c; /* 需要注意：琥珀，文字级 */
+  --attention-mark: #b0740f; /* 同色系，用于图标/边框/背景点缀 */
+  --attention-soft: #fbf1dc;
+  --danger: #a32617; /* 只给删除类按钮 */
+  --danger-soft: #fbe9e6;
+  --danger-hover: #b93023;
+  --done: #1c6b4c;
+  --done-soft: #e4f2ec;
 
-  /* 品牌：无彩色炭墨 */
-  --brand: #2b2a24;
-  --brand-hover: #3d3b33;
-  --brand-on: #f7f6f2; /* 品牌色上的文字 */
-  --focus-ring: #2b2a24;
+  /* 品牌：靛。--brand 是实心底（配 --brand-on 的字），--brand-text 是页面上的前景色。
+     两者在浅色下同值：#4a46c9 对白 6.98:1，当底当字都够。 */
+  --brand: #4a46c9;
+  --brand-hover: #3d39b3;
+  --brand-on: #ffffff; /* 品牌底上的文字 */
+  --brand-text: #4a46c9; /* 链接、选中项、图标 */
+  --brand-soft: #e8e8fa; /* 选中态底色、chip */
+  --focus-ring: #4a46c9;
 
   /* 密度：交易行高，设置里可切 40/48 */
   --row-h: 40px;
@@ -70,37 +85,44 @@
   --row-h: 48px;
 }
 
+/* 深色三层：#0f131e → #1a2030 → #242b3d，每层差得开；
+   再加 --ring-card 的发丝线兜底，近黑区间才真的分得出层级。 */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     color-scheme: dark;
     --surface-0: var(--color-ink-950);
-    --surface-1: var(--color-ink-900);
-    --surface-2: #2a2922;
-    --surface-hover: #26251e;
-    --surface-selected: #322f27;
-    --border-subtle: #34332b;
-    --border-strong: var(--color-ink-700);
+    --surface-1: #1a2030;
+    --surface-2: #242b3d;
+    --surface-hover: #212838;
+    --surface-selected: #2c3348;
+    --border-subtle: #2a3145;
+    --border-strong: var(--color-ink-500);
     --chart-grid: rgb(255 255 255 / 0.08);
-    --text-primary: #e6e3d9;
+    --shadow-card: none;
+    --shadow-pop: 0 16px 40px -8px rgb(0 0 0 / 0.6);
+    --ring-card: rgb(255 255 255 / 0.08);
+    --text-primary: #e6e9f2;
     --text-secondary: var(--color-ink-400);
-    --text-tertiary: #7a7769;
-    --income: #f08475;
-    --income-soft: #3a211d;
+    --text-tertiary: #848ca1;
+    --income: #ff7a85;
+    --income-soft: #3b1d23;
     --expense: var(--text-primary);
-    --transfer: #7ba6ea;
-    --transfer-soft: #1b2740;
-    --attention: #dfa94a;
-    --attention-mark: #dfa94a;
-    --attention-soft: #33280f;
-    --danger: #d2604f;
-    --danger-soft: #351a16;
-    --danger-hover: #e07a68;
-    --done: #63a886;
-    --done-soft: #17291f;
-    --brand: #edebe1;
-    --brand-hover: #ffffff;
-    --brand-on: #16150f;
-    --focus-ring: #edebe1;
+    --transfer: #58b0e7;
+    --transfer-soft: #12293b;
+    --attention: #e0a94e;
+    --attention-mark: #e0a94e;
+    --attention-soft: #35290f;
+    --danger: #f0796a;
+    --danger-soft: #3a1c19;
+    --danger-hover: #f79184;
+    --done: #4fbf8f;
+    --done-soft: #122d23;
+    --brand: #5d57e8; /* 实心底：白字 5.26:1 */
+    --brand-hover: #6862ec;
+    --brand-on: #ffffff;
+    --brand-text: #9d98fa; /* 页面前景：对页面底 7.34:1 */
+    --brand-soft: #23214a;
+    --focus-ring: #7c77f0;
   }
 }
 
@@ -108,33 +130,38 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
   --surface-0: var(--color-ink-950);
-  --surface-1: var(--color-ink-900);
-  --surface-2: #2a2922;
-  --surface-hover: #26251e;
-  --surface-selected: #322f27;
-  --border-subtle: #34332b;
-  --border-strong: var(--color-ink-700);
+  --surface-1: #1a2030;
+  --surface-2: #242b3d;
+  --surface-hover: #212838;
+  --surface-selected: #2c3348;
+  --border-subtle: #2a3145;
+  --border-strong: var(--color-ink-500);
   --chart-grid: rgb(255 255 255 / 0.08);
-  --text-primary: #e6e3d9;
+  --shadow-card: none;
+  --shadow-pop: 0 16px 40px -8px rgb(0 0 0 / 0.6);
+  --ring-card: rgb(255 255 255 / 0.08);
+  --text-primary: #e6e9f2;
   --text-secondary: var(--color-ink-400);
-  --text-tertiary: #7a7769;
-  --income: #f08475;
-  --income-soft: #3a211d;
+  --text-tertiary: #848ca1;
+  --income: #ff7a85;
+  --income-soft: #3b1d23;
   --expense: var(--text-primary);
-  --transfer: #7ba6ea;
-  --transfer-soft: #1b2740;
-  --attention: #dfa94a;
-  --attention-mark: #dfa94a;
-  --attention-soft: #33280f;
-  --danger: #d2604f;
-  --danger-soft: #351a16;
-  --danger-hover: #e07a68;
-  --done: #63a886;
-  --done-soft: #17291f;
-  --brand: #edebe1;
-  --brand-hover: #ffffff;
-  --brand-on: #16150f;
-  --focus-ring: #edebe1;
+  --transfer: #58b0e7;
+  --transfer-soft: #12293b;
+  --attention: #e0a94e;
+  --attention-mark: #e0a94e;
+  --attention-soft: #35290f;
+  --danger: #f0796a;
+  --danger-soft: #3a1c19;
+  --danger-hover: #f79184;
+  --done: #4fbf8f;
+  --done-soft: #122d23;
+  --brand: #5d57e8;
+  --brand-hover: #6862ec;
+  --brand-on: #ffffff;
+  --brand-text: #9d98fa;
+  --brand-soft: #23214a;
+  --focus-ring: #7c77f0;
 }
 
 * {
@@ -153,10 +180,17 @@ body,
     font-size: 13.5px;
     line-height: 1.5;
   }
+
+  /* 焦点环统一走 token。tailwind-plus 用 outline 不用 ring，
+     好处是不吃 box-shadow、也不被 overflow 裁掉。 */
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--brand) 30%, transparent);
+  background: color-mix(in srgb, var(--brand) 28%, transparent);
 }
 
 /* 滚动条：细、低调 */

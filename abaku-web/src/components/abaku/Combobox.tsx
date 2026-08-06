@@ -9,6 +9,7 @@ import {
 } from 'react'
 import gsap from 'gsap'
 import { prefersReducedMotion } from '../../motion/reducedMotion'
+import { CONTROL_BASE, CONTROL_INVALID, useFieldControl } from '../ui/Field'
 
 export interface ComboboxItem {
   id: string
@@ -65,8 +66,10 @@ export function Combobox({
   id: idProp,
 }: ComboboxProps) {
   const autoId = useId()
-  const listboxId = `${idProp ?? autoId}-listbox`
-  const inputId = idProp ?? autoId
+  const field = useFieldControl()
+  const inputId = idProp ?? field.id ?? autoId
+  const listboxId = `${inputId}-listbox`
+  const invalid = hasError != null || field.invalid
 
   const [open, setOpen] = useState(false)
   const [highlight, setHighlight] = useState(0)
@@ -166,11 +169,9 @@ export function Combobox({
     }
   }
 
-  const inputClass = [
-    'w-full rounded-md border px-2.5 py-1.5 text-[12.5px] outline-none',
-    'bg-[var(--surface-hover)] text-[var(--text-primary)]  ',
-    hasError ? 'border-[var(--danger)] ' : 'border-[var(--border-subtle)] ',
-  ].join(' ')
+  // 边框/聚焦态跟 Field 的原生控件走同一套，否则同一张表单里两种输入框长得不一样。
+  // 原先这里是 `outline-none` + 静态 border——聚焦时完全没有反馈。
+  const inputClass = `${CONTROL_BASE} px-2.5 py-1.5 text-[12.5px] ${invalid ? CONTROL_INVALID : ''}`
 
   return (
     <div ref={rootRef} className={`relative ${className}`}>
@@ -184,6 +185,8 @@ export function Combobox({
           showList && kbdNav && items[highlight] ? `${listboxId}-opt-${highlight}` : undefined
         }
         aria-label={ariaLabel}
+        aria-describedby={field.describedBy}
+        aria-invalid={invalid || undefined}
         value={value}
         placeholder={placeholder}
         autoComplete="off"
@@ -209,11 +212,10 @@ export function Combobox({
           role="listbox"
           className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] py-0.5 shadow-sm  "
         >
+          {/* role=status：结果还没回来时读屏得听到「搜索中」，
+              否则输完字只有一片沉默，分不清是没匹配还是还在等 */}
           {isLoading && items.length === 0 && (
-            <li
-              className="px-2.5 py-1.5 text-[12px] text-[var(--text-secondary)] "
-              role="presentation"
-            >
+            <li role="status" className="px-2.5 py-1.5 text-[12px] text-[var(--text-secondary)]">
               搜索中…
             </li>
           )}

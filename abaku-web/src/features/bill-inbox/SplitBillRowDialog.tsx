@@ -5,6 +5,9 @@ import { Modal } from '../../components/abaku/Modal'
 import { compareDecimalStrings, isPositiveDecimal, normalizeDecimalString, sumDecimalStrings } from '../../lib/decimal'
 import { FireflyApiError } from '../../api/client'
 import { showToast } from '../../store/toastStore'
+import { PlusIcon, TrashIcon } from '@heroicons/react/20/solid'
+import { Button, IconButton } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Field'
 
 interface Part {
   payment_method: string
@@ -89,23 +92,45 @@ export function SplitBillRowDialog({ row, open, onClose }: { row: BillStatementR
 
   return (
     <Modal open={open} onClose={onClose} title="拆分组合支付" width={600} footer={<>
-      <button type="button" onClick={onClose} className="rounded-[6px] px-3 py-1.5 text-[12.5px] text-[var(--text-secondary)] ">取消</button>
-      <button type="button" disabled={!valid || mutation.isPending} onClick={() => void submit()} className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-[var(--brand)]  text-white">{mutation.isPending ? '拆分中…' : '确认拆分'}</button>
+      <Button variant="secondary" size="md" onClick={onClose}>取消</Button>
+      <Button variant="primary" size="md" disabled={!valid || mutation.isPending} onClick={() => void submit()}>
+        {mutation.isPending ? '拆分中…' : '确认拆分'}
+      </Button>
     </>}>
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-3">
         {parts.map((part, index) => (
-          <div key={index} className="grid grid-cols-[1fr_1fr_100px_28px] gap-2">
-            <input aria-label={`拆分 ${index + 1} 支付方式`} placeholder="支付方式" value={part.payment_method} onChange={(event) => update(index, 'payment_method', event.target.value)} className="rounded-[6px] px-2 py-1.5 text-[12px] bg-[var(--surface-hover)]  text-[var(--text-primary)] " style={{ border: '1px solid var(--border-subtle)' }} />
-            <input aria-label={`拆分 ${index + 1} 账户`} placeholder="扣款账户" value={part.source_name} onChange={(event) => update(index, 'source_name', event.target.value)} className="rounded-[6px] px-2 py-1.5 text-[12px] bg-[var(--surface-hover)]  text-[var(--text-primary)] " style={{ border: '1px solid var(--border-subtle)' }} />
-            <input aria-label={`拆分 ${index + 1} 金额`} inputMode="decimal" placeholder="金额" value={part.amount} onChange={(event) => update(index, 'amount', event.target.value.replace(/[^0-9.]/g, ''))} className="font-mono tabular-nums rounded-[6px] px-2 py-1.5 text-right text-[12px] bg-[var(--surface-hover)]  text-[var(--text-primary)] " style={{ border: '1px solid var(--border-subtle)' }} />
-            <button type="button" aria-label={`删除拆分 ${index + 1}`} disabled={parts.length <= 2} onClick={() => setParts((current) => current.filter((_, partIndex) => partIndex !== index))} className="disabled:opacity-30 text-[var(--danger)] ">×</button>
-            <input aria-label={`拆分 ${index + 1} 描述`} placeholder="描述" value={part.description} onChange={(event) => update(index, 'description', event.target.value)} className="col-span-2 rounded-[6px] px-2 py-1.5 text-[12px] bg-[var(--surface-hover)]  text-[var(--text-primary)] " style={{ border: '1px solid var(--border-subtle)' }} />
-            <input aria-label={`拆分 ${index + 1} 分类`} placeholder="分类（可选）" value={part.category_name} onChange={(event) => update(index, 'category_name', event.target.value)} className="col-span-2 rounded-[6px] px-2 py-1.5 text-[12px] bg-[var(--surface-hover)]  text-[var(--text-primary)] " style={{ border: '1px solid var(--border-subtle)' }} />
-          </div>
+          <fieldset key={index} className="grid grid-cols-[1fr_1fr_100px_28px] gap-2 rounded-lg border border-[var(--border-subtle)] p-2">
+            <legend className="px-1 text-xs text-[var(--text-tertiary)]">第 {index + 1} 项</legend>
+            <Input aria-label={`拆分 ${index + 1} 支付方式`} placeholder="支付方式" value={part.payment_method} onChange={(event) => update(index, 'payment_method', event.target.value)} />
+            <Input aria-label={`拆分 ${index + 1} 账户`} placeholder="扣款账户" value={part.source_name} onChange={(event) => update(index, 'source_name', event.target.value)} />
+            <Input aria-label={`拆分 ${index + 1} 金额`} inputMode="decimal" placeholder="金额" value={part.amount} onChange={(event) => update(index, 'amount', event.target.value.replace(/[^0-9.]/g, ''))} className="text-right font-mono tabular-nums" />
+            <IconButton
+              label={`删除拆分 ${index + 1}`}
+              variant="ghost-danger"
+              disabled={parts.length <= 2}
+              onClick={() => setParts((current) => current.filter((_, partIndex) => partIndex !== index))}
+            >
+              <TrashIcon aria-hidden className="size-4" />
+            </IconButton>
+            <Input className="col-span-2" aria-label={`拆分 ${index + 1} 描述`} placeholder="描述" value={part.description} onChange={(event) => update(index, 'description', event.target.value)} />
+            <Input className="col-span-2" aria-label={`拆分 ${index + 1} 分类`} placeholder="分类（可选）" value={part.category_name} onChange={(event) => update(index, 'category_name', event.target.value)} />
+          </fieldset>
         ))}
-        <div className="flex items-center justify-between pt-1 text-[12px]">
-          <button type="button" onClick={() => setParts((current) => [...current, emptyPart(row)])} style={{ color: 'var(--brand)' }}>添加一项</button>
-          <span className="font-mono tabular-nums" style={{ color: valid ? 'var(--done)' : 'var(--danger)' }}>合计 {total ?? '--'} / {target || '--'}</span>
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <Button variant="secondary" size="sm" onClick={() => setParts((current) => [...current, emptyPart(row)])}>
+            <PlusIcon aria-hidden className="size-4" />
+            添加一项
+          </Button>
+          {/* 合计对不上是提交前唯一的硬约束，所以写成一句能读的话而不是纯数字对比。
+              role=status 让金额一改读屏就播报，不用等提交才知道差多少 */}
+          <span
+            role="status"
+            className={`text-xs font-medium ${valid ? 'text-[var(--done)]' : 'text-[var(--danger)]'}`}
+          >
+            合计 <span className="font-mono tabular-nums">{total ?? '--'}</span> / 原金额{' '}
+            <span className="font-mono tabular-nums">{target || '--'}</span>
+            {!valid && '（必须相等）'}
+          </span>
         </div>
       </div>
     </Modal>

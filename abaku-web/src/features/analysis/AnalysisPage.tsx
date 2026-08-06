@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
+import { ChartBarIcon } from '@heroicons/react/24/outline'
 import { useAccountOverviewChart, useExpenseByAsset, useExpenseByBudget, useExpenseByCategory, useExpenseByTag, useExpenseWithoutBudget, useExpenseWithoutCategory, useFinancialReport, useIncomeByRevenue, useSummaryBasic } from '../../api/queries'
 import { KpiCard } from '../../components/abaku/KpiCard'
 import { CategoryBarChart } from '../../components/abaku/CategoryBarChart'
@@ -12,26 +13,26 @@ import { useStaggerIn } from '../../motion/useStaggerIn'
 import { MonthSwitcher } from './MonthSwitcher'
 import { cashflowAmounts, summaryAmounts } from '../../lib/summary'
 import { ErrorState } from '../../components/abaku/ErrorState'
+import { Card } from '../../components/ui/Card'
 
-function Card({ title, children }: { title: string; children: ReactNode }) {
+/**
+ * 带小标题的图表块。这里原本自己写了个叫 `Card` 的组件，把共享的那个遮住了，
+ * 于是这页的卡片底色/抬升跟别处对不上。现在只在共享 Card 上加一行标题。
+ */
+function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-[10px] p-3.5 bg-[var(--surface-1)]  shadow-sm">
-      <div
-        className="mb-3 text-[12px] text-[var(--text-secondary)]  font-semibold"
-        style={{ letterSpacing: '.02em' }}
-      >
-        {title}
-      </div>
+    <Card>
+      <h2 className="mb-3 text-xs font-semibold tracking-wide text-[var(--text-secondary)]">{title}</h2>
       {children}
-    </div>
+    </Card>
   )
 }
 
 function RankingCard({ title, isLoading, isError, retry, data }: { title: string; isLoading: boolean; isError: boolean; retry: () => void; data: ReturnType<typeof topNWithOther> }) {
   return (
-    <Card title={title}>
+    <Panel title={title}>
       {isLoading ? (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2" role="status" aria-label={`${title}加载中`}>
           {Array.from({ length: 5 }).map((_, i) => (
             <Skeleton key={i} className="h-4" />
           ))}
@@ -39,13 +40,11 @@ function RankingCard({ title, isLoading, isError, retry, data }: { title: string
       ) : isError ? (
         <ErrorState message={`${title}加载失败`} onRetry={retry} />
       ) : data.length === 0 ? (
-        <div className="py-6 text-center text-[12.5px] text-[var(--text-secondary)] ">
-          该月无数据
-        </div>
+        <p className="py-6 text-center text-sm text-[var(--text-secondary)]">该月无数据</p>
       ) : (
         <CategoryBarChart data={data} />
       )}
-    </Card>
+    </Panel>
   )
 }
 
@@ -96,7 +95,7 @@ export function AnalysisPage() {
     })),
   ), [financialReportQuery.data])
   const topTx = financialReportQuery.data?.data.top_expenses ?? []
-  const topTxRef = useStaggerIn<HTMLDivElement>([financialReportQuery.isSuccess, range.start])
+  const topTxRef = useStaggerIn<HTMLUListElement>([financialReportQuery.isSuccess, range.start])
   const balanceSeries = useMemo(
     () => pickTopBalanceSeries(chartQuery.data ?? [], 4),
     [chartQuery.data],
@@ -105,9 +104,7 @@ export function AnalysisPage() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-[18px] font-semibold text-[var(--text-primary)] ">
-          分析
-        </h1>
+        <h1 className="text-lg font-semibold text-[var(--text-primary)]">分析</h1>
         <MonthSwitcher
           month={month}
           onPrev={() => setMonth((m) => addMonths(m, -1))}
@@ -115,43 +112,37 @@ export function AnalysisPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {/* 四张 KPI：原先是 sm:grid-cols-3 却渲染 4 张，第 4 张永远单独掉到第二行 */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {summaryQuery.isError ? (
-          <div className="sm:col-span-3 rounded-[10px] bg-[var(--surface-1)] ">
-            <ErrorState message="月度汇总加载失败" onRetry={() => void summaryQuery.refetch()} />
+          <div className="sm:col-span-2 lg:col-span-4">
+            <Card padded={false}>
+              <ErrorState message="月度汇总加载失败" onRetry={() => void summaryQuery.refetch()} />
+            </Card>
           </div>
         ) : summaryQuery.isLoading || !kpis ? (
-          Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-[86px]" />)
+          Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-[86px]" />)
         ) : (
           <>
-            <KpiCard label="本月收入" amounts={kpis.earned} colorVar="var(--income)" sublabel={`${range.start} ~ ${range.end}`} signed />
-            <KpiCard label="本月支出" amounts={kpis.spent} colorVar="var(--danger)" sublabel={`${range.start} ~ ${range.end}`} signed />
-            <KpiCard label="总净资产" amounts={kpis.netWorth} colorVar="var(--text-primary)" sublabel={`${range.start} ~ ${range.end}`} signed />
-            <KpiCard
-              label="本月净额"
-              amounts={kpis.net}
-              colorVar="var(--text-primary)"
-              sublabel={`${range.start} ~ ${range.end}`}
-              signed
-            />
+            <KpiCard label="本月收入" amounts={kpis.earned} semantic="income" sublabel={`${range.start} ~ ${range.end}`} signed />
+            <KpiCard label="本月支出" amounts={kpis.spent} semantic="expense" sublabel={`${range.start} ~ ${range.end}`} signed />
+            <KpiCard label="总净资产" amounts={kpis.netWorth} semantic="neutral" sublabel={`${range.start} ~ ${range.end}`} signed />
+            <KpiCard label="本月净额" amounts={kpis.net} semantic="neutral" sublabel={`${range.start} ~ ${range.end}`} signed />
           </>
         )}
       </div>
 
-      <div className="rounded-[10px] bg-[var(--surface-1)] p-3.5 shadow-sm  ">
-        <div className="mb-3 text-[12px] font-semibold text-[var(--text-secondary)] " style={{ letterSpacing: '.02em' }}>
-          账户余额
-        </div>
+      <Panel title="账户余额">
         {chartQuery.isLoading ? (
           <Skeleton className="h-[220px]" />
         ) : chartQuery.isError ? (
           <ErrorState message="余额趋势加载失败" onRetry={() => void chartQuery.refetch()} />
         ) : balanceSeries.length === 0 ? (
-          <EmptyState icon="📉" message="本期暂无账户余额序列" />
+          <EmptyState icon={<ChartBarIcon aria-hidden className="size-9 text-[var(--text-tertiary)]" />} message="本期暂无账户余额序列" />
         ) : (
           <BalanceAreaChart series={balanceSeries} />
         )}
-      </div>
+      </Panel>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <RankingCard title="分类支出排行" isLoading={categoryQuery.isLoading} isError={categoryQuery.isError} retry={() => void categoryQuery.refetch()} data={categoryData} />
@@ -170,9 +161,9 @@ export function AnalysisPage() {
         <RankingCard title="未编入预算支出" isLoading={unbudgetedQuery.isLoading} isError={unbudgetedQuery.isError} retry={() => void unbudgetedQuery.refetch()} data={unbudgetedData} />
       </div>
 
-      <Card title="当月最大支出 Top 10">
+      <Panel title="当月最大支出 Top 10">
         {financialReportQuery.isLoading ? (
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1" role="status" aria-label="最大支出加载中">
             {Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} className="h-8" />
             ))}
@@ -182,22 +173,22 @@ export function AnalysisPage() {
         ) : topTx.length === 0 ? (
           <EmptyState message="该月没有支出交易" />
         ) : (
-          <div ref={topTxRef} className="flex flex-col">
+          <ul ref={topTxRef} role="list" className="divide-y divide-[var(--border-subtle)]">
             {topTx.map((row) => (
-              <div key={`${row.group_id}:${row.currency_id}`} className="grid min-h-9 grid-cols-[48px_minmax(0,1fr)_auto] items-center gap-2 border-b border-[var(--border-subtle)] py-1.5 last:border-b-0">
-                <span className="font-mono tabular-nums text-[12px] text-[var(--text-secondary)] ">{formatMonthDay(row.date)}</span>
+              <li key={`${row.group_id}:${row.currency_id}`} className="grid min-h-9 grid-cols-[48px_minmax(0,1fr)_auto] items-center gap-2 py-1.5">
+                <span className="font-mono text-xs tabular-nums text-[var(--text-secondary)]">{formatMonthDay(row.date)}</span>
                 <div className="min-w-0">
-                  <div className="truncate text-[12.5px] text-[var(--text-primary)] ">{row.title}</div>
-                  {row.split_count > 1 && <div className="text-[10.5px] text-[var(--text-secondary)] ">{row.split_count} 条拆分</div>}
+                  <div className="truncate text-[12.5px] text-[var(--text-primary)]">{row.title}</div>
+                  {row.split_count > 1 && <div className="text-[10.5px] text-[var(--text-secondary)]">{row.split_count} 条拆分</div>}
                 </div>
-                <span className="font-mono tabular-nums shrink-0 text-right text-[12.5px] text-[var(--text-primary)] ">
+                <span className="shrink-0 text-right font-mono text-[12.5px] tabular-nums text-[var(--text-primary)]">
                   -{row.currency_symbol || row.currency_code}{formatAmount(row.amount)}
                 </span>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
-      </Card>
+      </Panel>
     </div>
   )
 }

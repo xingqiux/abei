@@ -13,29 +13,37 @@ import { EmptyState } from '../../components/abaku/EmptyState'
 import { CelebrateOverlay } from '../../components/abaku/CelebrateOverlay'
 import { Modal } from '../../components/abaku/Modal'
 import { BanknotesIcon } from '@heroicons/react/24/outline'
-import { formatAmount, formatMonthDay } from '../../lib/format'
+import { formatAmount, formatMonthDay, semanticColorClass, type MoneySemantic } from '../../lib/format'
 import { useStaggerIn } from '../../motion/useStaggerIn'
 import { showToast } from '../../store/toastStore'
 import { FireflyApiError } from '../../api/client'
 import { flattenTransactionGroups } from '../../lib/transactionGroup'
 import { absoluteDecimalString, compareDecimalStrings, isPositiveDecimal, normalizeDecimalString } from '../../lib/decimal'
 import { ErrorState } from '../../components/abaku/ErrorState'
+import { Button } from '../../components/ui/Button'
+import { Card } from '../../components/ui/Card'
+import { Field, Input, Select } from '../../components/ui/Field'
+import { SegmentedControl, type SegmentDef } from '../../components/ui/SegmentedControl'
 import type { ReactNode } from 'react'
 
 const DAYS_WINDOW = 30
 
-function MiniKpi({ label, value, colorVar, mono = true }: { label: string; value: ReactNode; colorVar: string; mono?: boolean }) {
+/** 当日小结数字。颜色跟交易行同一套 `semanticColorClass`，不另起一套 */
+function MiniKpi({ label, value, semantic }: { label: string; value: ReactNode; semantic: MoneySemantic }) {
   return (
-    <div className="rounded-[10px] p-3 bg-[var(--surface-1)]  shadow-sm">
-      <div className="text-[11px] text-[var(--text-secondary)] " style={{ letterSpacing: '.04em', textTransform: 'uppercase' }}>
-        {label}
-      </div>
-      <div className={mono ? 'font-mono tabular-nums mt-1' : 'mt-1'} style={{ fontSize: 16, fontWeight: 600, color: colorVar }}>
-        {value}
-      </div>
-    </div>
+    <Card padded={false} className="p-3">
+      <div className="text-[11px] font-medium tracking-wide text-[var(--text-secondary)] uppercase">{label}</div>
+      <div className={`mt-1 font-mono text-base font-semibold tabular-nums ${semanticColorClass(semantic)}`}>{value}</div>
+    </Card>
   )
 }
+
+type AdjDirection = 'decrease' | 'increase'
+
+const ADJ_DIRECTIONS: readonly SegmentDef<AdjDirection>[] = [
+  { value: 'decrease', label: '减少余额' },
+  { value: 'increase', label: '增加余额' },
+]
 
 export function ReconciliationPage() {
   const summaryQuery = useReconciliationSummary(DAYS_WINDOW)
@@ -49,7 +57,7 @@ export function ReconciliationPage() {
   const createAdj = useCreateReconciliationAdjustment()
   // 对账调整只列纯资产，不混入花呗/助学贷款等负债
   const accountsQuery = useAssetAccounts({ includeLiabilities: false })
-  const [adjDirection, setAdjDirection] = useState<'decrease' | 'increase'>('decrease')
+  const [adjDirection, setAdjDirection] = useState<AdjDirection>('decrease')
 
   const chronoDays = useMemo(() => {
     const days = summaryQuery.data?.days ?? []
@@ -181,15 +189,13 @@ export function ReconciliationPage() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-[18px] font-semibold text-[var(--text-primary)] ">
-          按天对账
-        </h1>
-        <div className="text-[12.5px] text-[var(--text-secondary)] ">
+        <h1 className="text-lg font-semibold text-[var(--text-primary)]">按天对账</h1>
+        <div className="text-[12.5px] text-[var(--text-secondary)]">
           {lastReconciledLabel} · 已 {daysUnreconciled} 天未对账
         </div>
       </div>
 
-      <div className="rounded-[10px] p-3.5 bg-[var(--surface-1)]  shadow-sm">
+      <Card>
         {summaryQuery.isLoading ? (
           <Skeleton className="h-[80px]" />
         ) : summaryQuery.isError ? (
@@ -197,50 +203,32 @@ export function ReconciliationPage() {
         ) : (
           <CalendarStrip days={chronoDays} selected={selected} onSelect={setSelected} />
         )}
-      </div>
+      </Card>
 
       {selectedDay && (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-baseline gap-2">
-              <span className="text-[14px] font-semibold text-[var(--text-primary)] ">
-                {formatMonthDay(selectedDay.date)}
-              </span>
-              <span className="text-[11.5px] text-[var(--text-secondary)] ">
-                {selectedDay.date}
-              </span>
+              <span className="text-sm font-semibold text-[var(--text-primary)]">{formatMonthDay(selectedDay.date)}</span>
+              <span className="text-[11.5px] text-[var(--text-secondary)]">{selectedDay.date}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={openAdjustmentDialog}
-                className="rounded-[6px] px-3 py-1.5 text-[12.5px] bg-[var(--surface-hover)]  text-[var(--text-primary)] "
-
-              >
+              <Button variant="secondary" size="sm" onClick={openAdjustmentDialog}>
                 生成调整交易
-              </button>
+              </Button>
               {canMark && (
-                <button
-                  type="button"
-                  disabled={markDay.isPending}
-                  onClick={() => void handleMarkDay()}
-                  className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-[var(--brand)]  text-white font-semibold"
-
-                >
+                <Button variant="primary" size="sm" disabled={markDay.isPending} onClick={() => void handleMarkDay()}>
                   {markDay.isPending ? '标记中…' : '标记本日已对账'}
-                </button>
+                </Button>
               )}
             </div>
           </div>
 
           {hasDiff && (
-            <div
-              className="flex flex-wrap items-center justify-between gap-2 rounded-[6px] py-2.5 pl-3 pr-3.5 bg-[var(--surface-1)] "
-              style={{ borderLeft: '3px solid var(--attention-mark)' }}
-            >
-              <span className="text-[12.5px] text-[var(--text-primary)] ">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border-l-[3px] border-[var(--attention-mark)] bg-[var(--attention-soft)] py-2.5 pr-3.5 pl-3">
+              <span className="text-[12.5px] text-[var(--text-primary)]">
                 该日存在对账差异{' '}
-                <span className="font-mono tabular-nums text-[var(--attention)] ">
+                <span className="font-mono tabular-nums text-[var(--attention)]">
                   {selectedDiffTotals.map((total) => <span key={total.currency_code || total.currency_symbol} className="mr-2">{total.currency_symbol}{formatAmount(total.amount)}{total.currency_code ? ` ${total.currency_code}` : ''}</span>)}
                 </span>
                 （已有 Reconciliation 调整流水）
@@ -249,19 +237,19 @@ export function ReconciliationPage() {
           )}
 
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <MiniKpi label="收入" value={<>{selectedTotals.map((total) => <div key={total.currency_code || total.currency_symbol}>+{total.currency_symbol}{formatAmount(total.income)} <small>{total.currency_code}</small></div>)}</>} colorVar="var(--income)" />
-            <MiniKpi label="支出" value={<>{selectedTotals.map((total) => <div key={total.currency_code || total.currency_symbol}>-{total.currency_symbol}{formatAmount(total.expense)} <small>{total.currency_code}</small></div>)}</>} colorVar="var(--danger)" />
+            <MiniKpi label="收入" semantic="income" value={<>{selectedTotals.map((total) => <div key={total.currency_code || total.currency_symbol}>+{total.currency_symbol}{formatAmount(total.income)} <small>{total.currency_code}</small></div>)}</>} />
+            <MiniKpi label="支出" semantic="expense" value={<>{selectedTotals.map((total) => <div key={total.currency_code || total.currency_symbol}>-{total.currency_symbol}{formatAmount(total.expense)} <small>{total.currency_code}</small></div>)}</>} />
             <MiniKpi
               label="净额"
+              semantic="neutral"
               value={<>{selectedTotals.map((total) => { const comparison = compareDecimalStrings(total.net, '0'); return <div key={total.currency_code || total.currency_symbol}>{comparison > 0 ? '+' : comparison < 0 ? '-' : ''}{total.currency_symbol}{formatAmount(absoluteDecimalString(total.net))} <small>{total.currency_code}</small></div> })}</>}
-              colorVar="var(--text-primary)"
             />
-            <MiniKpi label="笔数" value={String(selectedDay.tx_count)} colorVar="var(--text-primary)" />
+            <MiniKpi label="笔数" semantic="neutral" value={String(selectedDay.tx_count)} />
           </div>
 
-          <div className="rounded-[10px] p-2 bg-[var(--surface-1)]  shadow-sm">
+          <Card padded={false} className="p-2">
             {txQuery.isLoading ? (
-              <div className="flex flex-col gap-1 p-2">
+              <div className="flex flex-col gap-1 p-2" role="status" aria-label="当日交易加载中">
                 {Array.from({ length: 6 }).map((_, i) => (
                   <Skeleton key={i} className="h-8" />
                 ))}
@@ -281,7 +269,7 @@ export function ReconciliationPage() {
                 ))}
               </div>
             )}
-          </div>
+          </Card>
         </>
       )}
 
@@ -292,83 +280,48 @@ export function ReconciliationPage() {
         width={420}
         footer={
           <>
-            <button
-              type="button"
-              onClick={() => setAdjOpen(false)}
-              className="rounded-[6px] px-3 py-1.5 text-[12.5px] bg-[var(--surface-hover)]  text-[var(--text-primary)] "
-
-            >
+            <Button variant="secondary" size="md" onClick={() => setAdjOpen(false)}>
               取消
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
               disabled={createAdj.isPending || adjustmentAccounts.length === 0}
               onClick={() => void handleCreateAdj()}
-              className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-[var(--brand)]  text-white font-semibold"
-
             >
               {createAdj.isPending ? '创建中…' : '创建'}
-            </button>
+            </Button>
           </>
         }
       >
-        <div className="flex flex-col gap-3 text-[12.5px]">
-          <p style={{ color: 'var(--text-secondary)' }}>
-            type=reconciliation，自动标记 reconciled。减少=资产作来源；增加=资产作目标；对侧由后端挂对账账户。
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-[var(--text-secondary)]">
+            生成一笔 reconciliation 类型的交易并自动标记为已对账。减少余额时资产账户作来源，增加时作目标，对侧由后端挂到对账账户。
           </p>
           <div className="flex flex-col gap-1.5">
-            <span style={{ color: 'var(--text-secondary)' }}>方向</span>
-            <div className="flex gap-1">
-              {(
-                [
-                  { id: 'decrease' as const, label: '减少余额' },
-                  { id: 'increase' as const, label: '增加余额' },
-                ] as const
-              ).map((opt) => {
-                const active = adjDirection === opt.id
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setAdjDirection(opt.id)}
-                    className="rounded-[4px] px-2.5 py-1 text-[12px]"
-                    style={{
-                      background: active ? 'var(--brand)' : 'var(--surface-hover)',
-                      color: active ? 'var(--color-white)' : 'var(--text-primary)',
-                      fontWeight: active ? '600' : undefined,
-                    }}
-                  >
-                    {opt.label}
-                  </button>
-                )
-              })}
-            </div>
+            <span className="text-sm/6 font-medium text-[var(--text-primary)]">方向</span>
+            <SegmentedControl aria-label="调整方向" segments={ADJ_DIRECTIONS} value={adjDirection} onChange={setAdjDirection} />
           </div>
-          <label className="flex flex-col gap-1">
-            <span style={{ color: 'var(--text-secondary)' }}>金额</span>
-            <input
+          <Field label="金额">
+            <Input
+              inputMode="decimal"
+              className="text-right font-mono tabular-nums"
               value={adjAmount}
               onChange={(e) => setAdjAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-              className="font-mono tabular-nums rounded-[6px] px-2.5 py-1.5 outline-none bg-[var(--surface-hover)]  text-[var(--text-primary)] "
-              style={{ border: '1px solid var(--border-subtle)' }}
             />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span style={{ color: 'var(--text-secondary)' }}>资产账户</span>
-            <select
-              value={adjAccountId}
-              onChange={(e) => setAdjAccountId(e.target.value)}
-              className="rounded-[6px] px-2.5 py-1.5 outline-none bg-[var(--surface-hover)]  text-[var(--text-primary)] "
-              style={{ border: '1px solid var(--border-subtle)' }}
-            >
-              {adjustmentAccounts.length === 0 && <option value="">{hasDiff ? '没有匹配差异币种的资产账户' : '没有可用的资产账户'}</option>}
+          </Field>
+          <Field
+            label="资产账户"
+            error={adjustmentAccounts.length === 0 ? (hasDiff ? '没有匹配差异币种的资产账户' : '没有可用的资产账户') : undefined}
+          >
+            <Select value={adjAccountId} onChange={(e) => setAdjAccountId(e.target.value)}>
               {adjustmentAccounts.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}{a.currencyCode ? ` · ${a.currencyCode}` : ''}
                 </option>
               ))}
-            </select>
-          </label>
+            </Select>
+          </Field>
         </div>
       </Modal>
 

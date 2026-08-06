@@ -20,7 +20,7 @@ const ICONS: Record<LottieIconKind, IconType> = {
 
 const DEFAULT_COLOR: Record<LottieIconKind, string> = {
   success: 'var(--done)',
-  loading: 'var(--brand)',
+  loading: 'var(--brand-text)',
   error: 'var(--danger)',
   inbox: 'var(--attention)',
 }

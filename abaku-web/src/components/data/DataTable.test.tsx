@@ -124,7 +124,7 @@ describe('DataTable 分组', () => {
 
     // 每行行高都归 --row-h 管，密度开关只改变量；组头自己有 h-7
     for (const row of dataRows()) {
-      expect(row.style.height).toBe('var(--row-h)')
+      expect(row).toHaveClass('h-[var(--row-h)]')
     }
   })
 })

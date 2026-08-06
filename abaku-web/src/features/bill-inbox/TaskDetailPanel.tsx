@@ -7,7 +7,10 @@ import {
   useSubmitBillTaskSecret,
 } from '../../api/queries'
 import { EmptyState } from '../../components/abaku/EmptyState'
+import { InlineError } from '../../components/abaku/ErrorState'
 import { Skeleton } from '../../components/abaku/Skeleton'
+import { Button } from '../../components/ui/Button'
+import { Field, Input } from '../../components/ui/Field'
 import { showToast } from '../../store/toastStore'
 import { isRowSelectable } from './billInboxHelpers'
 import { ImportConfirmDialog } from './ImportConfirmDialog'
@@ -142,98 +145,59 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
   }
 
   return (
-    <div
-      className="mx-2 mb-1 flex flex-col gap-3 rounded-[10px] p-3 bg-[var(--surface-0)] "
-      style={{ border: '1px solid var(--border-subtle)' }}
-    >
+    <div className="mx-2 mb-1 flex flex-col gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-0)] p-3">
       {/* needs_secret：行内密码/验证码表单 */}
       {isNeedsSecret && (
-        <div
-          className="flex flex-col gap-2 rounded-[8px] p-2.5 bg-[var(--surface-1)] "
-          style={{ border: '1px solid var(--border-subtle)' }}
-        >
-          <div className="text-[12.5px] text-[var(--text-primary)]  font-semibold">
-            需要解压密码或验证码
-          </div>
-          <div className="text-[11.5px] text-[var(--text-secondary)] ">
-            提交后任务将重新处理附件
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="password"
-              autoComplete="off"
-              value={secretValue}
-              onChange={(e) => setSecretValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  void handleSubmitSecret()
-                }
-              }}
-              placeholder="密码 / 验证码"
-              className="min-w-[160px] flex-1 rounded-[6px] px-2.5 py-1.5 text-[12.5px] outline-none bg-[var(--surface-hover)]  text-[var(--text-primary)] "
-              style={{
-                border: '1px solid var(--border-subtle)'}}
-            />
-            <button
-              type="button"
-              disabled={secretMutation.isPending || !secretValue.trim()}
-              onClick={() => void handleSubmitSecret()}
-              className="flex items-center gap-1.5 rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-[var(--brand)]  text-white font-semibold"
-
-            >
+        <div className="flex flex-col gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-3">
+          <form
+            className="flex flex-wrap items-end gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              void handleSubmitSecret()
+            }}
+          >
+            <div className="min-w-[180px] flex-1">
+              {/* 用真 label 而不是 placeholder：placeholder 一输入就消失，
+                  用户回头看不出这格填的是什么 */}
+              <Field label="需要解压密码或验证码" hint="提交后任务将重新处理附件">
+                <Input type="password" autoComplete="off" value={secretValue} onChange={(e) => setSecretValue(e.target.value)} />
+              </Field>
+            </div>
+            <Button type="submit" variant="primary" size="md" disabled={secretMutation.isPending || !secretValue.trim()}>
               {secretMutation.isPending ? (
                 <>
-                  <LottieIcon kind="loading" size={14} color="var(--color-white)" />
+                  <LottieIcon kind="loading" size={14} color="var(--brand-on)" />
                   提交中…
                 </>
               ) : (
                 '提交'
               )}
-            </button>
-          </div>
+            </Button>
+          </form>
         </div>
       )}
 
       {/* failed / unknown：错误信息 + 重试 */}
       {isFailed && (
-        <div
-          className="flex flex-col gap-2 rounded-[8px] p-2.5 bg-[var(--surface-1)] "
-          style={{ border: '1px solid var(--border-subtle)' }}
-        >
-          <div className="text-[12.5px] text-[var(--danger)]  font-semibold">
-            处理失败
-          </div>
+        <div className="flex flex-col gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-3">
+          <div className="text-sm font-semibold text-[var(--danger)]">处理失败</div>
           {errorText && (
-            <div className="text-[12px] leading-relaxed text-[var(--text-secondary)] ">
-              {errorText}
-            </div>
+            <p className="text-xs leading-relaxed text-[var(--text-secondary)]">{errorText}</p>
           )}
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              disabled={retryMutation.isPending}
-              onClick={() => void handleRetry()}
-              className="flex items-center gap-1.5 rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-[var(--brand)]  text-white font-semibold"
-
-            >
+            <Button variant="primary" size="sm" disabled={retryMutation.isPending} onClick={() => void handleRetry()}>
               {retryMutation.isPending ? (
                 <>
-                  <LottieIcon kind="loading" size={14} color="var(--color-white)" />
+                  <LottieIcon kind="loading" size={14} color="var(--brand-on)" />
                   重试中…
                 </>
               ) : (
                 '重试'
               )}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIgnoreOpen(true)}
-              className="rounded-[6px] px-2.5 py-1 text-[12px] text-[var(--danger)] "
-              style={{ background: 'transparent'}}
-            >
+            </Button>
+            <Button variant="ghost-danger" size="sm" onClick={() => setIgnoreOpen(true)}>
               忽略此任务
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -242,51 +206,39 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
       {!isNeedsSecret && !isFailed && (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-[12.5px] text-[var(--text-secondary)] ">
-              已选 <span className="font-mono tabular-nums text-[var(--text-primary)] ">{selected.size}</span> / 可入账{' '}
+            <div className="text-sm text-[var(--text-secondary)]">
+              已选 <span className="font-mono tabular-nums text-[var(--text-primary)]">{selected.size}</span> / 可入账{' '}
               {eligibleIds.length} 笔
             </div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setIgnoreOpen(true)}
-                className="rounded-[6px] px-2.5 py-1 text-[12px] text-[var(--danger)] "
-                style={{ background: 'transparent'}}
-              >
+              <Button variant="ghost-danger" size="sm" onClick={() => setIgnoreOpen(true)}>
                 忽略此任务
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
                 disabled={selected.size === 0 || importMutation.isPending}
                 onClick={() => void handleImportClick()}
-                className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-[var(--brand)]  text-white font-semibold"
-
               >
                 {importMutation.isPending ? '处理中…' : `入账 ${selected.size} 笔`}
-              </button>
+              </Button>
             </div>
           </div>
 
           {rowsQuery.isLoading ? (
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1" role="status" aria-label="账单流水加载中">
               {Array.from({ length: 6 }).map((_, i) => (
                 <Skeleton key={i} className="h-8" />
               ))}
             </div>
           ) : rowsQuery.isError ? (
-            <div className="flex items-center justify-between py-6 text-[12.5px] text-[var(--danger)] ">
-              <span>账单流水加载失败</span>
-              <button type="button" onClick={() => void rowsQuery.refetch()} style={{ color: 'var(--brand)' }}>重试</button>
-            </div>
+            <InlineError message="账单流水加载失败" onRetry={() => void rowsQuery.refetch()} />
           ) : rows.length === 0 ? (
-            <EmptyState icon="✅" message="该任务没有待处理的流水" />
+            <EmptyState statusIcon="inbox" message="该任务没有待处理的流水" />
           ) : (
             <div className="overflow-x-auto">
               <div className="min-w-[720px]">
-                <div
-                  className="flex h-7 items-center gap-2 px-2 text-[11px] text-[var(--text-secondary)] "
-                  style={{ borderBottom: '1px solid var(--border-subtle)' }}
-                >
+                <div className="flex h-7 items-center gap-2 border-b border-[var(--border-subtle)] px-2 text-[11px] text-[var(--text-secondary)]">
                   <input
                     type="checkbox"
                     aria-label="全选可入账行"
@@ -321,14 +273,9 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
 
           {canLoadMore && (
             <div className="flex justify-center pt-1">
-              <button
-                type="button"
-                onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-                className="rounded-[6px] px-3 py-1.5 text-[12.5px] bg-[var(--surface-hover)]  text-[var(--text-primary)] "
-
-              >
+              <Button variant="secondary" size="sm" onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}>
                 加载更多（{rows.length - visibleCount} 条剩余）
-              </button>
+              </Button>
             </div>
           )}
         </>

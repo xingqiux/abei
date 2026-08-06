@@ -2,6 +2,7 @@ import type { BillTask } from '../../api/schemas'
 import { useIgnoreBillTask } from '../../api/queries'
 import { Modal } from '../../components/abaku/Modal'
 import { showToast } from '../../store/toastStore'
+import { Button } from '../../components/ui/Button'
 
 /** 破坏性操作确认框：必须写明对象名与数量（规范 §5） */
 export function IgnoreConfirmDialog({
@@ -36,30 +37,19 @@ export function IgnoreConfirmDialog({
       title="忽略此任务"
       footer={
         <>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-[6px] px-3 py-1.5 text-[12.5px] bg-[var(--surface-hover)]  text-[var(--text-primary)] "
-
-          >
+          <Button variant="secondary" size="md" onClick={onCancel}>
             取消
-          </button>
-          <button
-            type="button"
-            disabled={ignoreMutation.isPending}
-            onClick={handleConfirm}
-            className="rounded-[6px] px-3 py-1.5 text-[12.5px] disabled:opacity-50 bg-[var(--danger)]  font-semibold"
-            style={{ color: '#fff'}}
-          >
+          </Button>
+          <Button variant="danger" size="md" disabled={ignoreMutation.isPending} onClick={handleConfirm}>
             {ignoreMutation.isPending ? '处理中…' : '确认忽略'}
-          </button>
+          </Button>
         </>
       }
     >
-      <div>
-        确认忽略任务「<span style={{ fontWeight: '600' }}>{title}</span>」？该任务下{' '}
+      <p>
+        确认忽略任务「<span className="font-semibold">{title}</span>」？该任务下{' '}
         <span className="font-mono tabular-nums">{total}</span> 条流水将不再出现在待处理列表中，此操作不可撤销。
-      </div>
+      </p>
     </Modal>
   )
 }

@@ -157,11 +157,11 @@ export function BalanceAreaChart({
         {paths.map((p) => (
           <div key={p.key} className="flex items-center gap-1.5 text-[11.5px]">
             <span
-              className="inline-block h-1.5 w-3 shrink-0 rounded-[2px]"
+              className="inline-block h-1.5 w-3 shrink-0 rounded-xs"
               style={{ background: p.color }}
               aria-hidden
             />
-            <span style={{ color: 'var(--text-secondary)' }}>{p.name}</span>
+            <span className="text-[var(--text-secondary)]">{p.name}</span>
             <span className="font-mono tabular-nums text-[var(--text-primary)] ">
               {p.symbol}
               {formatAmount(p.last)}

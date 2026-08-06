@@ -45,11 +45,7 @@ export function CalendarStrip({
 
   return (
     <div className="flex flex-col gap-3">
-      <div
-        ref={gridRef}
-        className="grid gap-1.5"
-        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(28px, 1fr))' }}
-      >
+      <div ref={gridRef} className="grid grid-cols-[repeat(auto-fill,minmax(28px,1fr))] gap-1.5">
         {days.map((day) => {
           const isSelected = day.date === selected
           const totals = day.currency_totals.length > 0
@@ -71,35 +67,21 @@ export function CalendarStrip({
               title={`${day.date} · ${STATUS_LABEL[day.status]} · 净额 ${netLabel}`}
               aria-label={`${day.date} ${STATUS_LABEL[day.status]}`}
               aria-pressed={isSelected}
-              className="transition-transform"
-              style={{
-                aspectRatio: '1 / 1',
-                borderRadius: 4,
-                background: statusBackground(day.status),
-                outline: isSelected ? '2px solid var(--brand)' : 'none',
-                outlineOffset: isSelected ? -2 : 0,
-                border: 'none',
-                cursor: 'pointer',
-                padding: 0,
-              }}
+              /* 选中用 ring、聚焦用 outline：两者叠加时不会互相顶掉。
+                 原先选中态直接写死 outline，键盘 Tab 到未选中的格子上完全没有反馈 */
+              className={`aspect-square cursor-pointer rounded border-0 p-0 transition-transform focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--focus-ring)] ${
+                isSelected ? 'ring-2 ring-[var(--brand)] ring-inset' : ''
+              }`}
+              style={{ background: statusBackground(day.status) }}
             />
           )
         })}
       </div>
 
-      <div className="flex flex-wrap items-center gap-4 text-[11.5px] text-[var(--text-secondary)] ">
+      <div className="flex flex-wrap items-center gap-4 text-[11.5px] text-[var(--text-secondary)]">
         {LEGEND.map((item) => (
           <span key={item.status} className="flex items-center gap-1.5">
-            <span
-              aria-hidden
-              style={{
-                display: 'inline-block',
-                width: 10,
-                height: 10,
-                borderRadius: 3,
-                background: statusBackground(item.status),
-              }}
-            />
+            <span aria-hidden className="inline-block size-2.5 rounded-xs" style={{ background: statusBackground(item.status) }} />
             {item.label}
           </span>
         ))}

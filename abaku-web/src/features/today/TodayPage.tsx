@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { CalendarDaysIcon, InboxIcon, KeyIcon, SparklesIcon } from '@heroicons/react/24/outline'
+import { ChevronRightIcon } from '@heroicons/react/20/solid'
 import gsap from 'gsap'
 import {
   useBillInboxSummary,
@@ -22,6 +23,7 @@ import { Skeleton } from '../../components/abaku/Skeleton'
 import { EmptyState } from '../../components/abaku/EmptyState'
 import { ErrorState } from '../../components/abaku/ErrorState'
 import { ProgressBar } from '../../components/abaku/ProgressBar'
+import { Card } from '../../components/ui/Card'
 import { showToast } from '../../store/toastStore'
 import { FireflyApiError } from '../../api/client'
 import { isEditableTransactionType } from '../record-transaction/editPayload'
@@ -84,7 +86,7 @@ export function TodayPage() {
     [spentQuery.data],
   )
   const remaining = subtractDecimalStrings(limitTotal, spent)
-  const remainingNumber = Number(remaining)
+  const overspent = Number(remaining) < 0
   const pct = Number(limitTotal) > 0 ? (Number(spent) / Number(limitTotal)) * 100 : 0
   const noBudget = (budgetsQuery.data?.data.length ?? 0) === 0 || Number(limitTotal) <= 0
   const today = new Date()
@@ -116,56 +118,61 @@ export function TodayPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <h1 className="text-[18px] font-semibold text-[var(--text-primary)] ">今天</h1>
+      <h1 className="text-lg font-semibold text-[var(--text-primary)]">今天</h1>
 
-      <div ref={mainRef} className="rounded-xl bg-[var(--surface-1)] p-5 shadow-sm ring-1 ring-[var(--border-subtle)]  ">
+      <Card ref={mainRef} className="p-5">
         {showTodos ? (
-          <div className="flex flex-col gap-1">
+          <ul role="list" className="flex flex-col gap-1">
             {todos.map((todo) => {
               const Icon = todo.icon
               return (
-                <Link
-                  key={todo.key}
-                  to={todo.to}
-                  className="flex items-center gap-3 rounded-md px-2 py-2.5 text-[13.5px] text-[var(--text-primary)] hover:bg-[var(--surface-hover)]  "
-                >
-                  <Icon aria-hidden className="size-4.5 text-[var(--brand)] " />
-                  <span className="flex-1">{todo.label}</span>
-                  <span className="font-mono tabular-nums text-[var(--text-secondary)] ">{todo.count}</span>
-                  <span className="text-[var(--text-tertiary)]">→</span>
-                </Link>
+                <li key={todo.key}>
+                  <Link
+                    to={todo.to}
+                    className="flex items-center gap-3 rounded-md px-2 py-2.5 text-[13.5px] text-[var(--text-primary)] transition-colors hover:bg-[var(--surface-hover)]"
+                  >
+                    <Icon aria-hidden className="size-4.5 text-[var(--brand-text)]" />
+                    <span className="flex-1">{todo.label}</span>
+                    <span className="font-mono tabular-nums text-[var(--text-secondary)]">{todo.count}</span>
+                    <ChevronRightIcon aria-hidden className="size-4 text-[var(--text-tertiary)]" />
+                  </Link>
+                </li>
               )
             })}
-          </div>
+          </ul>
         ) : noBudget ? (
           <div className="flex flex-col items-center gap-2 py-6 text-center">
-            <div className="text-[14px] font-semibold text-[var(--text-primary)] ">还没设月度预算</div>
-            <div className="text-[12.5px] text-[var(--text-secondary)] ">设个预算，这里就会告诉你本月还能花多少。</div>
-            <Link to="/budgets" search={{ tab: undefined }} className="mt-2 rounded-md bg-[var(--brand)] px-3 py-1.5 text-[13px] font-semibold text-[var(--brand-on)] hover:bg-[var(--brand-hover)]">
+            <p className="text-sm font-semibold text-[var(--text-primary)]">还没设月度预算</p>
+            <p className="text-[12.5px] text-[var(--text-secondary)]">设个预算，这里就会告诉你本月还能花多少。</p>
+            <Link
+              to="/budgets"
+              search={{ tab: undefined }}
+              className="mt-2 inline-flex items-center rounded-md bg-[var(--brand)] px-3 py-1.5 text-[13px] font-semibold text-[var(--brand-on)] transition-colors hover:bg-[var(--brand-hover)]"
+            >
               去设预算
             </Link>
           </div>
         ) : (
           <div className="flex flex-col gap-3">
             <div className="flex items-baseline justify-between">
-              <span className="text-[12px] text-[var(--text-secondary)] ">本月还能花</span>
-              <span className="font-mono tabular-nums text-[26px] font-semibold" style={{ color: remainingNumber < 0 ? 'var(--attention)' : 'var(--text-primary)' }}>
-                {remainingNumber < 0 ? '-' : ''}¥{formatAmount(remaining)}
+              <span className="text-xs text-[var(--text-secondary)]">本月还能花</span>
+              <span className={`font-mono text-[26px] font-semibold tabular-nums ${overspent ? 'text-[var(--attention)]' : 'text-[var(--text-primary)]'}`}>
+                {overspent ? '-' : ''}¥{formatAmount(remaining)}
               </span>
             </div>
-            <ProgressBar pct={pct} colorVar={pct > 100 ? 'var(--attention)' : 'var(--brand)'} />
-            <div className="flex items-center justify-between text-[11.5px] text-[var(--text-secondary)] ">
+            <ProgressBar pct={pct} tone={pct > 100 ? 'attention' : 'brand'} label="本月预算已用" />
+            <div className="flex items-center justify-between text-[11.5px] text-[var(--text-secondary)]">
               <span>已花 ¥{formatAmount(spent)}</span>
               <span>{daysLeft === 0 ? '今天是最后一天' : `本月还剩 ${daysLeft} 天`}</span>
             </div>
           </div>
         )}
-      </div>
+      </Card>
 
-      <div className="rounded-xl bg-[var(--surface-1)] p-4 shadow-sm ring-1 ring-[var(--border-subtle)]  ">
-        <div className="mb-3 text-[13px] font-semibold text-[var(--text-primary)] ">今日流水</div>
+      <Card>
+        <h2 className="mb-3 text-[13px] font-semibold text-[var(--text-primary)]">今日流水</h2>
         {recentQuery.isLoading ? (
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1" role="status" aria-label="今日流水加载中">
             {Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} className="h-8" />
             ))}
@@ -173,7 +180,7 @@ export function TodayPage() {
         ) : recentQuery.isError ? (
           <ErrorState message="近期交易加载失败" onRetry={() => void recentQuery.refetch()} />
         ) : recentRows.length === 0 ? (
-          <EmptyState icon="🧾" message="本期暂无交易" />
+          <EmptyState art="empty-wallet" message="本期暂无交易" />
         ) : (
           <div className="flex flex-col">
             {recentRows.map((row) => {
@@ -189,7 +196,7 @@ export function TodayPage() {
             })}
           </div>
         )}
-      </div>
+      </Card>
 
       <DeleteTransactionDialog
         open={!!pendingDelete}

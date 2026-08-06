@@ -5,7 +5,7 @@ const KIND_COLOR: Record<ChipKind, string> = {
   warn: 'text-[var(--attention)] ',
   danger: 'text-[var(--danger)] ',
   muted: 'text-[var(--text-secondary)] ',
-  accent: 'text-[var(--brand)] ',
+  accent: 'text-[var(--brand-text)] ',
 }
 
 /** 状态语义 chip：18px 高、4px 圆角，底色统一用 surface-2，颜色只上文字（规范 §2.1/§5） */

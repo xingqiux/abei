@@ -2,6 +2,7 @@ import { ArrowRightStartOnRectangleIcon, MagnifyingGlassIcon, PlusIcon } from '@
 import { useRecordTxStore } from '../../store/recordTxStore'
 import { useCommandPaletteStore } from '../../store/commandPaletteStore'
 import { DateRangePicker } from '../abaku/DateRangePicker'
+import { Button, IconButton } from '../ui/Button'
 import { requestTokenReset } from '../tokenEvents'
 
 export function Topbar() {
@@ -12,14 +13,9 @@ export function Topbar() {
     <header className="flex h-16 shrink-0 items-center gap-3 border-b border-[var(--border-subtle)] bg-[var(--surface-1)] px-4 md:px-6  ">
       {/* 移动端：搜索 + 居中日期范围选择器 */}
       <div className="flex w-full items-center md:hidden">
-        <button
-          type="button"
-          onClick={openCommandPalette}
-          aria-label="搜索"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] "
-        >
+        <IconButton label="搜索" onClick={openCommandPalette}>
           <MagnifyingGlassIcon aria-hidden className="size-5" />
-        </button>
+        </IconButton>
         <div className="flex flex-1 justify-center">
           <DateRangePicker compact />
         </div>
@@ -44,23 +40,13 @@ export function Topbar() {
 
         <DateRangePicker />
 
-        <button
-          type="button"
-          onClick={openRecordForm}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-[var(--brand)] px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-[var(--brand-hover)]"
-        >
+        <Button variant="primary" size="sm" className="shrink-0" onClick={openRecordForm}>
           <PlusIcon aria-hidden className="size-4" />
           记一笔
-        </button>
-        <button
-          type="button"
-          title="更换令牌"
-          aria-label="更换令牌"
-          onClick={requestTokenReset}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-secondary)]  "
-        >
+        </Button>
+        <IconButton label="更换令牌" onClick={requestTokenReset}>
           <ArrowRightStartOnRectangleIcon aria-hidden className="size-5" />
-        </button>
+        </IconButton>
       </div>
     </header>
   )

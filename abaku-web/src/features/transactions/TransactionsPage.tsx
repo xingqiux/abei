@@ -18,7 +18,13 @@ import { DataTable } from '../../components/data/DataTable'
 import { transactionColumns } from '../../components/data/transactionColumns'
 import { DeleteTransactionDialog } from '../../components/abaku/DeleteTransactionDialog'
 import { EmptyState } from '../../components/abaku/EmptyState'
+import { ErrorState } from '../../components/abaku/ErrorState'
+import { Skeleton } from '../../components/abaku/Skeleton'
 import { Modal } from '../../components/abaku/Modal'
+import { Button } from '../../components/ui/Button'
+import { Card } from '../../components/ui/Card'
+import { Tabs } from '../../components/ui/Tabs'
+import { CONTROL_COMPACT, Field, Input, Select } from '../../components/ui/Field'
 import { showToast } from '../../store/toastStore'
 import { FireflyApiError } from '../../api/client'
 import { isEditableTransactionType } from '../record-transaction/editPayload'
@@ -39,6 +45,18 @@ const TABS: { label: string; value: 'all' | 'withdrawal' | 'deposit' | 'transfer
   { label: '转账', value: 'transfer' },
 ]
 type BatchKind = 'category' | 'budget' | 'tags'
+
+/** 「清除筛选」要把每个筛选参数都显式置空——漏一个就会留下看不见的过滤条件 */
+const CLEARED_FILTERS = {
+  q: undefined,
+  acc: undefined,
+  cat: undefined,
+  tag: undefined,
+  min: undefined,
+  max: undefined,
+  type: undefined,
+  page: 1,
+} as const
 
 const rowKey = (row: TransactionSplitRow) => row.groupId
 
@@ -84,9 +102,13 @@ function DayGroupLabel({ day, rows }: { day: string; rows: TransactionSplitRow[]
           return (
             <span
               key={`${symbol}-${amount}`}
-              style={{
-                color: comparison < 0 ? 'var(--text-primary)' : comparison > 0 ? 'var(--income)' : 'var(--text-secondary)',
-              }}
+              className={
+                comparison > 0
+                  ? 'text-[var(--income)]'
+                  : comparison < 0
+                    ? 'text-[var(--text-primary)]'
+                    : 'text-[var(--text-secondary)]'
+              }
             >
               {comparison > 0 ? '+' : comparison < 0 ? '-' : ''}
               {symbol}
@@ -218,42 +240,32 @@ export function TransactionsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex gap-1 border-b border-[var(--border-subtle)] ">
-        {TABS.map((tab) => {
-          const active = (search.type ?? 'all') === tab.value
-          return (
-            <button
-              key={tab.value}
-              type="button"
-              onClick={() => patchSearch({ type: tab.value === 'all' ? undefined : tab.value, page: 1 })}
-              className={`-mb-px border-b-2 px-3 py-2 text-[13px] ${
-                active
-                  ? 'border-[var(--brand)] font-semibold text-[var(--text-primary)] '
-                  : 'border-transparent text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-secondary)] '
-              }`}
-            >
-              {tab.label}
-            </button>
-          )
-        })}
-      </div>
+      <Tabs
+        aria-label="交易类型"
+        tabs={TABS.map((tab) => ({ value: tab.value, label: tab.label }))}
+        value={search.type ?? 'all'}
+        onChange={(value) => patchSearch({ type: value === 'all' ? undefined : value, page: 1 })}
+      />
 
-      <div className="flex flex-wrap items-center gap-2 rounded-xl bg-[var(--surface-1)] p-2 shadow-sm ring-1 ring-[var(--border-subtle)] ">
-        <label className="flex min-w-[180px] flex-1 items-center gap-1.5 rounded-md bg-[var(--surface-hover)] px-2 py-1.5">
-          <MagnifyingGlassIcon aria-hidden className="size-4 text-[var(--text-tertiary)]" />
+      <Card padded={false} className="flex flex-wrap items-center gap-2 p-2">
+        <div className="relative min-w-[180px] flex-1">
+          <MagnifyingGlassIcon
+            aria-hidden
+            className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-[var(--text-tertiary)]"
+          />
           <input
             value={search.q ?? ''}
             onChange={(e) => patchSearch({ q: e.target.value || undefined, page: 1 })}
             placeholder="关键词"
             aria-label="关键词"
-            className="w-full bg-transparent text-[12.5px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)] "
+            className={`${CONTROL_COMPACT} pl-7`}
           />
-        </label>
+        </div>
         <select
           value={search.acc[0] ?? ''}
           onChange={(e) => patchSearch({ acc: e.target.value ? [e.target.value] : undefined, page: 1 })}
           aria-label="账户"
-          className="rounded-md bg-[var(--surface-hover)] px-2 py-1.5 text-[12.5px] text-[var(--text-primary)] outline-none"
+          className={`${CONTROL_COMPACT} w-auto`}
         >
           <option value="">全部账户</option>
           {(accountsQuery.data ?? []).map((a) => (
@@ -264,7 +276,7 @@ export function TransactionsPage() {
           value={search.cat[0] ?? ''}
           onChange={(e) => patchSearch({ cat: e.target.value ? [e.target.value] : undefined, page: 1 })}
           aria-label="分类"
-          className="rounded-md bg-[var(--surface-hover)] px-2 py-1.5 text-[12.5px] text-[var(--text-primary)] outline-none"
+          className={`${CONTROL_COMPACT} w-auto`}
         >
           <option value="">全部分类</option>
           {(categoriesQuery.data?.data ?? []).map((c) => (
@@ -275,7 +287,7 @@ export function TransactionsPage() {
           value={search.tag[0] ?? ''}
           onChange={(e) => patchSearch({ tag: e.target.value ? [e.target.value] : undefined, page: 1 })}
           aria-label="标签"
-          className="rounded-md bg-[var(--surface-hover)] px-2 py-1.5 text-[12.5px] text-[var(--text-primary)] outline-none"
+          className={`${CONTROL_COMPACT} w-auto`}
         >
           <option value="">全部标签</option>
           {(tagsQuery.data?.data ?? []).map((t) => (
@@ -288,7 +300,7 @@ export function TransactionsPage() {
           onChange={(e) => patchSearch({ min: e.target.value === '' ? undefined : Number(e.target.value), page: 1 })}
           placeholder="金额 ≥"
           aria-label="最小金额"
-          className="w-20 rounded-md bg-[var(--surface-hover)] px-2 py-1.5 text-[12.5px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)] "
+          className={`${CONTROL_COMPACT} w-24 font-mono tabular-nums`}
         />
         <input
           inputMode="decimal"
@@ -296,53 +308,38 @@ export function TransactionsPage() {
           onChange={(e) => patchSearch({ max: e.target.value === '' ? undefined : Number(e.target.value), page: 1 })}
           placeholder="金额 ≤"
           aria-label="最大金额"
-          className="w-20 rounded-md bg-[var(--surface-hover)] px-2 py-1.5 text-[12.5px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)] "
+          className={`${CONTROL_COMPACT} w-24 font-mono tabular-nums`}
         />
         {hasFilters && (
-          <button
-            type="button"
-            onClick={() =>
-              patchSearch({ q: undefined, acc: undefined, cat: undefined, tag: undefined, min: undefined, max: undefined, type: undefined, page: 1 })
-            }
-            className="rounded-md px-2 py-1.5 text-[12px] text-[var(--danger)] hover:bg-[var(--danger-soft)] "
-          >
+          <Button variant="ghost-danger" size="sm" onClick={() => patchSearch(CLEARED_FILTERS)}>
             清除筛选
-          </button>
+          </Button>
         )}
-      </div>
+      </Card>
 
       {selected.size > 0 && (
-        <div className="flex items-center gap-2 rounded-xl bg-[var(--surface-1)] p-2 shadow-sm ring-1 ring-[var(--border-subtle)] ">
-          <span className="px-2 text-[12.5px] text-[var(--text-secondary)] ">已选 {selected.size} 笔</span>
-          <button type="button" onClick={() => { setBatchOpen('category'); setBatchValue('') }} className="rounded-md bg-[var(--surface-hover)] px-2.5 py-1.5 text-[12.5px] text-[var(--text-primary)] hover:bg-[var(--surface-selected)] ">
-            改分类
-          </button>
-          <button type="button" onClick={() => { setBatchOpen('budget'); setBatchValue('') }} className="rounded-md bg-[var(--surface-hover)] px-2.5 py-1.5 text-[12.5px] text-[var(--text-primary)] hover:bg-[var(--surface-selected)] ">
-            改预算
-          </button>
-          <button type="button" onClick={() => { setBatchOpen('tags'); setBatchValue('') }} className="rounded-md bg-[var(--surface-hover)] px-2.5 py-1.5 text-[12.5px] text-[var(--text-primary)] hover:bg-[var(--surface-selected)] ">
-            加标签
-          </button>
-          <button type="button" onClick={() => setSelected(new Set())} className="ml-auto rounded-md px-2 py-1.5 text-[12.5px] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] ">
+        // 批量操作条：说清「已选几笔」再给动作，取消选择推到最右，
+        // 免得跟三个修改动作挤在一起被误点
+        <Card padded={false} className="flex flex-wrap items-center gap-2 p-2">
+          <span className="px-2 text-sm text-[var(--text-secondary)]">已选 {selected.size} 笔</span>
+          <Button size="sm" onClick={() => { setBatchOpen('category'); setBatchValue('') }}>改分类</Button>
+          <Button size="sm" onClick={() => { setBatchOpen('budget'); setBatchValue('') }}>改预算</Button>
+          <Button size="sm" onClick={() => { setBatchOpen('tags'); setBatchValue('') }}>加标签</Button>
+          <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setSelected(new Set())}>
             取消选择
-          </button>
-        </div>
+          </Button>
+        </Card>
       )}
 
-      <div className="rounded-xl bg-[var(--surface-1)] p-2 shadow-sm ring-1 ring-[var(--border-subtle)] ">
+      <Card padded={false} className="p-2">
         {query.isLoading ? (
-          <div className="flex flex-col gap-1 p-2">
+          <div className="flex flex-col gap-1 p-2" role="status" aria-label="交易加载中">
             {Array.from({ length: 10 }).map((_, i) => (
-              <div key={i} className="h-8 animate-pulse rounded bg-[var(--surface-hover)] " />
+              <Skeleton key={i} className="h-8" />
             ))}
           </div>
         ) : query.isError ? (
-          <div className="flex flex-col items-center gap-2 py-8 text-[13px] text-[var(--danger)] ">
-            <span>交易加载失败</span>
-            <button type="button" onClick={() => void query.refetch()} className="text-[var(--brand)] ">
-              重试
-            </button>
-          </div>
+          <ErrorState message="交易加载失败" onRetry={() => void query.refetch()} />
         ) : (
           <DataTable
             rows={loaded}
@@ -375,75 +372,62 @@ export function TransactionsPage() {
 
         {canLoadMore && (
           <div className="flex justify-center p-3">
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              size="md"
               disabled={query.isFetching}
               onClick={() => patchSearch({ page: search.page + 1 })}
-              className="rounded-md bg-[var(--surface-hover)] px-3 py-1.5 text-[13px] text-[var(--text-primary)] hover:bg-[var(--surface-selected)] disabled:opacity-60 "
             >
               {query.isFetching ? '加载中…' : '加载更多'}
-            </button>
+            </Button>
           </div>
         )}
-      </div>
+      </Card>
 
       <Modal
         open={batchOpen !== null}
         onClose={() => setBatchOpen(null)}
         title={`批量${batchLabel}`}
         footer={
-          <button
-            type="button"
-            disabled={bulkMutation.isPending}
-            onClick={() => void applyBatch()}
-            className="rounded-md bg-[var(--brand)] px-3 py-1.5 text-[13px] font-semibold text-[var(--brand-on)] hover:bg-[var(--brand-hover)] disabled:opacity-50"
-          >
-            {bulkMutation.isPending ? '处理中…' : `将修改 ${selected.size} 笔交易`}
-          </button>
+          <>
+            {/* 原先这个框只有一个「确认」按钮。破坏性批量操作至少要给一条明确的退路 */}
+            <Button variant="secondary" size="md" onClick={() => setBatchOpen(null)}>
+              取消
+            </Button>
+            <Button variant="primary" size="md" disabled={bulkMutation.isPending} onClick={() => void applyBatch()}>
+              {bulkMutation.isPending ? '处理中…' : `将修改 ${selected.size} 笔交易`}
+            </Button>
+          </>
         }
       >
         <div className="flex flex-col gap-3">
-          <p className="text-[12.5px] text-[var(--text-secondary)] ">
+          <p className="text-sm text-[var(--text-secondary)]">
             将修改 {selected.size} 笔交易的{batchLabel}。此操作不可撤销。
           </p>
           {batchOpen === 'category' && (
-            <>
-              <input
-                value={batchValue}
-                onChange={(e) => setBatchValue(e.target.value)}
-                placeholder="分类名称（留空 = 清除分类）"
-                aria-label="分类名称"
-                list="batch-categories"
-                className="rounded-md bg-[var(--surface-hover)] px-2.5 py-2 text-[13px] text-[var(--text-primary)] outline-none"
-              />
+            <Field label="分类名称" hint="留空 = 清除这些交易的分类">
+              <Input value={batchValue} onChange={(e) => setBatchValue(e.target.value)} list="batch-categories" />
               <datalist id="batch-categories">
                 {(categoriesQuery.data?.data ?? []).map((c) => (
                   <option key={c.id} value={c.attributes.name} />
                 ))}
               </datalist>
-            </>
+            </Field>
           )}
           {batchOpen === 'budget' && (
-            <select
-              value={batchValue}
-              onChange={(e) => setBatchValue(e.target.value)}
-              aria-label="预算"
-              className="rounded-md bg-[var(--surface-hover)] px-2.5 py-2 text-[13px] text-[var(--text-primary)] outline-none"
-            >
-              <option value="">不使用预算</option>
-              {(budgetsQuery.data?.data ?? []).map((b) => (
-                <option key={b.id} value={b.id}>{b.attributes.name}</option>
-              ))}
-            </select>
+            <Field label="预算">
+              <Select value={batchValue} onChange={(e) => setBatchValue(e.target.value)}>
+                <option value="">不使用预算</option>
+                {(budgetsQuery.data?.data ?? []).map((b) => (
+                  <option key={b.id} value={b.id}>{b.attributes.name}</option>
+                ))}
+              </Select>
+            </Field>
           )}
           {batchOpen === 'tags' && (
-            <input
-              value={batchValue}
-              onChange={(e) => setBatchValue(e.target.value)}
-              placeholder="标签，逗号分隔（如：报销, 差旅）"
-              aria-label="标签"
-              className="rounded-md bg-[var(--surface-hover)] px-2.5 py-2 text-[13px] text-[var(--text-primary)] outline-none"
-            />
+            <Field label="标签" hint="逗号分隔，如：报销, 差旅">
+              <Input value={batchValue} onChange={(e) => setBatchValue(e.target.value)} />
+            </Field>
           )}
         </div>
       </Modal>

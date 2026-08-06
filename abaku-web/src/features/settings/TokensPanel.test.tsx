@@ -53,8 +53,9 @@ function renderPanel() {
 }
 
 /** 令牌行 = 名字所在的那个 flex 行容器 */
+// 按语义结构取行，不按类名——类名一改样式测试就红，但结构（li）是稳定的
 function rowOf(name: string): HTMLElement {
-  return screen.getByText(name).closest('.flex.min-h-11') as HTMLElement
+  return screen.getByText(name).closest('li') as HTMLElement
 }
 
 beforeEach(() => {

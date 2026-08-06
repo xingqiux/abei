@@ -36,7 +36,7 @@ export const SOURCE_FALLBACK_LABELS: Record<string, string> = {
 export function directionColorClass(direction: string | null | undefined): string {
   if (direction === '支出') return 'text-[var(--danger)] '
   if (direction === '收入') return 'text-[var(--done)] '
-  if (direction === '转账') return 'text-[var(--brand)] '
+  if (direction === '转账') return 'text-[var(--brand-text)] '
   return 'text-[var(--text-secondary)] '
 }
 
