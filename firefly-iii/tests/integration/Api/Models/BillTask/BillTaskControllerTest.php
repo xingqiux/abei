@@ -470,6 +470,45 @@ final class BillTaskControllerTest extends TestCase
         $this->assertSame('25.75', (string) $row->firefly_amount);
     }
 
+    public function testUpdateRowMarksAiSuggestionsAndClearsThemOnHumanEdit(): void
+    {
+        $row = $this->createStatementRow();
+
+        $this->actingAs($this->user, 'api');
+
+        // 机器填的：标成待确认，但 user_modified_at 一样要写——它管的是
+        // 「重新解析时别覆盖这一行」，机器填的同样不该被覆盖。
+        $suggested = $this->patchJson(route('api.v1.bill-statement-rows.update', ['billStatementRow' => $row->id]), [
+            'category_name'       => '通讯',
+            'firefly_description' => '手机充值',
+            'as_suggestion'       => true,
+        ]);
+        $suggested->assertStatus(200);
+        $suggested->assertJsonPath('data.attributes.suggested_by', 'ai');
+        $suggested->assertJsonPath('data.attributes.category_name', '通讯');
+
+        $row->refresh();
+        $this->assertSame('ai', $row->suggested_by);
+        $this->assertNotNull($row->suggested_at);
+        $this->assertNotNull($row->user_modified_at);
+        // as_suggestion 是「谁改的」，不是行上的字段，不能被当成列写进去
+        $this->assertArrayNotHasKey('as_suggestion', $row->getAttributes());
+
+        // 人再动一次就不是待确认的建议了，哪怕改的是别的字段
+        $confirmed = $this->patchJson(route('api.v1.bill-statement-rows.update', ['billStatementRow' => $row->id]), [
+            'notes' => '看过了',
+        ]);
+        $confirmed->assertStatus(200);
+        $confirmed->assertJsonPath('data.attributes.suggested_by', null);
+        $confirmed->assertJsonPath('data.attributes.suggested_at', null);
+
+        $row->refresh();
+        $this->assertNull($row->suggested_by);
+        $this->assertNull($row->suggested_at);
+        // 确认不等于回退：机器填的分类留着
+        $this->assertSame('通讯', $row->category_name);
+    }
+
     public function testRowsSummaryReturnsCompactRedactedPreview(): void
     {
         $first = $this->createStatementRow([
@@ -611,7 +650,8 @@ final class BillTaskControllerTest extends TestCase
         $response->assertJsonPath('data.attributes.built_in_channels.0.source', 'alipay');
         $response->assertJsonPath('data.attributes.built_in_channels.1.source', 'wechat');
         $response->assertJsonPath('data.attributes.built_in_channels.2.source', 'cmb');
-        $response->assertJsonPath('data.attributes.built_in_channels.3.source', 'boc');
+        $response->assertJsonPath('data.attributes.built_in_channels.3.source', 'cmb');
+        $response->assertJsonPath('data.attributes.built_in_channels.4.source', 'boc');
     }
 
     public function testUpdatesBillInboxSettings(): void
@@ -639,7 +679,7 @@ final class BillTaskControllerTest extends TestCase
         $this->assertSame('app-password', Preferences::getEncrypted('bill_inbox_mailbox_password')->data);
         $this->assertSame('', Preferences::get('bill_inbox_quick_gmail_label')->data);
         $this->assertSame('', Preferences::get('bill_inbox_quick_keywords')->data);
-        $this->assertCount(4, Preferences::get('bill_inbox_processing_rules')->data);
+        $this->assertCount(5, Preferences::get('bill_inbox_processing_rules')->data);
     }
 
     public function testSyncBillInboxReturnsMailboxAndProcessingCounts(): void

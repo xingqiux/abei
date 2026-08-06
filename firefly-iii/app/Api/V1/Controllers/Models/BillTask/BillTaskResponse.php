@@ -294,6 +294,8 @@ trait BillTaskResponse
                 'duplicate_state'          => $row->duplicate_state,
                 'duplicate_of_row_id'      => null === $row->duplicate_of_row_id ? null : (string) $row->duplicate_of_row_id,
                 'user_modified_at'         => optional($row->user_modified_at)->toAtomString(),
+                'suggested_by'             => $row->suggested_by,
+                'suggested_at'             => optional($row->suggested_at)->toAtomString(),
                 'remark'                   => $row->remark,
                 'editable_data'            => $row->editable_data,
                 'firefly_type'             => $row->firefly_type,

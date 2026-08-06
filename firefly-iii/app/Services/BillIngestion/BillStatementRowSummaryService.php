@@ -227,6 +227,8 @@ class BillStatementRowSummaryService
             'duplicate_state'     => $row->duplicate_state,
             'duplicate_of_row_id' => null === $row->duplicate_of_row_id ? null : (string) $row->duplicate_of_row_id,
             'user_modified_at'    => optional($row->user_modified_at)->toAtomString(),
+            // 'ai' 表示这一行的分类/描述是机器填的，还没人过目。审阅界面据此标出待确认。
+            'suggested_by'        => $row->suggested_by,
             'error'               => $row->error_message,
             'transaction_group_id'=> null === $row->transaction_group_id ? null : (string) $row->transaction_group_id,
         ];
@@ -414,6 +416,8 @@ class BillStatementRowSummaryService
             'duplicate_candidates'    => count($this->uniqueByRowId($duplicateCandidates)),
             'conflict_candidates'     => count($this->uniqueByRowId($conflictCandidates)),
             'preserved_user_edits'    => count($this->uniqueByRowId($preservedUserEdits)),
+            // 机器填过、还没人过目的行数。审阅界面据此提示「有 N 条等你确认」
+            'ai_suggested'            => $rows->where('suggested_by', 'ai')->count(),
         ];
     }
 

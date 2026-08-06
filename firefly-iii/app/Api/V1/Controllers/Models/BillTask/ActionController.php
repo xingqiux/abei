@@ -110,7 +110,13 @@ final class ActionController extends Controller
             'notes'                 => ['nullable', 'string', 'max:32768'],
             'tags'                  => ['nullable', 'array'],
             'tags.*'                => ['string', 'max:255'],
+            'as_suggestion'         => ['nullable', 'boolean'],
         ]);
+
+        // as_suggestion 不是行上的字段，是「这次修改是谁做的」。先摘出去，
+        // 否则下面那个循环会把它当成列赋到模型上。
+        $asSuggestion = (bool) ($validated['as_suggestion'] ?? false);
+        unset($validated['as_suggestion']);
 
         $editableMap = [
             'occurred_at'          => '交易时间',
@@ -137,7 +143,18 @@ final class ActionController extends Controller
 
         $billStatementRow->editable_data = $editable;
         if ([] !== $validated) {
+            // user_modified_at 两种来源都要写：它管的是「重新解析时别覆盖这一行」，
+            // 机器填的同样不该被覆盖。
             $billStatementRow->user_modified_at = now('Asia/Shanghai');
+
+            if ($asSuggestion) {
+                $billStatementRow->suggested_by = 'ai';
+                $billStatementRow->suggested_at = now('Asia/Shanghai');
+            } else {
+                // 人动过就不再是待确认的建议了，哪怕改的是别的字段
+                $billStatementRow->suggested_by = null;
+                $billStatementRow->suggested_at = null;
+            }
         }
         $billStatementRow->save();
 
