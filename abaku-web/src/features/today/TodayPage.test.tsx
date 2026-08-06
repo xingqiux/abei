@@ -52,7 +52,7 @@ function dailyRecurrence(id: string, active = true): Recurrence {
       title: `订阅 ${id}`,
       active,
       first_date: '2020-01-01',
-      recurrence_transactions: [],
+      transactions: [],
       repetitions: [{ type: 'daily', moment: '', skip: 0, occurrences: [] }],
     },
   }

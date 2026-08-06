@@ -782,7 +782,11 @@ export const recurrenceAttributesSchema = z
     repeat_until: z.string().nullable().optional(),
     nr_of_repetitions: z.number().nullable().optional(),
     repetitions: z.array(recurrenceRepetitionSchema).optional().default([]),
-    recurrence_transactions: z
+    // Firefly 把交易模板放在 attributes.transactions 里。
+    // 这里曾经写成 transactions（那个键不存在，实测返回 null），
+    // 于是订阅行永远显示「未配置账户模板」和「—」。单测夹具当时也照着错的键名编，
+    // 所以测试全绿而真实数据是坏的——改键名时连夹具一起改。
+    transactions: z
       .array(
         z
           .object({

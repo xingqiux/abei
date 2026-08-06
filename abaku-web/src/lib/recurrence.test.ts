@@ -17,7 +17,7 @@ function recurrence(partial: {
       title: '测试',
       active: true,
       first_date: '2026-01-01',
-      recurrence_transactions: [],
+      transactions: [],
       ...rest,
       repetitions: (repetitions ?? []).map((r) => ({ ...r, occurrences: r.occurrences ?? [] })),
     },

@@ -12,9 +12,17 @@ export interface ToastItem {
   action?: { label: string; to: string }
 }
 
+/** push / showToast 的入参。两处必须共用，漏字段会被静默丢掉。 */
+export interface ToastInput {
+  message: string
+  kind?: ToastKind
+  duration?: number
+  action?: { label: string; to: string }
+}
+
 interface ToastState {
   toasts: ToastItem[]
-  push: (toast: { message: string; kind?: ToastKind; duration?: number; action?: { label: string; to: string } }) => number
+  push: (toast: ToastInput) => number
   dismiss: (id: number) => void
   clear: () => void
 }
@@ -43,7 +51,11 @@ export const useToastStore = create<ToastState>((set, get) => ({
   clear: () => set({ toasts: [] }),
 }))
 
-/** 便捷方法：在事件回调中直接调用，无需 useToastStore() hook */
-export function showToast(toast: { message: string; kind?: ToastKind; duration?: number }) {
+/**
+ * 便捷方法：在事件回调中直接调用，无需 useToastStore() hook。
+ * 入参类型必须是 ToastInput——这里曾经手写过一份漏掉 action 的窄类型，
+ * 于是所有带「查看」入口的提示都被静默丢成普通提示。
+ */
+export function showToast(toast: ToastInput) {
   return useToastStore.getState().push(toast)
 }

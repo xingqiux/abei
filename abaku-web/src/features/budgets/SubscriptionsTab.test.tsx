@@ -43,7 +43,7 @@ function recurrence(over: {
       active: over.active ?? true,
       first_date: over.first_date ?? '2020-01-01',
       repetitions: (over.repetitions ?? [{ type: 'daily', moment: '', skip: 0 }]).map((r) => ({ ...r, occurrences: [] })),
-      recurrence_transactions: over.tx === null ? [] : [{
+      transactions: over.tx === null ? [] : [{
         amount: '68.00',
         currency_symbol: '¥',
         source_name: '招行信用卡',
@@ -76,9 +76,35 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
+/**
+ * 一次成功的 trigger 响应：真的生成了一笔。
+ * 默认必须是这个而不是 `{ data: [] }`——空数组代表「这个日期上没有待生成的期次」，
+ * 是失败路径。曾经用空数组当默认，把「200 但没生成」当成了成功。
+ */
+function triggeredResponse(id = '321') {
+  return {
+    data: [{
+      id,
+      attributes: {
+        transactions: [{
+          transaction_journal_id: '1',
+          description: 'Netflix',
+          amount: '68.00',
+          type: 'withdrawal',
+          date: TODAY,
+          currency_symbol: '¥',
+          source_name: '招行信用卡',
+          destination_name: 'Netflix',
+          category_name: '订阅',
+        }],
+      },
+    }],
+  }
+}
+
 beforeEach(() => {
   mocks.fireflyFetch.mockReset().mockResolvedValue({ data: [recurrence({ id: '5', title: 'Netflix' })] })
-  mocks.fireflyPost.mockReset().mockResolvedValue({ data: [] })
+  mocks.fireflyPost.mockReset().mockResolvedValue(triggeredResponse())
   mocks.toast.mockReset()
 })
 
@@ -148,7 +174,26 @@ describe('SubscriptionsTab 记这一笔', () => {
 
     expect(await screen.findByText('本期已记')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '记这一笔' })).not.toBeInTheDocument()
-    expect(mocks.toast).toHaveBeenCalledWith({ kind: 'success', message: '已记一笔「Netflix」' })
+    expect(mocks.toast).toHaveBeenCalledWith({
+      kind: 'success',
+      message: '已记一笔「Netflix」',
+      action: { label: '查看', to: '/transactions?transaction=321' },
+    })
+  })
+
+  it('200 但没生成交易时算失败：不显示已记，提示可能已记过', async () => {
+    // 这是真出过的 bug：trigger 的 date 落不到任何期次上时，接口返回 200 + data:[]，
+    // 旧代码照样弹「已记一笔」并把行变成「本期已记」，实际一笔都没有。
+    mocks.fireflyPost.mockResolvedValue({ data: [] })
+    renderTab()
+    fireEvent.click(await screen.findByRole('button', { name: '记这一笔' }))
+
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'error', message: expect.stringContaining('没有生成交易') }),
+    ))
+    expect(mocks.toast).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'success' }))
+    expect(screen.queryByText('本期已记')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '记这一笔' })).toBeEnabled()
   })
 
   it('返回了新交易就在提示里给「查看」入口', async () => {
@@ -183,7 +228,7 @@ describe('SubscriptionsTab 记这一笔', () => {
 
 describe('SubscriptionsTab 防重复触发', () => {
   it('触发进行中按钮禁用，连点也只发一次请求', async () => {
-    const pending = deferred<{ data: [] }>()
+    const pending = deferred<ReturnType<typeof triggeredResponse>>()
     mocks.fireflyPost.mockReturnValue(pending.promise)
     renderTab()
 
@@ -196,7 +241,7 @@ describe('SubscriptionsTab 防重复触发', () => {
     fireEvent.click(button)
     expect(mocks.fireflyPost).toHaveBeenCalledTimes(1)
 
-    pending.resolve({ data: [] })
+    pending.resolve(triggeredResponse())
     expect(await screen.findByText('本期已记')).toBeInTheDocument()
     expect(mocks.fireflyPost).toHaveBeenCalledTimes(1)
   })
@@ -205,7 +250,7 @@ describe('SubscriptionsTab 防重复触发', () => {
     mocks.fireflyFetch.mockResolvedValue({
       data: [recurrence({ id: '5', title: 'Netflix' }), recurrence({ id: '6', title: 'Spotify' })],
     })
-    const pending = deferred<{ data: [] }>()
+    const pending = deferred<ReturnType<typeof triggeredResponse>>()
     mocks.fireflyPost.mockReturnValue(pending.promise)
     renderTab()
     await screen.findByText('Netflix')
@@ -215,7 +260,7 @@ describe('SubscriptionsTab 防重复触发', () => {
     expect(await within(rowOf('Netflix')).findByRole('button', { name: '记录中…' })).toBeDisabled()
     expect(within(rowOf('Spotify')).getByRole('button', { name: '记这一笔' })).toBeEnabled()
 
-    pending.resolve({ data: [] })
+    pending.resolve(triggeredResponse())
     await screen.findByText('本期已记')
   })
 
