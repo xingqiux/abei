@@ -77,6 +77,25 @@ describe('TaskDetailPanel', () => {
     await waitFor(() => expect(mocks.importRows).toHaveBeenNthCalledWith(2, { taskId: '7', rowIds: ['1'], confirm: true }))
   })
 
+  it('keeps the rejected-secret reason next to the password field', () => {
+    const rejected = {
+      id: '7',
+      attributes: {
+        source: 'alipay',
+        status: 'needs_secret',
+        summary: 'July bill',
+        error_code: 'secret_rejected',
+        error_message: '支付宝账单解压失败，请检查密码是否正确。（还可以再试 4 次）',
+      },
+    } as BillTask
+
+    render(<TaskDetailPanel task={rejected} onIgnored={vi.fn()} />)
+
+    // toast 几秒就没了，刷新一下更是什么都不剩，所以错误得挂在输入框上
+    expect(screen.getByText('支付宝账单解压失败，请检查密码是否正确。（还可以再试 4 次）')).toBeInTheDocument()
+    expect(screen.getByLabelText('需要解压密码或验证码')).toHaveAttribute('aria-invalid', 'true')
+  })
+
   it('shows row query failures and provides a retry action', () => {
     mocks.rowsError = true
     render(<TaskDetailPanel task={task} onIgnored={vi.fn()} />)

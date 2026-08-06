@@ -134,6 +134,9 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
   const visibleRows = rows.slice(0, visibleCount)
   const canLoadMore = visibleCount < rows.length
   const errorText = task.attributes.error_message || task.attributes.error_code || null
+  // 密码错了后端退回 needs_secret，把原因（含还能试几次）写在 error_message 上。
+  // 光靠 toast 不够：它几秒就没了，刷新一下就再也看不出自己错在哪。
+  const secretError = task.attributes.error_code === 'secret_rejected' ? errorText : null
 
   function focusReviewRow(rowId: string) {
     setVisibleCount(rows.length)
@@ -159,7 +162,7 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
             <div className="min-w-[180px] flex-1">
               {/* 用真 label 而不是 placeholder：placeholder 一输入就消失，
                   用户回头看不出这格填的是什么 */}
-              <Field label="需要解压密码或验证码" hint="提交后任务将重新处理附件">
+              <Field label="需要解压密码或验证码" hint="提交后任务将重新处理附件" error={secretError ?? undefined}>
                 <Input type="password" autoComplete="off" value={secretValue} onChange={(e) => setSecretValue(e.target.value)} />
               </Field>
             </div>
