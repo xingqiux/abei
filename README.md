@@ -7,7 +7,7 @@
 - `firefly-iii/`: 后端引擎。Firefly III 的定制 fork，另含自建的账单收件箱子系统（邮箱拉取支付宝/微信/招行/中行账单并解析入账）。
 - `abaku-web/`: 前端界面，直接调用 Firefly API（PAT Bearer 认证）。
 - `firefly-cli/`: 命令行工具 `ffc`，同样对着 Firefly API。
-- `granary-server/`: Rust 后端，已封存不参与构建与测试，长期计划仍是替换 Firefly。
+- `granary-server/`: Rust 后端，2026-07 起封存，不参与构建、测试和 CI。代码留着备查，原因见它自己的 README。
 
 ## 本地开发与测试
 
@@ -50,6 +50,12 @@ abaku-web 不在构建期注入令牌。首次打开会要求粘贴 Firefly PAT�
   并强制清掉 `.env.local` 的兜底令牌，好让登录这一步真的走一遍 TokenGate。
 - 只要 db/mail/app 三个容器，不需要 abaku-web 容器。
   想改打 nginx 产物（`make up` 起的容器）：`cd abaku-web && E2E_BASE_URL=http://127.0.0.1:18002 npx playwright test`。
+
+## 文档
+
+- `docs/design/redesign-decisions.md`：功能取舍、视觉与交互的已定决策
+- `docs/design/feature-inventory.md`：Firefly 全部接口，哪些接、哪些不接
+- `docs/implementation-plan.md`：这批重构做了什么，以及几条查代码查出来的结论（recurrence、cron、令牌筛选）
 
 ## 当前方向
 
