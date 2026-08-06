@@ -36,9 +36,15 @@ class BillInboxSummaryService
      */
     public function channelSummaries(User $user): array
     {
-        $channels = [];
+        $channels    = [];
+        $seenSources = [];
         foreach ($this->channelRegistry->settingsChannels() as $channel) {
             $source = (string) $channel['source'];
+            if (array_key_exists($source, $seenSources)) {
+                continue;
+            }
+            $seenSources[$source] = true;
+
             $stats  = BillTask::query()
                 ->where('user_id', $user->id)
                 ->where('source', $source)

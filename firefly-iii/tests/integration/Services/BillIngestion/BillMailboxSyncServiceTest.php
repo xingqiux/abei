@@ -45,12 +45,14 @@ final class BillMailboxSyncServiceTest extends TestCase
             'FROM "service@mail.alipay.com"',
             'FROM "wechatpay@tencent.com"',
             'FROM "95555@message.cmbchina.com"',
+            'FROM "ccsvc@message.cmbchina.com" SUBJECT "每日信用管家"',
             'X-GM-RAW "filename:pdf"',
             'SUBJECT "中国银行交易流水"',
         ], $registry->mailboxSearchCriteria());
         $this->assertSame('alipay', $registry->find('alipay', 'alipay-statement')?->source());
         $this->assertSame('wechat', $registry->find('wechat', 'wechat-pay-statement')?->source());
         $this->assertSame('cmb', $registry->find('cmb', 'cmb-transaction-statement')?->source());
+        $this->assertSame('cmb', $registry->find('cmb', 'cmb-credit-card-daily')?->source());
         $this->assertSame('boc', $registry->find('boc', 'boc-transaction-statement')?->source());
     }
 
@@ -181,6 +183,78 @@ final class BillMailboxSyncServiceTest extends TestCase
         $this->assertSame('cmb_app_statement_record', $artifact->metadata['password_source']);
         $this->assertNotNull($artifact->path);
         Storage::disk('local')->assertExists($artifact->path);
+    }
+
+    public function testSyncParsesCmbCreditDailyHtmlWithoutSecret(): void
+    {
+        Storage::fake('local');
+        $client = new FakeImapBillMailboxClient([
+            new FakeImapMailMessage('96', $this->cmbCreditDailyRawMessage()),
+        ]);
+        $this->app->instance(ImapBillMailboxClient::class, $client);
+        $this->configureMailbox();
+
+        $result = app(BillMailboxSyncService::class)->syncForUser($this->user, 10);
+        $batch  = app(BillTaskProcessor::class)->processBatch(10, $this->user);
+
+        $this->assertSame(1, $result->scanned);
+        $this->assertSame(1, $result->created);
+        $this->assertSame(0, $result->failed);
+        $this->assertSame(1, $batch->processed);
+        $this->assertSame(0, $batch->failed);
+        $this->assertContains('FROM "ccsvc@message.cmbchina.com" SUBJECT "每日信用管家"', $client->searches);
+        $this->assertSame(['96'], $client->seenUids);
+
+        $mail = BillMailMessage::query()->firstOrFail();
+        $this->assertSame('ccsvc@message.cmbchina.com', $mail->from_address);
+        $this->assertSame('每日信用管家', $mail->subject);
+        $this->assertNotNull($mail->body_html_path);
+        $this->assertNull($mail->body_text_path);
+        Storage::disk('local')->assertExists($mail->body_html_path);
+
+        $task = BillTask::query()->firstOrFail();
+        $this->assertSame('cmb', $task->source);
+        $this->assertSame('cmb-credit-card-daily', $task->profile_id);
+        $this->assertSame('parsed', $task->status);
+        $this->assertSame(4, $task->metadata['parsed_row_count']);
+        $this->assertNull($task->current_secret_challenge_id);
+        $this->assertSame(0, $task->secretChallenges()->count());
+
+        $artifact = $task->artifacts()->firstOrFail();
+        $this->assertSame('html', $artifact->kind);
+        $this->assertSame('cmb-credit-daily-20260804.html', $artifact->filename);
+        $this->assertFalse($artifact->encrypted);
+        $this->assertSame('mail_body', $artifact->metadata['source']);
+
+        $import = $task->statementImports()->firstOrFail();
+        $this->assertSame('cmb-credit-card-daily', $import->profile_id);
+        $this->assertSame('2026-08-04', $import->period_start->toDateString());
+        $this->assertSame('2026-08-04', $import->period_end->toDateString());
+        $this->assertSame(4, $import->row_count);
+
+        $rows = $task->statementRows()->orderBy('row_number')->get();
+        $this->assertCount(4, $rows);
+        $this->assertSame('2026-08-04 09:33:08', $rows[0]->occurred_at->format('Y-m-d H:i:s'));
+        $this->assertSame('+08:00', $rows[0]->occurred_at->format('P'));
+        $this->assertSame('9.75', (string) $rows[0]->amount);
+        $this->assertSame('支出', $rows[0]->direction);
+        $this->assertSame('withdrawal', $rows[0]->firefly_type);
+        $this->assertSame('招商银行信用卡(1234)', $rows[0]->source_name);
+        $this->assertSame('财付通-测试咖啡', $rows[0]->destination_name);
+        $this->assertSame('2026-08-04 20:27:44', $rows[3]->occurred_at->format('Y-m-d H:i:s'));
+        $this->assertSame('支付宝-测试水果店', $rows[3]->counterparty);
+
+        $structuredData = json_encode([
+            $task->metadata,
+            $import->metadata,
+            $rows->pluck('raw_data')->all(),
+            $rows->pluck('metadata')->all(),
+        ], JSON_UNESCAPED_UNICODE);
+        $this->assertIsString($structuredData);
+        $this->assertStringNotContainsString('积分余额', $structuredData);
+        $this->assertStringNotContainsString('可用额度', $structuredData);
+        $this->assertStringNotContainsString('points_balance', $structuredData);
+        $this->assertStringNotContainsString('available_credit', $structuredData);
     }
 
     public function testSyncCreatesBocTaskFromEncryptedPdfMailAndRequestsPassword(): void
@@ -315,6 +389,7 @@ final class BillMailboxSyncServiceTest extends TestCase
         $this->assertContains('FROM "service@mail.alipay.com"', $client->searches);
         $this->assertContains('FROM "wechatpay@tencent.com"', $client->searches);
         $this->assertContains('FROM "95555@message.cmbchina.com"', $client->searches);
+        $this->assertContains('FROM "ccsvc@message.cmbchina.com" SUBJECT "每日信用管家"', $client->searches);
         $this->assertContains('X-GM-RAW "filename:pdf"', $client->searches);
         $this->assertContains('SUBJECT "中国银行交易流水"', $client->searches);
     }
@@ -343,6 +418,7 @@ final class BillMailboxSyncServiceTest extends TestCase
         $this->assertContains('FROM "service@mail.alipay.com"', $client->searches);
         $this->assertContains('FROM "wechatpay@tencent.com"', $client->searches);
         $this->assertContains('FROM "95555@message.cmbchina.com"', $client->searches);
+        $this->assertContains('FROM "ccsvc@message.cmbchina.com" SUBJECT "每日信用管家"', $client->searches);
         $this->assertContains('X-GM-RAW "filename:pdf"', $client->searches);
         $this->assertContains('SUBJECT "中国银行交易流水"', $client->searches);
     }
@@ -493,6 +569,43 @@ TEXT;
         $email->getHeaders()->addIdHeader('Message-ID', 'cmb-transaction-statement-20260616@cmbchina.com');
 
         return $email->toString();
+    }
+
+    private function cmbCreditDailyRawMessage(): string
+    {
+        $html = <<<'HTML'
+<html><body>
+<table>
+<tr><td>尊敬的客户，截至昨日最后一笔交易，您的额度和积分信息如下：</td></tr>
+<tr><td>可用额度</td><td>￥16,841.25</td><td>积分余额</td><td>109</td></tr>
+<tr><td>2026/08/04 您的消费明细如下：</td></tr>
+<tr><td>09:33:08</td><td>CNY 9.75</td><td>尾号1234 消费 财付通-测试咖啡</td></tr>
+<tr><td>17:42:58</td><td>CNY 27.00</td><td>尾号1234 消费 支付宝-测试餐饮公司</td></tr>
+<tr><td>20:13:26</td><td>CNY 8.80</td><td>尾号1234 消费 支付宝-测试便利店</td></tr>
+<tr><td>20:27:44</td><td>CNY 12.20</td><td>尾号1234 消费 支付宝-测试水果店</td></tr>
+</table>
+</body></html>
+HTML;
+        $boundary = '----=_Part_cmb_credit_daily_test';
+        $headers  = [
+            'From: CMB Credit Card <ccsvc@message.cmbchina.com>',
+            'To: bills@example.test',
+            'Subject: =?UTF-8?B?'.base64_encode('每日信用管家').'?=',
+            'Date: Wed, 05 Aug 2026 16:19:48 +0800',
+            'Message-ID: <cmb-credit-daily-20260805@cmbchina.test>',
+            'MIME-Version: 1.0',
+            sprintf('Content-Type: multipart/mixed; boundary="%s"', $boundary),
+            '',
+            '--'.$boundary,
+            'Content-Type: text/html; charset=UTF-8',
+            'Content-Transfer-Encoding: base64',
+            '',
+            rtrim(chunk_split(base64_encode($html), 76, "\r\n")),
+            '--'.$boundary.'--',
+            '',
+        ];
+
+        return implode("\r\n", $headers);
     }
 
     private function bocRawMessage(): string
