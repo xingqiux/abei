@@ -115,9 +115,6 @@ DataTable、今天页、订阅 tab、令牌面板和对应的测试。
 - 自托管 Inter 字体
 - AI 记账、CLI 那条主线——那是下一批，不和这批交叉
 
-已知还欠的：`ffc doctor local` 的三项检查已经对不上现在的部署形态
-（查 SQLite、查已删掉的 Firefly Web 前端产物），见 `firefly-cli/README.md`。
-
 ---
 
 ## 阶段 0 验证结论（2026-08-05，代码级定案）

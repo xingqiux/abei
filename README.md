@@ -5,8 +5,8 @@
 ## 目录结构
 
 - `firefly-iii/`: 后端引擎。Firefly III 的定制 fork，另含自建的账单收件箱子系统（邮箱拉取支付宝/微信/招行/中行账单并解析入账）。
-- `abaku-web/`: 前端界面，直接调用 Firefly API（PAT Bearer 认证）。
-- `firefly-cli/`: 命令行工具 `ffc`，同样对着 Firefly API。
+- `abaku-web/`: 前端界面；业务接口直连 Firefly，AI 流式接口走可信 Agent 服务。
+- `firefly-cli/`: 命令行工具 `ffc`，同时提供 MCP 能力面和 `abaku-agent` 服务进程。
 - `granary-server/`: Rust 后端，2026-07 起封存，不参与构建、测试和 CI。代码留着备查，原因见它自己的 README。
 
 ## 本地开发与测试
@@ -14,30 +14,55 @@
 根目录是唯一入口，需要 Make、Docker Compose v2；`make dev` 另需本机装 PHP 与 Composer。
 
 ```bash
-make dev          # 本地开发：起 db/mail 容器 + 本机 artisan serve (18001) + vite (5173)
-make dev-web      # 只开发前端：Firefly 用容器跑，本地只起 vite (5173)
-make up           # 生产形态起 4 个容器：db mail app abaku-web
+make dev          # db/mail 容器 + 本机 Firefly/worker/agent + vite (5173)
+make dev-web      # 后端、worker、agent 用容器跑，本机只起 vite (5173)
+make up           # 完整本地形态起 6 个容器
 make down         # 停容器（保留数据）
-make logs         # 跟随 app 与 abaku-web 日志
+make logs         # 跟随 app、bill-worker、abaku-agent 与 abaku-web 日志
 make test         # 全部测试：abaku-web vitest + Firefly PHPUnit + CLI vitest
 make test-e2e     # 浏览器主路径：起 db/mail/app + playwright
 make build        # 出产物：abaku-web 静态文件 + firefly-cli 打包 + composer 装依赖
-make build-image  # 构建 app 与 abaku-web 镜像
+make build-image  # 构建 app、abaku-agent 与 abaku-web 镜像
 make help
 ```
 
-`make dev` 会停掉 app 容器把 18001 端口让给本机 artisan serve，之后 `make up` 可恢复。
+`make dev` 会停掉 app、bill-worker 和 abaku-agent 容器，把端口让给本机开发进程，之后 `make up` 可恢复。
+`bill-worker` 会随 `make up`、`make dev-web` 一起启动；`make dev` 则在本机运行同一组同步/解析命令。
+它默认每 5 分钟执行一次，可通过 `BILL_WORKER_INTERVAL` 调整。
+
+`APP_KEY` 是 Firefly 加密邮箱密码等敏感配置所用的应用主密钥，必须在同一数据库的整个生命周期内保持不变。
+更换它不会自动迁移旧数据，只会让旧密文无法解密。
 
 启动后：
 
 - abaku-web: http://localhost:18002 （`make dev` 下前端在 http://localhost:5173）
 - Firefly III: http://localhost:18001
+- abaku-agent: http://localhost:18003 （健康检查 `/api/ai/health`）
 - PostgreSQL: `127.0.0.1:15432`
 - 测试 IMAP/SMTP: `127.0.0.1:13143` / `127.0.0.1:13025`
 
 端口在 `.env` 改。改 `FIREFLY_PORT` 要同步改 `abaku-web/vite.config.ts` 的 proxy 目标。`APP_URL` 默认跟随 `FIREFLY_PORT`，只有用自定义主机名或反向代理时才需要显式设置。
 
 abaku-web 不在构建期注入令牌。首次打开会要求粘贴 Firefly PAT，存在 sessionStorage；开发期可以在 `abaku-web/.env.local` 放 `VITE_FIREFLY_TOKEN` 兜底。
+
+### AI 与 FFC 平台能力
+
+在根目录 `.env` 设置模型。默认是 OpenAI：
+
+```dotenv
+AI_PROVIDER=openai
+AI_MODEL=gpt-5.4-mini
+OPENAI_API_KEY=...
+# OpenAI 兼容服务才需要：
+OPENAI_BASE_URL=https://example.com/v1
+```
+
+也支持 `anthropic`、`google`、`cloudflare-ai-gateway`、`cloudflare-workers-ai` 和
+`ollama`，对应变量已列在 `.env.example`。模型密钥只进入 `abaku-agent`，不会进浏览器；
+浏览器的 Firefly PAT 只在当前 Agent 请求内使用，不写入 `abaku_ai` schema。
+
+外部 Agent 要复用同一组受限能力时运行 `ffc mcp`。正式入账与账单密码必须回到
+Abaku 审批；`ffc api`、删除、用户管理、配置和邮箱凭证不会暴露给模型。
 
 ### 浏览器 e2e
 
@@ -59,7 +84,7 @@ abaku-web 不在构建期注入令牌。首次打开会要求粘贴 Firefly PAT�
 
 ## 当前方向
 
-目标是能用的记账系统：邮箱自动导入账单、AI 参与归类与入账。Firefly 提供 API 与账单子系统，界面统一在 abaku-web，AI 接入走 firefly-cli 与后续的 MCP 层。
+目标是能用的记账系统：邮箱自动导入账单、AI 参与归类与入账。Firefly 提供 API 与账单子系统，界面统一在 abaku-web，AI 与 MCP 共用 firefly-cli 的受限能力注册表。
 
 生产数据只在服务器上，本机不操作。任何 dump、附件、密钥和真实 `.env` 都不得进入 Git 或 CI。
 

@@ -72,7 +72,7 @@ Bill 没有账户和分类模板，"点一下生成交易"就无从谈起——�
 
 需要在 Firefly 侧补两个端点，读写 `oauth_access_tokens` 表：
 
-- `GET /api/v1/tokens` — 列出当前用户的令牌（名称、创建时间、最后使用时间、是否已撤销）
+- `GET /api/v1/tokens` — 列出当前用户的有效令牌（名称、创建时间、到期时间、是否为当前会话）
 - `DELETE /api/v1/tokens/{id}` — 撤销
 
 工作量是一个控制器加两个方法。改密码和 2FA 继续走 artisan 命令，不做界面。
