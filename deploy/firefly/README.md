@@ -1,12 +1,15 @@
 # Firefly AI Accounting Docker 部署
 
-这是给 JD `xkqq` 服务器准备的最小部署方案：一个 Firefly 应用镜像、一个 PostgreSQL、一个每天跑一次的 Firefly cron 容器。
+这是给 JD `xkqq` 服务器准备的最小部署方案：Firefly、Abaku 前端、AI Agent、PostgreSQL、预算 cron 和账单邮箱 worker。
 
 > **cron 容器只跑 `--create-auto-budgets`，不要改回不带参数的 `firefly-iii:cron`。**
 > 不带参数会执行全部六项，其中 `--create-recurring` 会自动生成定期交易。本项目的
 > 「订阅」建在定期交易上，交易由用户在界面点「记这一笔」手动触发，而定期交易又必须
 > 保持 `active=true` 才允许手动触发，所以一旦自动生成打开，每笔订阅会变成一天两条。
 > 详见 `docs/implementation-plan.md` 的「阶段 0 验证结论」第 2 条。
+
+`bill-worker` 每 5 分钟执行一次邮箱同步和任务解析。它只读取已启用用户的账单邮箱设置，
+并与 `app` 共用 `storage`；不需要在浏览器里保持页面打开。
 
 ## 1. 本地构建镜像
 
@@ -180,6 +183,12 @@ cd /Users/youla/proj/abaku/abaku-web
 docker buildx build --platform linux/amd64 \
   -t docker.xkqq.top/firefly/abaku-web:latest \
   --push .
+
+cd /Users/youla/proj/abaku/firefly-cli
+docker buildx build --platform linux/amd64 \
+  -t docker.xkqq.top/firefly/abaku-agent:latest \
+  --target runtime \
+  --push .
 ```
 
 ### 服务器配置
@@ -188,12 +197,23 @@ docker buildx build --platform linux/amd64 \
 
 ```text
 ABAKU_WEB_IMAGE=docker.xkqq.top/firefly/abaku-web:latest
+ABAKU_AGENT_IMAGE=docker.xkqq.top/firefly/abaku-agent:latest
 ABAKU_WEB_PORT=18002
+ABAKU_AGENT_PORT=18003
+AI_PROVIDER=openai
+AI_MODEL=gpt-5.4-mini
+OPENAI_API_KEY=替换成真实密钥
+# 使用 OpenAI 兼容服务时再填写：
+OPENAI_BASE_URL=https://example.com/v1
 ```
 
-`docker compose up -d abaku-web` 后，反向代理把新域名（如 abaku.xkqq.top）指向 `127.0.0.1:18002`。
+`docker compose up -d abaku-agent abaku-web` 后，反向代理把新域名（如 abaku.xkqq.top）指向 `127.0.0.1:18002`。
 `/api` 与 `/oauth` 由容器内 nginx 同域反代到 `app` 服务，浏览器无跨域问题；
+`/api/ai` 同域反代到 `abaku-agent`，模型密钥不会进入浏览器；
 旧界面 `firefly.xkqq.top` → `18001` 保留为过渡期兜底。
+
+Agent 健康检查：`http://127.0.0.1:18003/api/ai/health`。返回 `configured: false`
+表示服务已启动但模型密钥或模型名还没配好。
 
 ### 首次打开
 
@@ -209,4 +229,5 @@ docker compose exec app php artisan user:create-pat
 令牌存在 **sessionStorage**，只在当前标签页有效——关掉浏览器要重新粘一次。这是有意的：
 自托管记账数据敏感，不留长期凭证在磁盘上。
 
-回滚：`.env` 里 `ABAKU_WEB_IMAGE` 改回旧 tag 后 `docker compose up -d abaku-web`。
+回滚：`.env` 里 `ABAKU_WEB_IMAGE`、`ABAKU_AGENT_IMAGE` 改回旧 tag 后
+`docker compose up -d abaku-agent abaku-web`。

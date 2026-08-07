@@ -28,8 +28,33 @@ services:
     depends_on:
       app:
         condition: service_healthy
+      abaku-agent:
+        condition: service_healthy
     ports:
       - "127.0.0.1:${ABAKU_WEB_PORT:-18002}:80"
+
+  abaku-agent:
+    image: ${ABAKU_AGENT_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      AI_HOST: 0.0.0.0
+      AI_PORT: 18003
+      FIREFLY_URL: http://app
+    depends_on:
+      app:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${ABAKU_AGENT_PORT:-18003}:18003"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:18003/api/ai/health').then(r=>{if(!r.ok)process.exit(1)})"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   # 只跑 auto-budget（预算按月自动续期），其余分项一律不跑。
   #
@@ -59,6 +84,21 @@ services:
       db:
         condition: service_healthy
     command: sh -lc 'while true; do php artisan firefly-iii:cron --create-auto-budgets || true; sleep 86400; done'
+    volumes:
+      - ./storage:/var/www/html/storage
+
+  # 生产环境账单邮箱 worker：定时拉取新邮件，再处理所有可继续的解析任务。
+  # 与 app 共用 storage，附件与解析产物因此在两个容器间可见。
+  bill-worker:
+    image: ${FIREFLY_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    depends_on:
+      app:
+        condition: service_healthy
+    command: sh -lc 'while true; do php artisan firefly-iii:sync-bill-mailbox --limit=100 || true; php artisan firefly-iii:process-bill-tasks --limit=100 || true; sleep 300; done'
     volumes:
       - ./storage:/var/www/html/storage
 

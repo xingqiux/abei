@@ -63,7 +63,7 @@ services:
     healthcheck: *mail-healthcheck
 
   app:
-    build:
+    build: &app-build
       context: ./firefly-iii
       target: production
     environment:
@@ -78,12 +78,63 @@ services:
     ports:
       - "127.0.0.1:${FIREFLY_PORT:-18001}:80"
     volumes:
-      - app-storage:/var/www/html/storage
+      # 与 make dev 的本机 artisan 共用附件，切换运行方式不会丢失账单文件。
+      - ./firefly-iii/storage:/var/www/html/storage
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/api/v1/health >/dev/null || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 30
+
+  bill-worker:
+    build: *app-build
+    environment:
+      <<: *app-environment
+    depends_on:
+      app:
+        condition: service_healthy
+    command: sh -lc 'while true; do php artisan firefly-iii:sync-bill-mailbox --limit=100 || true; php artisan firefly-iii:process-bill-tasks --limit=100 || true; sleep ${BILL_WORKER_INTERVAL:-300}; done'
+    volumes:
+      - ./firefly-iii/storage:/var/www/html/storage
+
+  abaku-agent:
+    build:
+      context: ./firefly-cli
+      target: runtime
+    environment:
+      AI_HOST: 0.0.0.0
+      AI_PORT: 18003
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
+      AI_MODEL: ${AI_MODEL:-gpt-5.4-mini}
+      AI_DB_POOL_SIZE: ${AI_DB_POOL_SIZE:-5}
+      APP_KEY: ${APP_KEY:-SomeRandomStringOf32CharsExactly}
+      TZ: ${TZ:-Asia/Shanghai}
+      FIREFLY_URL: http://app
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: ${POSTGRES_DB:-firefly}
+      DB_USERNAME: ${POSTGRES_USER:-firefly}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-firefly-local-only}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      CLOUDFLARE_API_KEY: ${CLOUDFLARE_API_KEY:-}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      CLOUDFLARE_GATEWAY_ID: ${CLOUDFLARE_GATEWAY_ID:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+    depends_on:
+      app:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${ABAKU_AGENT_PORT:-18003}:18003"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:18003/api/ai/health').then(r=>{if(!r.ok)process.exit(1)})"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   abaku-web:
     build:
@@ -91,6 +142,8 @@ services:
       target: runtime
     depends_on:
       app:
+        condition: service_healthy
+      abaku-agent:
         condition: service_healthy
     ports:
       - "127.0.0.1:${ABAKU_WEB_PORT:-18002}:80"
@@ -182,7 +235,6 @@ services:
         npm audit --audit-level=high --registry=https://registry.npmjs.org
 
 volumes:
-  app-storage:
   cli-node-modules:
   dev-postgres:
   web-node-modules:
