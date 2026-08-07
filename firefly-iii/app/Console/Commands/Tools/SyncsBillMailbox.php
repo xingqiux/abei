@@ -37,6 +37,9 @@ class SyncsBillMailbox extends Command
             $totalIgnored    += $result->ignored;
             $totalDuplicates += $result->duplicates;
             $totalFailed     += $result->failed;
+            foreach ($result->errors as $error) {
+                $this->friendlyError(sprintf('User #%d: %s', $user->id, $error));
+            }
         }
 
         $this->friendlyInfo(sprintf(
@@ -48,7 +51,7 @@ class SyncsBillMailbox extends Command
             $totalFailed
         ));
 
-        return Command::SUCCESS;
+        return $totalFailed > 0 ? Command::FAILURE : Command::SUCCESS;
     }
 
     /**

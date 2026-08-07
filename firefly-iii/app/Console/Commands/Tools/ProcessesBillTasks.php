@@ -24,6 +24,6 @@ class ProcessesBillTasks extends Command
 
         $this->friendlyInfo(sprintf('Processed %d bill task(s), %d failed.', $result->processed, $result->failed));
 
-        return Command::SUCCESS;
+        return $result->failed > 0 ? Command::FAILURE : Command::SUCCESS;
     }
 }

@@ -583,6 +583,35 @@ final class BillTaskControllerTest extends TestCase
         Storage::disk('local')->assertExists('artifacts/original/task-1/statement.zip');
     }
 
+    public function testDeletesFailedTaskAndItsLocalFiles(): void
+    {
+        Storage::fake('local');
+        Storage::disk('local')->put('mail/raw/mail-1.eml', 'raw email');
+        Storage::disk('local')->put('artifacts/original/task-1/statement.zip', 'zip bytes');
+        $this->task->status = 'failed';
+        $this->task->save();
+        $taskId = $this->task->id;
+        $mailId = $this->task->bill_mail_message_id;
+
+        $response = $this->deleteJson(route('api.v1.bill-tasks.delete', ['billTask' => $taskId]));
+
+        $response->assertNoContent();
+        $this->assertDatabaseMissing('bill_tasks', ['id' => $taskId]);
+        $this->assertDatabaseMissing('bill_artifacts', ['bill_task_id' => $taskId]);
+        $this->assertDatabaseHas('bill_mail_messages', ['id' => $mailId, 'raw_path' => null]);
+        Storage::disk('local')->assertMissing('mail/raw/mail-1.eml');
+        Storage::disk('local')->assertMissing('artifacts/original/task-1/statement.zip');
+    }
+
+    public function testRejectsDeletingTaskThatHasNotFailed(): void
+    {
+        $response = $this->deleteJson(route('api.v1.bill-tasks.delete', ['billTask' => $this->task->id]));
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('task');
+        $this->assertDatabaseHas('bill_tasks', ['id' => $this->task->id]);
+    }
+
     public function testArchivesMultipleTasksWithoutDeletingFiles(): void
     {
         Storage::fake('local');

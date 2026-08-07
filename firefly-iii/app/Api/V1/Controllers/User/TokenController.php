@@ -23,14 +23,13 @@ class TokenController extends Controller
             ->where('revoked', false)
             ->whereHas('client', static fn ($query) => $query->whereJsonContains('grant_types', 'personal_access'))
             ->orderByDesc('created_at')
-            ->get(['id', 'name', 'created_at', 'updated_at', 'expires_at']);
+            ->get(['id', 'name', 'created_at', 'expires_at']);
 
         return response()->json([
             'data' => $tokens->map(static fn (Token $token): array => [
                 'id'         => $token->id,
                 'name'       => $token->name,
                 'created_at' => $token->created_at?->toIso8601String(),
-                'last_used'  => $token->updated_at?->toIso8601String(),
                 'expires_at' => $token->expires_at?->toIso8601String(),
                 'current'    => $token->id === optional($request->user()->token())->id,
             ])->values(),

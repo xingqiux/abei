@@ -11,7 +11,6 @@ use FireflyIII\Models\BillStatementImport;
 use FireflyIII\Models\BillStatementRow;
 use FireflyIII\Models\BillTask;
 use FireflyIII\Models\BillTaskEvent;
-use FireflyIII\Services\BillIngestion\BillTaskActionService;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Symfony\Component\Mime\MimeTypes;
@@ -225,10 +224,6 @@ trait BillTaskResponse
                 'prompt'             => $challenge->prompt,
                 'status'             => $challenge->status,
                 'attempts'           => $challenge->attempts,
-                // 还能试几次。密码填错不再消费挑战，但次数用完挑战就关了、
-                // 只能 retry 整个任务，所以这两个数得让界面看得见。
-                'max_attempts'       => BillTaskActionService::MAX_SECRET_ATTEMPTS,
-                'attempts_remaining' => max(0, BillTaskActionService::MAX_SECRET_ATTEMPTS - $challenge->attempts),
                 'created_at'         => optional($challenge->created_at)->toAtomString(),
                 'consumed_at'        => optional($challenge->consumed_at)->toAtomString(),
             ],

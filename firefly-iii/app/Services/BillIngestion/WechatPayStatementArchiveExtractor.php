@@ -49,7 +49,7 @@ class WechatPayStatementArchiveExtractor
 
                 $content = $zip->getFromIndex($index);
                 if (false === $content) {
-                    throw new RuntimeException('微信支付账单解压失败，请检查密码是否正确。');
+                    throw new InvalidBillSecretException('微信支付账单解压失败，请检查密码是否正确。');
                 }
 
                 $artifacts[] = $this->storeExtractedFile($archive, $name, $content);

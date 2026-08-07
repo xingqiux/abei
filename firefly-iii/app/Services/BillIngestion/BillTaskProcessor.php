@@ -23,8 +23,13 @@ class BillTaskProcessor
 
         $this->nextTasks($limit, $user)->each(function (BillTask $task) use (&$processed, &$failed): void {
             ++$processed;
-            if (false === $this->process($task)) {
+            try {
+                if (false === $this->process($task)) {
+                    ++$failed;
+                }
+            } catch (\Throwable $exception) {
                 ++$failed;
+                $this->failUnexpectedTask($task, $exception);
             }
         });
 
@@ -132,6 +137,19 @@ class BillTaskProcessor
         $this->appendEvent($task, 'task.failed', '缺少来源处理器，任务暂时无法解析');
 
         return false;
+    }
+
+    private function failUnexpectedTask(BillTask $task, \Throwable $exception): void
+    {
+        report($exception);
+        DB::transaction(function () use ($task): void {
+            $task->refresh();
+            $task->status        = 'failed';
+            $task->error_code    = 'processor_exception';
+            $task->error_message = 'Bill task processing failed unexpectedly.';
+            $task->save();
+            $this->appendEvent($task, 'task.failed', '任务处理异常，已跳过并继续处理队列');
+        });
     }
 
     private function appendEvent(BillTask $task, string $eventType, string $message): void

@@ -440,6 +440,20 @@ final class BillMailboxSyncServiceTest extends TestCase
         $this->assertSame(0, BillMailMessage::query()->count());
     }
 
+    public function testEnabledMailboxWithMissingPasswordReportsFailure(): void
+    {
+        $client = new FakeImapBillMailboxClient([]);
+        $this->app->instance(ImapBillMailboxClient::class, $client);
+        $this->configureMailbox();
+        Preferences::set('bill_inbox_mailbox_password', '');
+
+        $result = app(BillMailboxSyncService::class)->syncForUser($this->user, 10);
+
+        $this->assertSame(1, $result->failed);
+        $this->assertSame(['邮箱已启用，但登录信息不完整；请重新保存邮箱密码。'], $result->errors);
+        $this->assertFalse($client->connected);
+    }
+
     public function testArtisanCommandRunsMailboxSync(): void
     {
         Storage::fake('local');
@@ -457,6 +471,19 @@ final class BillMailboxSyncServiceTest extends TestCase
         ;
 
         $this->assertSame(1, BillTask::query()->where('source', 'alipay')->count());
+    }
+
+    public function testArtisanCommandFailsForIncompleteEnabledMailbox(): void
+    {
+        $client = new FakeImapBillMailboxClient([]);
+        $this->app->instance(ImapBillMailboxClient::class, $client);
+        $this->configureMailbox();
+        Preferences::set('bill_inbox_mailbox_password', '');
+
+        $this->artisan('firefly-iii:sync-bill-mailbox', ['--user' => (string) $this->user->id])
+            ->expectsOutputToContain('邮箱已启用，但登录信息不完整')
+            ->assertExitCode(1)
+        ;
     }
 
     #[Override]

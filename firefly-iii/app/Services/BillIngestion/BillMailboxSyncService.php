@@ -23,7 +23,13 @@ class BillMailboxSyncService
     {
         $config = $this->configForUser($user);
         $result = new BillMailboxSyncResult();
+        if (!$config->enabled) {
+            return $result;
+        }
         if (!$config->isUsable()) {
+            ++$result->failed;
+            $result->addError('邮箱已启用，但登录信息不完整；请重新保存邮箱密码。');
+
             return $result;
         }
 

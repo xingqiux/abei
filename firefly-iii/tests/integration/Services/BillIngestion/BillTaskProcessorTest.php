@@ -10,6 +10,8 @@ use FireflyIII\Models\BillMailMessage;
 use FireflyIII\Models\BillStatementImport;
 use FireflyIII\Models\BillStatementRow;
 use FireflyIII\Models\BillTask;
+use FireflyIII\Services\BillIngestion\BillSourceChannel;
+use FireflyIII\Services\BillIngestion\BillSourceChannelRegistry;
 use FireflyIII\Services\BillIngestion\BillTaskProcessor;
 use FireflyIII\Services\BillIngestion\BillStatementRowIdentityService;
 use FireflyIII\Services\BillIngestion\BocStatementImportService;
@@ -18,6 +20,7 @@ use FireflyIII\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Mockery;
 use Override;
 use Tests\integration\TestCase;
 use ZipArchive;
@@ -74,6 +77,31 @@ final class BillTaskProcessorTest extends TestCase
         $this->assertSame('failed', $task->status);
         $this->assertSame('processor_missing', $task->error_code);
         $this->assertSame('task.failed', $task->events()->latest('id')->first()->event_type);
+    }
+
+    public function testProcessBatchMarksUnexpectedFailureAndContinues(): void
+    {
+        $broken = $this->createTask('ready', 'broken', 'broken-statement');
+        $later  = $this->createTask('received', 'unknown', null);
+
+        $channel = Mockery::mock(BillSourceChannel::class);
+        $channel->shouldReceive('source')->andReturn('broken');
+        $channel->shouldReceive('profileIds')->andReturn(['broken-statement']);
+        $channel->shouldReceive('process')->once()->andThrow(new \RuntimeException('Malformed statement payload.'));
+
+        $processor = new BillTaskProcessor(new BillSourceChannelRegistry([$channel]));
+        $result    = $processor->processBatch(10);
+
+        $this->assertSame(2, $result->processed);
+        $this->assertSame(1, $result->failed);
+
+        $broken->refresh();
+        $this->assertSame('failed', $broken->status);
+        $this->assertSame('processor_exception', $broken->error_code);
+        $this->assertSame('task.failed', $broken->events()->latest('id')->first()->event_type);
+
+        $later->refresh();
+        $this->assertSame('unknown', $later->status);
     }
 
     public function testAlipayEncryptedTaskRequestsAlipayServiceMessagePassword(): void

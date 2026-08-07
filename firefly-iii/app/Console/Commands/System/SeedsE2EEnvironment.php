@@ -128,14 +128,16 @@ final class SeedsE2EEnvironment extends Command
 
     private function configureMailbox(User $user): void
     {
+        $mailer = (array) config('mail.mailers.smtp', []);
+
         Preferences::setForUser($user, 'bill_inbox_mailbox_enabled', true);
         Preferences::setForUser($user, 'bill_inbox_mailbox_provider', 'imap');
         Preferences::setForUser($user, 'bill_inbox_mailbox_email', 'bills@localhost');
-        Preferences::setForUser($user, 'bill_inbox_mailbox_host', 'e2e-mail');
+        Preferences::setForUser($user, 'bill_inbox_mailbox_host', (string) ($mailer['host'] ?? 'mail'));
         Preferences::setForUser($user, 'bill_inbox_mailbox_port', 3143);
         Preferences::setForUser($user, 'bill_inbox_mailbox_encryption', 'none');
-        Preferences::setForUser($user, 'bill_inbox_mailbox_username', 'bills');
-        Preferences::setForUser($user, 'bill_inbox_mailbox_password', encrypt(self::MAIL_PASSWORD));
+        Preferences::setForUser($user, 'bill_inbox_mailbox_username', (string) ($mailer['username'] ?? 'bills'));
+        Preferences::setForUser($user, 'bill_inbox_mailbox_password', encrypt((string) ($mailer['password'] ?? self::MAIL_PASSWORD)));
         Preferences::setForUser($user, 'bill_inbox_mailbox_folder', 'INBOX');
     }
 

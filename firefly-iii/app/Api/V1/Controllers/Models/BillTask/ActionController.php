@@ -15,6 +15,8 @@ use FireflyIII\Services\BillIngestion\BillTaskActionService;
 use FireflyIII\Services\BillIngestion\BillTaskProcessor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
 final class ActionController extends Controller
@@ -45,6 +47,19 @@ final class ActionController extends Controller
     public function archive(BillTask $billTask): JsonResponse
     {
         return response()->json($this->itemResponse($this->actionService->archive($billTask)));
+    }
+
+    public function destroy(BillTask $billTask): Response
+    {
+        if (!in_array($billTask->status, ['failed', 'unknown'], true)) {
+            throw ValidationException::withMessages([
+                'task' => ['只有处理失败的任务可以删除。'],
+            ]);
+        }
+
+        $this->actionService->deleteFailed($billTask);
+
+        return response()->noContent();
     }
 
     public function archiveMany(Request $request): JsonResponse

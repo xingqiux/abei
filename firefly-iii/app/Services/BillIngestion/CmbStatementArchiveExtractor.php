@@ -49,7 +49,7 @@ class CmbStatementArchiveExtractor
 
                 $content = $zip->getFromIndex($index);
                 if (false === $content) {
-                    throw new RuntimeException('招商银行账单解压失败，请检查解压码是否正确。');
+                    throw new InvalidBillSecretException('招商银行账单解压失败，请检查解压码是否正确。');
                 }
 
                 $artifacts[] = $this->storeExtractedFile($archive, $name, $content);

@@ -37,7 +37,7 @@ final class BillTaskActionServiceTest extends TestCase
 
         $message = $this->submitExpectingFailure($service, $task, 'wrong-secret');
         $this->assertStringContainsString('请检查密码是否正确', $message);
-        $this->assertStringContainsString('还可以再试 4 次', $message);
+        $this->assertStringNotContainsString('再试', $message);
 
         // 密码错了任务要退回等密码那一步，挑战继续开着——不然只能把整个任务重跑一遍
         $task->refresh();
@@ -78,45 +78,45 @@ final class BillTaskActionServiceTest extends TestCase
         $this->assertNotNull($challenge->consumed_at);
     }
 
-    public function testSecretAttemptsAreCappedAndTheChallengeClosesWhenTheyRunOut(): void
+    public function testWrongSecretCanBeRetriedWithoutAnArtificialLimit(): void
     {
         $task        = $this->createAlipayTaskAwaitingSecret('zip-secret');
         $challengeId = $task->current_secret_challenge_id;
         $service     = app(BillTaskActionService::class);
 
-        $message     = '';
-        for ($attempt = 1; $attempt <= BillTaskActionService::MAX_SECRET_ATTEMPTS; ++$attempt) {
-            $message = $this->submitExpectingFailure($service, $task->refresh(), 'wrong-secret');
+        for ($attempt = 1; $attempt <= 6; ++$attempt) {
+            $this->submitExpectingFailure($service, $task->refresh(), 'wrong-secret');
         }
-        $this->assertStringContainsString('已连续失败 5 次', $message);
-
-        $task->refresh();
-        $this->assertSame('failed', $task->status);
-        $this->assertSame('secret_exhausted', $task->error_code);
-        $this->assertNull($task->current_secret_challenge_id);
-        $this->assertSame('challenge.exhausted', $task->events()->latest('id')->first()->event_type);
-
-        $challenge = BillSecretChallenge::query()->findOrFail($challengeId);
-        $this->assertSame('exhausted', $challenge->status);
-        $this->assertSame(BillTaskActionService::MAX_SECRET_ATTEMPTS, $challenge->attempts);
-
-        // 挑战关掉之后连正确的密码也不收了，只能 retry 让任务重新排队
-        $this->assertSame(
-            'This bill task has no open secret challenge.',
-            $this->submitExpectingFailure($service, $task->refresh(), 'zip-secret')
-        );
-
-        // retry 是用完次数之后唯一的出路，得真能走通：重排一遍会发一个全新的挑战
-        $service->retry($task->refresh());
-        app(BillTaskProcessor::class)->processBatch(10);
 
         $task->refresh();
         $this->assertSame('needs_secret', $task->status);
-        $this->assertNotSame($challengeId, $task->current_secret_challenge_id);
-        $this->assertSame(0, $task->currentSecretChallenge->attempts);
+        $this->assertSame('secret_rejected', $task->error_code);
+        $this->assertSame($challengeId, $task->current_secret_challenge_id);
+        $this->assertSame('challenge.rejected', $task->events()->latest('id')->first()->event_type);
+
+        $challenge = BillSecretChallenge::query()->findOrFail($challengeId);
+        $this->assertSame('open', $challenge->status);
+        $this->assertSame(6, $challenge->attempts);
 
         $service->submitSecret($task, 'zip-secret');
         $this->assertSame('parsed', $task->refresh()->status);
+    }
+
+    public function testMissingArtifactFailsTheTaskInsteadOfAskingForAnotherSecret(): void
+    {
+        $task     = $this->createAlipayTaskAwaitingSecret('zip-secret');
+        $artifact = $task->artifacts()->where('encrypted', true)->firstOrFail();
+        Storage::disk('local')->delete((string) $artifact->path);
+
+        $message = $this->submitExpectingFailure(app(BillTaskActionService::class), $task, 'zip-secret');
+        $this->assertStringContainsString('附件文件不存在', $message);
+        $this->assertStringNotContainsString('再试', $message);
+
+        $task->refresh();
+        $this->assertSame('failed', $task->status);
+        $this->assertSame('processing_failed', $task->error_code);
+        $this->assertNull($task->current_secret_challenge_id);
+        $this->assertSame('task.failed', $task->events()->latest('id')->first()->event_type);
     }
 
     #[Override]

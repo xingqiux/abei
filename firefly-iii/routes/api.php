@@ -442,6 +442,7 @@ Route::group(
         Route::post('{billTask}/ignore', ['uses' => 'ActionController@ignore', 'as' => 'ignore']);
         Route::post('{billTask}/archive', ['uses' => 'ActionController@archive', 'as' => 'archive']);
         Route::post('{billTask}/import', ['uses' => 'ActionController@import', 'as' => 'import']);
+        Route::delete('{billTask}', ['uses' => 'ActionController@destroy', 'as' => 'delete']);
     }
 );
 
