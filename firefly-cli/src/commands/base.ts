@@ -4,7 +4,7 @@ import { createCommandContext } from '../core/command-context.js';
 import { renderOutput } from '../core/output.js';
 import { parseBodyOptions } from '../core/request-body.js';
 import { parseQueryOptions } from '../core/query.js';
-import { runLocalDoctor } from '../services/local-doctor.js';
+import { defaultLocalDoctorUrl, runLocalDoctor } from '../services/local-doctor.js';
 
 interface ApiOptions {
   json?: string;
@@ -16,6 +16,8 @@ interface DoctorLocalOptions {
   root?: string;
   url?: string;
 }
+
+const DEFAULT_DOCTOR_URL = defaultLocalDoctorUrl();
 
 export function registerBaseCommands(program: Command): void {
   program
@@ -66,16 +68,18 @@ export function registerBaseCommands(program: Command): void {
   const doctor = program.command('doctor').description('Diagnose local Firefly III setup.');
   doctor
     .command('local')
-    .description('Check local Firefly III files, assets, config, and HTTP reachability.')
+    .description(
+      'Check local Firefly III root, DB config, TZ/APP_URL, storage cache, and HTTP reachability.',
+    )
     .option('--root <path>', 'Path to the Firefly III root.', '../firefly-iii')
-    .option('--url <url>', 'Local Firefly III URL.', 'http://127.0.0.1:8000')
+    .option('--url <url>', 'Local Firefly III URL.', DEFAULT_DOCTOR_URL)
     .action(async function (options: DoctorLocalOptions) {
       const globals = this.optsWithGlobals();
       const report = await runLocalDoctor({
         root: options.root ?? '../firefly-iii',
-        url: options.url ?? 'http://127.0.0.1:8000',
+        url: options.url ?? DEFAULT_DOCTOR_URL,
       });
-      console.log(renderOutput(report, { format: globals.format ?? 'table' }));
+      console.log(renderOutput(report, { format: globals.format ?? 'json' }));
     });
 }
 

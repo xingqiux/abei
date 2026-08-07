@@ -42,6 +42,80 @@ function mockJsonFetch(body: unknown) {
 }
 
 describe('base commands', () => {
+  test('bare command shows a connected accounting and task overview', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      const body = url.includes('/about/user')
+        ? { data: { attributes: { email: 'user@example.com', role: 'owner' } } }
+        : url.includes('/summary/basic')
+          ? {
+              'earned-in-CNY': {
+                key: 'earned-in-CNY',
+                monetary_value: '1200',
+                currency_code: 'CNY',
+                currency_symbol: '¥',
+                currency_decimal_places: 2,
+              },
+              'spent-in-CNY': {
+                key: 'spent-in-CNY',
+                monetary_value: '-300',
+                currency_code: 'CNY',
+                currency_symbol: '¥',
+                currency_decimal_places: 2,
+              },
+              'balance-in-CNY': {
+                key: 'balance-in-CNY',
+                monetary_value: '900',
+                currency_code: 'CNY',
+                currency_symbol: '¥',
+                currency_decimal_places: 2,
+              },
+              'net-worth-in-CNY': {
+                key: 'net-worth-in-CNY',
+                monetary_value: '8000',
+                currency_code: 'CNY',
+                currency_symbol: '¥',
+                currency_decimal_places: 2,
+              },
+            }
+          : url.includes('/bill-inbox/summary')
+            ? {
+                pending_total: 2,
+                needs_code: 1,
+                unprocessed: 1,
+                failed: 0,
+                channels: [{ parsed: 3, to_store: 12 }],
+              }
+            : { last_reconciled_date: '2026-08-01', days_unreconciled: 5 };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+
+    const result = await runCli([]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(JSON.parse(result.logs.join('\n'))).toMatchObject({
+      status: 'connected',
+      connection: { profile: 'local', email: 'user@example.com', role: 'owner' },
+      finances: [{ currency: 'CNY', income: '1200', expense: '-300' }],
+      tasks: {
+        billInbox: { total: 5, review: 3, needsCode: 1, rowsReady: 12 },
+        reconciliation: { daysUnreconciled: 5, lastReconciledDate: '2026-08-01' },
+      },
+    });
+  });
+
+  test('bare command explains how to pair when no config exists', async () => {
+    const result = await runCli(['--config', join(tempDir, 'missing.json'), '--format', 'json']);
+
+    expect(JSON.parse(result.logs.join('\n'))).toMatchObject({
+      status: 'unconfigured',
+      command: 'ffc config --url <url> --token <token>',
+    });
+  });
+
   test('about calls /api/v1/about', async () => {
     const fetchMock = mockJsonFetch({ data: { version: 'test' } });
 
@@ -94,24 +168,25 @@ describe('base commands', () => {
     );
   });
 
-  test('doctor local reports missing assets and APP_URL port mismatch', async () => {
+  test('doctor local reports pgsql config, TZ mismatch, and APP_URL port mismatch', async () => {
     const rootPath = join(tempDir, 'firefly-iii');
-    await mkdir(join(rootPath, 'public', 'v1', 'js'), { recursive: true });
-    await mkdir(join(rootPath, 'storage', 'database'), { recursive: true });
+    await mkdir(join(rootPath, 'storage', 'framework', 'cache', 'data'), { recursive: true });
     await writeFile(join(rootPath, 'artisan'), '');
     await writeFile(
       join(rootPath, '.env'),
       [
-        'APP_URL=http://127.0.0.1:8000',
+        'APP_URL=http://127.0.0.1:18000',
         'TZ=Europe/Amsterdam',
-        `DB_DATABASE=${join(rootPath, 'storage', 'database', 'database.sqlite')}`,
+        'DB_CONNECTION=pgsql',
+        'DB_HOST=db',
+        'DB_PORT=5432',
+        'DB_DATABASE=firefly',
       ].join('\n'),
     );
-    await writeFile(join(rootPath, 'storage', 'database', 'database.sqlite'), '');
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response('', {
         status: 302,
-        headers: { location: 'http://127.0.0.1:8001/login' },
+        headers: { location: 'http://127.0.0.1:18001/login' },
       }),
     );
 
@@ -121,13 +196,13 @@ describe('base commands', () => {
       '--root',
       rootPath,
       '--url',
-      'http://127.0.0.1:8001',
+      'http://127.0.0.1:18001',
       '--format',
       'json',
     ]);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://127.0.0.1:8001/',
+      'http://127.0.0.1:18001/',
       expect.objectContaining({ method: 'GET' }),
     );
     const report = JSON.parse(result.logs.join('\n'));
@@ -142,45 +217,39 @@ describe('base commands', () => {
         {
           name: 'database',
           status: 'ok',
-          message: 'SQLite database exists.',
-          path: join(rootPath, 'storage', 'database', 'database.sqlite'),
+          message: 'PostgreSQL configured (db:5432/firefly).',
+          actual: 'pgsql',
         },
         {
           name: 'app-url',
           status: 'warn',
           message:
-            'APP_URL points to http://127.0.0.1:8000 but checked URL is http://127.0.0.1:8001.',
-          expected: 'http://127.0.0.1:8001',
-          actual: 'http://127.0.0.1:8000',
+            'APP_URL points to http://127.0.0.1:18000 but checked URL is http://127.0.0.1:18001.',
+          expected: 'http://127.0.0.1:18001',
+          actual: 'http://127.0.0.1:18000',
         },
         {
           name: 'timezone',
           status: 'warn',
           message:
-            'TZ is Europe/Amsterdam but local accounting imports expect Asia/Shanghai. Update firefly-iii/.env or pass --timezone when importing.',
+            'TZ is Europe/Amsterdam but local accounting imports expect Asia/Shanghai. Update monorepo .env or pass --timezone when importing.',
           expected: 'Asia/Shanghai',
           actual: 'Europe/Amsterdam',
         },
         {
-          name: 'v2-assets',
-          status: 'fail',
-          message:
-            'Missing public/build/manifest.json. Run npm install and npm run build --workspace resources/assets/v2 from firefly-iii.',
-          path: join(rootPath, 'public', 'build', 'manifest.json'),
-        },
-        {
-          name: 'v1-assets',
-          status: 'fail',
-          message:
-            'Missing public/v1/js/app.js. Run npm run production --workspace resources/assets/v1 from firefly-iii and hard refresh the browser.',
-          path: join(rootPath, 'public', 'v1', 'js', 'app.js'),
+          name: 'storage-cache',
+          status: 'ok',
+          message: 'storage/framework/cache/data exists and is writable.',
+          path: join(rootPath, 'storage', 'framework', 'cache', 'data'),
         },
         {
           name: 'http',
           status: 'ok',
-          message: 'http://127.0.0.1:8001/ responded with HTTP 302.',
+          message: 'http://127.0.0.1:18001/ responded with HTTP 302.',
         },
       ]),
     );
+    expect(report.checks.find((c: { name: string }) => c.name === 'v1-assets')).toBeUndefined();
+    expect(report.checks.find((c: { name: string }) => c.name === 'v2-assets')).toBeUndefined();
   });
 });

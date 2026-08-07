@@ -8,6 +8,8 @@ const ARTIFACT_ENDPOINT = '/api/v1/bill-artifacts';
 export interface BillTaskListFilters {
   source?: string;
   status?: string;
+  page?: number;
+  limit?: number;
 }
 
 export interface BillStatementRowFilters {
@@ -48,7 +50,12 @@ export class BillTaskService {
 
   list(filters: BillTaskListFilters = {}): Promise<unknown> {
     return this.client.request('GET', ENDPOINT, {
-      query: { source: filters.source, status: filters.status },
+      query: {
+        source: filters.source,
+        status: filters.status,
+        page: filters.page,
+        limit: filters.limit,
+      },
     });
   }
 
@@ -96,7 +103,7 @@ export class BillTaskService {
     return this.client.request('GET', rowPath(rowId));
   }
 
-  updateRow(rowId: string, values: Record<string, string>): Promise<unknown> {
+  updateRow(rowId: string, values: Record<string, unknown>): Promise<unknown> {
     return this.client.request('PATCH', rowPath(rowId), { json: values });
   }
 

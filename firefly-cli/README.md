@@ -3,7 +3,8 @@
 命令行客户端 `ffc`，对着 Firefly III 的 `/api/v1` 说话，Bearer 令牌认证。
 常用资源有专门的子命令，没覆盖到的用 `ffc api` 直接打。
 
-这是 AI 接入这条线的落脚点：`--format json` 的输出是给程序读的，后续的 MCP 层会架在它上面。
+这是 AI 接入这条线的落脚点：CLI、`ffc mcp` 和 `abaku-agent` 共用同一份受限能力注册表，
+不会让模型执行 shell 或解析命令行输出。
 
 ## 装和跑
 
@@ -23,15 +24,16 @@ ffc --help
 link 指回这个目录，所以在这里重新 build 就等于更新了全局命令。开发时另开一个终端
 挂 `npm run build:watch`。不 build 直接跑源码用 `npm run dev -- --help`。
 
-## 认证
+## 第一次配对
 
-在 Firefly 里建个人访问令牌，存成一个 profile：
+打开 Abaku 的「设置 > AI 与 CLI」，点「生成配对命令」，复制后在终端直接运行：
 
 ```bash
-ffc auth set-token --profile local --url http://127.0.0.1:18001 --token <token>
-ffc auth use local
-ffc auth status
+ffc config --url "http://127.0.0.1:5173" --token "<token>"
 ```
+
+`ffc config` 会先请求当前用户接口验证地址和令牌，成功后才保存。只看配对状态时直接运行
+`ffc config`；需要多个实例时再用 `--profile <name>` 和 `ffc auth use <name>`。
 
 配置默认落在 `~/.config/firefly-cli/config.json`，用 `FIREFLY_CLI_CONFIG` 或
 `--config <file>` 改路径。
@@ -43,14 +45,28 @@ ffc auth status
 
 ```
 --profile <name>      用哪个 profile
---format table|json|raw
+--format json|raw
 --config <file>
 --trace-id <uuid>     带上 X-Trace-Id
 --timeout <ms>
 ```
 
-`table` 是交互用的默认值；`json` 把响应格式化打印；`raw` 原样输出字符串，
-其余情况打紧凑 JSON。
+`json` 是默认值，完整保留接口返回的 `data`、`attributes`、`relationships`、`links`、
+`meta` 和扩展字段，只做缩进排版。`raw` 原样输出字符串，其余数据输出紧凑 JSON。
+CLI 不做自动表格或字段投影；数据量通过接口分页控制。
+
+## 裸运行概览
+
+配对后直接运行 `ffc`，会显示：当前实例和身份、本月收入/支出/净现金流/净资产、
+账单收件箱的待审/验证码/失败/可入账行数、近 30 天未对账状态，以及常用能力入口。
+给程序读取时用：
+
+```bash
+ffc --format json
+```
+
+没有配置文件时，裸命令只显示未配置状态和一键配对入口，不会报一屏堆栈。
+任意命令组不带子命令会显示该功能清单；更详细的参数用 `ffc <command> --help`。
 
 ## 探活
 
@@ -72,6 +88,7 @@ ffc bill-inbox settings set --enabled --provider gmail --email bills@example.com
 ffc bill-inbox sync --limit 50            # 扫邮箱建任务，顺手推进能推进的
 ffc bill-inbox process --limit 25
 ffc bill-inbox list
+ffc bill-inbox list --page 2 --limit 20
 ffc bill-inbox show <taskId>
 
 ffc bill-inbox artifacts <taskId>
@@ -179,6 +196,30 @@ ffc transactions summary --start 2026-07-01 --end 2026-07-31 --exclude-category 
 给出按交易类型的合计、日常消费口径的支出（支出减去转账和排除分类）、分类和商户
 排行、支付账户分布，以及逐日明细。`--exclude-category` 在默认排除项之外再加，可重复。
 
+## MCP 与 Abaku Agent
+
+`ffc mcp` 通过 stdio 暴露 8 个账单/消费工具，使用当前 CLI profile 的 Firefly 地址和 PAT：
+
+```bash
+ffc mcp
+```
+
+只读能力直接执行并返回完整结构化结果；`list_bill_tasks` 支持 `page` / `limit` 分页。
+`update_bill_row` 强制写成 AI 建议；正式导入和账单密码只返回 `approval_required`，
+MCP 客户端不能绕过人工确认。Agent 不会静默截断工具结果。
+
+Abaku Web 使用的可信服务：
+
+```bash
+AI_PROVIDER=openai AI_MODEL=gpt-5.4-mini OPENAI_API_KEY=... OPENAI_BASE_URL=... \
+FIREFLY_URL=http://127.0.0.1:18001 ffc agent serve
+```
+
+直连官方 OpenAI 时省略 `OPENAI_BASE_URL`；使用兼容 `/responses` 接口或 AI Gateway 时填写它。
+
+服务监听 `127.0.0.1:18003`，会话和审批写入 PostgreSQL 的 `abaku_ai` schema。
+Firefly PAT 由浏览器逐请求提供，只用于验证当前用户和执行本轮工具，不持久化。
+
 ## 平台操作
 
 管理员命令要 owner/admin 权限的令牌：
@@ -216,24 +257,21 @@ ffc api GET /api/v1/accounts --query page=1 --query limit=50
 请求带 `Accept: application/json`，配了令牌就带 `Authorization: Bearer <token>`，
 写 JSON 时带 JSON 的 `Content-Type`。
 
-## doctor local 目前不可用
+## doctor local
 
 ```bash
+ffc doctor local --root ../firefly-iii
+# 默认 URL 是 http://127.0.0.1:18001，和 monorepo 的 FIREFLY_PORT 一致
 ffc doctor local --root ../firefly-iii --url http://127.0.0.1:18001
 ```
 
-这个命令是按早期形态写的，现在三项检查已经对不上了，修好之前别信它的结论：
-
-- 查的是 SQLite 数据库文件，但现在跑的是容器里的 PostgreSQL。
-- 查 `public/build/manifest.json` 和 `public/v1/js/app.js`，但 Firefly 自带的 Web
-  前端已经整个删掉了（界面是 abaku-web），这两个产物本来就不该存在。
-- `frontpageAccounts` 偏好也是从 SQLite 里读的，同上。
-
-`APP_URL`、`TZ`、HTTP 可达性这三项还是对的，但默认 URL 写的是 8000，要手动传 18001。
+会查：Firefly 根目录（`artisan`）、`DB_CONNECTION=pgsql`、`APP_URL` / `TZ`、
+`storage/framework/cache/data` 可写、HTTP 可达。环境变量先读 monorepo 根 `.env`，
+再被 `firefly-iii/.env` 覆盖。不查已删除的 Firefly Web 前端产物，也不查 SQLite。
 
 ## 出错时
 
-- `Authentication failed`：看 `ffc auth status`、令牌值、令牌有没有过期。
+- `Authentication failed`：看 `ffc config`、令牌有没有被撤销或过期。
 - `Permission denied`：这个接口多半要 owner/admin 权限。
 - `Not found`：确认 profile 里的 base URL 和接口路径。
 - `Unsupported content type`：写 JSON 要用 `--json` 或 `--body`。

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { runLocalDoctor, type SqliteQuery } from '../../src/services/local-doctor.js';
+import { runLocalDoctor } from '../../src/services/local-doctor.js';
 
 let tempDir: string;
 
@@ -16,75 +16,97 @@ afterEach(async () => {
   await rm(tempDir, { force: true, recursive: true });
 });
 
-describe('local doctor service', () => {
-  test('warns when frontpage accounts reference only deleted accounts', async () => {
-    const rootPath = join(tempDir, 'firefly-iii');
-    const databasePath = join(rootPath, 'storage', 'database', 'database.sqlite');
-    await mkdir(join(rootPath, 'public', 'build'), { recursive: true });
-    await mkdir(join(rootPath, 'public', 'v1', 'js'), { recursive: true });
-    await mkdir(join(rootPath, 'storage', 'database'), { recursive: true });
-    await writeFile(join(rootPath, 'artisan'), '');
-    await writeFile(join(rootPath, 'public', 'build', 'manifest.json'), '{}');
-    await writeFile(join(rootPath, 'public', 'v1', 'js', 'app.js'), '');
-    await writeFile(databasePath, '');
-    await writeFile(
-      join(rootPath, '.env'),
-      [`APP_URL=http://127.0.0.1:8001`, `DB_DATABASE=${databasePath}`].join('\n'),
-    );
+async function scaffoldRoot(options?: {
+  env?: string[];
+  monorepoEnv?: string[];
+  withCache?: boolean;
+}): Promise<string> {
+  const rootPath = join(tempDir, 'firefly-iii');
+  await mkdir(rootPath, { recursive: true });
+  await writeFile(join(rootPath, 'artisan'), '');
+  if (options?.withCache) {
+    await mkdir(join(rootPath, 'storage', 'framework', 'cache', 'data'), { recursive: true });
+  }
+  if (options?.env) {
+    await writeFile(join(rootPath, '.env'), options.env.join('\n'));
+  }
+  if (options?.monorepoEnv) {
+    await writeFile(join(tempDir, '.env'), options.monorepoEnv.join('\n'));
+  }
+  return rootPath;
+}
 
-    const sqliteQuery: SqliteQuery = async (_database, sql) => {
-      if (sql.includes("from preferences where name = 'frontpageAccounts'")) {
-        return [{ data: '[1,5]' }];
-      }
-      if (sql.includes('where id in (1,5)')) {
-        return [
-          { id: 1, name: 'Old Wallet', type: 'Asset account', deleted_at: '2026-01-01 00:00:00' },
-          { id: 5, name: 'Old Bank', type: 'Asset account', deleted_at: '2026-01-01 00:00:00' },
-        ];
-      }
-      if (sql.includes("where account_types.type = 'Asset account'")) {
-        return [
-          { id: 8, name: '微信钱包' },
-          { id: 10, name: '中国银行' },
-          { id: 12, name: '招商银行' },
-        ];
-      }
-      return [];
-    };
+describe('local doctor service', () => {
+  test('passes when monorepo .env has pgsql, TZ, APP_URL and cache is writable', async () => {
+    const rootPath = await scaffoldRoot({
+      withCache: true,
+      monorepoEnv: [
+        'APP_URL=http://localhost:18001',
+        'TZ=Asia/Shanghai',
+        'DB_CONNECTION=pgsql',
+        'DB_HOST=127.0.0.1',
+        'DB_PORT=15432',
+        'DB_DATABASE=firefly',
+        'FIREFLY_PORT=18001',
+      ],
+    });
 
     const report = await runLocalDoctor({
       root: rootPath,
-      url: 'http://127.0.0.1:8001',
+      url: 'http://127.0.0.1:18001',
       fetchImpl: async () => new Response('', { status: 302 }),
-      sqliteQuery,
+    });
+
+    expect(report.ok).toBe(true);
+    expect(report.checks).toContainEqual({
+      name: 'database',
+      status: 'ok',
+      message: 'PostgreSQL configured (127.0.0.1:15432/firefly).',
+      actual: 'pgsql',
+    });
+    expect(report.checks).toContainEqual({
+      name: 'app-url',
+      status: 'ok',
+      message: 'APP_URL matches http://127.0.0.1:18001.',
+      expected: 'http://127.0.0.1:18001',
+      actual: 'http://localhost:18001',
+    });
+    expect(report.checks.find((c) => c.name === 'v1-assets')).toBeUndefined();
+    expect(report.checks.find((c) => c.name === 'v2-assets')).toBeUndefined();
+    expect(report.checks.find((c) => c.name === 'frontpage-accounts')).toBeUndefined();
+  });
+
+  test('warns when DB_CONNECTION is sqlite', async () => {
+    const rootPath = await scaffoldRoot({
+      withCache: true,
+      env: ['DB_CONNECTION=sqlite', 'TZ=Asia/Shanghai', 'APP_URL=http://127.0.0.1:18001'],
+    });
+
+    const report = await runLocalDoctor({
+      root: rootPath,
+      url: 'http://127.0.0.1:18001',
+      fetchImpl: async () => new Response('', { status: 200 }),
     });
 
     expect(report.checks).toContainEqual({
-      name: 'frontpage-accounts',
+      name: 'database',
       status: 'warn',
-      message:
-        'frontpageAccounts references no active asset accounts. Selected IDs: 1, 5. Active asset IDs: 8, 10, 12.',
-      actual: '1,5',
-      expected: '8,10,12',
+      message: 'DB_CONNECTION=sqlite. This project expects PostgreSQL (compose db / make dev).',
+      expected: 'pgsql',
+      actual: 'sqlite',
     });
+    expect(report.ok).toBe(false);
   });
 
   test('fails storage-cache check when storage/framework/cache/data is missing', async () => {
-    const rootPath = join(tempDir, 'firefly-iii');
-    const databasePath = join(rootPath, 'storage', 'database', 'database.sqlite');
-    await mkdir(join(rootPath, 'public', 'build'), { recursive: true });
-    await mkdir(join(rootPath, 'public', 'v1', 'js'), { recursive: true });
-    await mkdir(join(rootPath, 'storage', 'database'), { recursive: true });
-    await writeFile(join(rootPath, 'artisan'), '');
-    await writeFile(join(rootPath, 'public', 'build', 'manifest.json'), '{}');
-    await writeFile(join(rootPath, 'public', 'v1', 'js', 'app.js'), '');
-    await writeFile(databasePath, '');
+    const rootPath = await scaffoldRoot({
+      monorepoEnv: ['DB_CONNECTION=pgsql', 'TZ=Asia/Shanghai'],
+    });
 
     const report = await runLocalDoctor({
       root: rootPath,
-      url: 'http://127.0.0.1:8001',
+      url: 'http://127.0.0.1:18001',
       fetchImpl: async () => new Response('', { status: 302 }),
-      sqliteQuery: async () => [],
     });
 
     const check = report.checks.find((item) => item.name === 'storage-cache');
@@ -97,22 +119,15 @@ describe('local doctor service', () => {
   });
 
   test('passes storage-cache check when storage/framework/cache/data exists and is writable', async () => {
-    const rootPath = join(tempDir, 'firefly-iii');
-    const databasePath = join(rootPath, 'storage', 'database', 'database.sqlite');
-    await mkdir(join(rootPath, 'public', 'build'), { recursive: true });
-    await mkdir(join(rootPath, 'public', 'v1', 'js'), { recursive: true });
-    await mkdir(join(rootPath, 'storage', 'database'), { recursive: true });
-    await mkdir(join(rootPath, 'storage', 'framework', 'cache', 'data'), { recursive: true });
-    await writeFile(join(rootPath, 'artisan'), '');
-    await writeFile(join(rootPath, 'public', 'build', 'manifest.json'), '{}');
-    await writeFile(join(rootPath, 'public', 'v1', 'js', 'app.js'), '');
-    await writeFile(databasePath, '');
+    const rootPath = await scaffoldRoot({
+      withCache: true,
+      monorepoEnv: ['DB_CONNECTION=pgsql'],
+    });
 
     const report = await runLocalDoctor({
       root: rootPath,
-      url: 'http://127.0.0.1:8001',
+      url: 'http://127.0.0.1:18001',
       fetchImpl: async () => new Response('', { status: 302 }),
-      sqliteQuery: async () => [],
     });
 
     expect(report.checks).toContainEqual({
@@ -120,6 +135,36 @@ describe('local doctor service', () => {
       status: 'ok',
       message: 'storage/framework/cache/data exists and is writable.',
       path: join(rootPath, 'storage', 'framework', 'cache', 'data'),
+    });
+  });
+
+  test('firefly-iii .env overrides monorepo parent .env', async () => {
+    const rootPath = await scaffoldRoot({
+      withCache: true,
+      monorepoEnv: ['TZ=Europe/Amsterdam', 'DB_CONNECTION=sqlite'],
+      env: [
+        'TZ=Asia/Shanghai',
+        'DB_CONNECTION=pgsql',
+        'DB_HOST=db',
+        'DB_PORT=5432',
+        'DB_DATABASE=firefly',
+        'APP_URL=http://127.0.0.1:18001',
+      ],
+    });
+
+    const report = await runLocalDoctor({
+      root: rootPath,
+      url: 'http://127.0.0.1:18001',
+      fetchImpl: async () => new Response('', { status: 200 }),
+    });
+
+    expect(report.checks.find((c) => c.name === 'timezone')).toMatchObject({
+      status: 'ok',
+      actual: 'Asia/Shanghai',
+    });
+    expect(report.checks.find((c) => c.name === 'database')).toMatchObject({
+      status: 'ok',
+      actual: 'pgsql',
     });
   });
 });

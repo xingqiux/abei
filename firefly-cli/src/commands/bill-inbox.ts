@@ -15,6 +15,8 @@ interface SecretSubmitOptions {
 interface BillTaskListOptions {
   source?: string;
   status?: string;
+  page?: string;
+  limit?: string;
 }
 
 interface BillStatementRowListOptions {
@@ -107,12 +109,16 @@ export function registerBillInboxCommands(program: Command): void {
     .description('List bill inbox tasks.')
     .option('--source <source>', 'Filter tasks by source, for example alipay.')
     .option('--status <status>', 'Filter tasks by status, for example parsed.')
+    .option('--page <page>', 'Result page, starting at 1.')
+    .option('--limit <count>', 'Maximum tasks per page.')
     .action(async function (options: BillTaskListOptions) {
       const context = await createCommandContext(this);
       const service = new BillTaskService(context.client);
       const tasks = await service.list({
         source: blankToUndefined(options.source),
         status: blankToUndefined(options.status),
+        page: parseOptionalPositiveInteger(options.page, '--page'),
+        limit: parseOptionalPositiveInteger(options.limit, '--limit'),
       });
       console.log(renderOutput(tasks, { format: context.format }));
     });

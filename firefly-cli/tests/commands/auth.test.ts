@@ -101,7 +101,7 @@ describe('auth commands', () => {
     await runCli(['auth', 'status']);
 
     expect(log).toHaveBeenLastCalledWith(
-      'Active profile: local\nBase URL: http://localhost\nToken: **********************wxyz',
+      'Active profile: local\nBase URL: http://localhost\nToken: ********wxyz',
     );
   });
 
@@ -128,7 +128,7 @@ describe('auth commands', () => {
     const config = JSON.parse(await readFile(explicitPath, 'utf8'));
     expect(config.activeProfile).toBe('local');
     expect(log).toHaveBeenLastCalledWith(
-      'Active profile: local\nBase URL: http://localhost\nToken: **********oken',
+      'Active profile: local\nBase URL: http://localhost\nToken: ********oken',
     );
   });
 });

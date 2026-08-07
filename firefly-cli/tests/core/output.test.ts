@@ -3,31 +3,44 @@ import { describe, expect, test } from 'vitest';
 import { renderOutput } from '../../src/core/output.js';
 
 describe('renderOutput', () => {
-  test('renders JSON output', () => {
-    expect(renderOutput({ ok: true }, { format: 'json' })).toBe('{\n  "ok": true\n}');
+  test('preserves complete nested API responses as formatted JSON', () => {
+    const response = {
+      data: [
+        {
+          type: 'bill-tasks',
+          id: '1',
+          attributes: { source: 'cmb', metadata: { sender: 'bank@example.com' } },
+          relationships: { mail_message: { data: { type: 'bill-mail-messages', id: '9' } } },
+        },
+      ],
+      included: [{ type: 'bill-mail-messages', id: '9', attributes: { subject: '账单' } }],
+      links: { next: '/api/v1/bill-tasks?page=2' },
+      meta: { pagination: { total: 2 } },
+    };
+
+    const output = renderOutput(response, { format: 'json' });
+
+    expect(JSON.parse(output)).toEqual(response);
+    expect(output).toContain('\n  "data"');
+    expect(output).not.toContain('\u001b[');
   });
 
   test('renders raw strings', () => {
     expect(renderOutput('plain', { format: 'raw' })).toBe('plain');
   });
 
-  test('renders empty arrays clearly', () => {
-    expect(renderOutput([], { format: 'table' })).toBe('(empty)');
+  test('renders raw objects as lossless compact JSON', () => {
+    const value = { data: [{ id: '1', attributes: { active: false } }], meta: { count: 1 } };
+
+    const output = renderOutput(value, { format: 'raw' });
+
+    expect(output).toBe(JSON.stringify(value));
+    expect(JSON.parse(output)).toEqual(value);
   });
 
-  test('renders Firefly collection data as a table', () => {
-    const output = renderOutput(
-      {
-        data: [
-          { id: '1', attributes: { name: 'Cash', active: true } },
-          { id: '2', attributes: { name: 'Bank', active: false } },
-        ],
-      },
-      { format: 'table', columns: ['id', 'name', 'active'] },
+  test('rejects values that JSON cannot represent', () => {
+    expect(() => renderOutput(undefined, { format: 'json' })).toThrow(
+      'Output cannot be represented as JSON.',
     );
-
-    expect(output).toContain('Cash');
-    expect(output).toContain('Bank');
-    expect(output).toContain('active');
   });
 });

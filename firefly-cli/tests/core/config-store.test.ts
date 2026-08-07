@@ -86,16 +86,11 @@ describe('ConfigStore', () => {
     });
   });
 
-  test('recovers from malformed config by returning an empty config', async () => {
+  test('reports malformed config instead of silently overwriting it', async () => {
     await writeFile(configPath, '{bad json', 'utf8');
     const store = new ConfigStore(configPath);
 
-    await expect(store.load()).resolves.toEqual({
-      activeProfile: undefined,
-      defaultFormat: 'table',
-      timeout: 30000,
-      profiles: {},
-    });
+    await expect(store.load()).rejects.toThrow('Could not read Firefly CLI config');
   });
 
   test('writes config as JSON', async () => {
@@ -118,7 +113,7 @@ describe('ConfigStore', () => {
 
 describe('redactToken', () => {
   test('hides most token characters', () => {
-    expect(redactToken('abcdefghijklmnopqrstuvwxyz')).toBe('**********************wxyz');
+    expect(redactToken('abcdefghijklmnopqrstuvwxyz')).toBe('********wxyz');
   });
 
   test('handles short tokens', () => {

@@ -48,6 +48,36 @@ function requestBody(call: unknown[]): unknown {
 }
 
 describe('platform commands', () => {
+  test('config verifies a one-line pairing command before saving it', async () => {
+    const pairedPath = join(tempDir, 'paired.json');
+    const fetchMock = mockJsonFetch({ data: { attributes: { email: 'user@example.com' } } });
+
+    const result = await runCli([
+      '--config',
+      pairedPath,
+      'config',
+      '--url',
+      'https://abaku.example.test/',
+      '--token',
+      'new-token',
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://abaku.example.test/api/v1/about/user',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({ Authorization: 'Bearer new-token' }),
+      }),
+    );
+    expect(JSON.parse(await readFile(pairedPath, 'utf8'))).toMatchObject({
+      activeProfile: 'default',
+      profiles: {
+        default: { baseUrl: 'https://abaku.example.test', token: 'new-token' },
+      },
+    });
+    expect(result.logs.join('\n')).toContain('配对成功');
+  });
+
   test('admin users list and get use admin user endpoints', async () => {
     const fetchMock = mockJsonFetch({ data: [] });
 

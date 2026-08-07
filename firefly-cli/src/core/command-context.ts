@@ -1,6 +1,7 @@
-import { ConfigStore, type OutputFormat } from './config-store.js';
+import { ConfigStore } from './config-store.js';
 import { FireflyConfigError } from './errors.js';
 import { FireflyHttpClient } from './http-client.js';
+import type { OutputFormat } from './output.js';
 
 export interface GlobalOptions {
   profile?: string;
@@ -34,6 +35,6 @@ export async function createCommandContext(command: {
       traceId: options.traceId,
       timeout: options.timeout ? Number(options.timeout) : undefined,
     }),
-    format: options.format ?? 'table',
+    format: options.format ?? 'json',
   };
 }

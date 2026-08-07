@@ -48,10 +48,11 @@ function requestBody(call: unknown[]): unknown {
 }
 
 describe('bill inbox commands', () => {
-  test('lists bill tasks from the Firefly API', async () => {
-    const fetchMock = mockJsonFetch({
+  test('lists complete bill tasks as JSON and forwards pagination', async () => {
+    const response = {
       data: [
         {
+          type: 'bill-tasks',
           id: '1',
           attributes: {
             source: 'cmb',
@@ -59,10 +60,18 @@ describe('bill inbox commands', () => {
             status: 'needs_secret',
             received_at: '2026-06-10T09:30:00+08:00',
             summary: '招商银行信用卡电子账单',
+            metadata: { sender: 'bank@example.com' },
+            row_counts: { total: 3, pending: 2, imported: 1, duplicate: 0, conflict: 0 },
+          },
+          relationships: {
+            mail_message: { data: { id: '9', type: 'bill-mail-messages' } },
           },
         },
       ],
-    });
+      links: { next: 'http://127.0.0.1:8000/api/v1/bill-tasks?page=3' },
+      meta: { pagination: { total: 51, current_page: 2, total_pages: 3 } },
+    };
+    const fetchMock = mockJsonFetch(response);
 
     const result = await runCli([
       'bill-inbox',
@@ -71,28 +80,20 @@ describe('bill inbox commands', () => {
       'alipay',
       '--status',
       'parsed',
-      '--format',
-      'json',
+      '--page',
+      '2',
+      '--limit',
+      '20',
     ]);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://127.0.0.1:8000/api/v1/bill-tasks?source=alipay&status=parsed',
+      'http://127.0.0.1:8000/api/v1/bill-tasks?source=alipay&status=parsed&page=2&limit=20',
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({ Authorization: 'Bearer secret-token' }),
       }),
     );
-    expect(JSON.parse(result.logs.join('\n'))).toEqual({
-      data: [
-        {
-          id: '1',
-          attributes: expect.objectContaining({
-            source: 'cmb',
-            status: 'needs_secret',
-          }),
-        },
-      ],
-    });
+    expect(JSON.parse(result.logs.join('\n'))).toEqual(response);
   });
 
   test('shows a bill task and related details from the Firefly API', async () => {
