@@ -12,6 +12,7 @@ firefly-iii/storage/oauth-public.key
 firefly-iii/storage/database/*.sqlite
 firefly-iii/storage/database/*.sqlite-*
 firefly-iii/storage/logs/*.log
+firefly-iii/.phpunit.cache/
 firefly-cli/dist/
 firefly-cli/coverage/
 granary-server/target/
