@@ -2,13 +2,13 @@ import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { TOKEN_STORAGE_KEY } from '../../api/client'
 import { TokensPanel } from './TokensPanel'
 
 const mocks = vi.hoisted(() => ({
   fireflyFetch: vi.fn(),
   fireflyDelete: vi.fn(),
   fireflyPost: vi.fn(),
+  copy: vi.fn(),
   toast: vi.fn(),
 }))
 
@@ -31,11 +31,10 @@ vi.mock('../../components/abaku/ErrorState', () => ({
   ),
 }))
 
-const token = (over: Partial<{ id: string; name: string; created_at: string | null; last_used: string | null; current: boolean }> = {}) => ({
+const token = (over: Partial<{ id: string; name: string; created_at: string | null; current: boolean }> = {}) => ({
   id: '1',
   name: 'CLI 脚本',
   created_at: '2026-08-01T10:00:00+08:00',
-  last_used: null,
   expires_at: null,
   current: false,
   ...over,
@@ -62,17 +61,22 @@ beforeEach(() => {
   mocks.fireflyFetch.mockReset().mockResolvedValue({ data: [token(), SESSION_TOKEN] })
   mocks.fireflyDelete.mockReset().mockResolvedValue(undefined)
   mocks.fireflyPost.mockReset()
+  mocks.copy.mockReset().mockResolvedValue(undefined)
   mocks.toast.mockReset()
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText: mocks.copy },
+  })
 })
 
 describe('TokensPanel 列表', () => {
-  it('从 GET /api/v1/tokens 列出每个令牌的名字与使用时间', async () => {
+  it('从 GET /api/v1/tokens 列出每个令牌的名字与签发时间', async () => {
     renderPanel()
 
     expect(await screen.findByText('CLI 脚本')).toBeInTheDocument()
     expect(mocks.fireflyFetch).toHaveBeenCalledWith('/api/v1/tokens')
     expect(screen.getByText('当前浏览器')).toBeInTheDocument()
-    expect(rowOf('CLI 脚本')).toHaveTextContent('最后使用 —')
+    expect(rowOf('CLI 脚本')).toHaveTextContent('签发于')
   })
 
   it('当前会话那条打「当前会话」标记', async () => {
@@ -160,30 +164,32 @@ describe('TokensPanel 保护当前会话', () => {
 })
 
 describe('TokensPanel 生成', () => {
-  it('生成走 POST /api/v1/tokens，明文只在弹层里出现一次', async () => {
+  it('生成走 POST /api/v1/tokens，并给出完整的 ffc 配对命令', async () => {
     mocks.fireflyPost.mockResolvedValue({ data: { access_token: 'pat-abc-123' } })
     renderPanel()
     await screen.findByText('CLI 脚本')
 
-    fireEvent.click(screen.getByRole('button', { name: '生成新令牌' }))
+    fireEvent.click(screen.getByRole('button', { name: '生成配对命令' }))
 
-    const dialog = await screen.findByRole('dialog', { name: '新令牌已生成' })
-    expect(mocks.fireflyPost).toHaveBeenCalledWith('/api/v1/tokens', {})
-    expect(within(dialog).getByText('pat-abc-123')).toBeInTheDocument()
+    const dialog = await screen.findByRole('dialog', { name: '连接 ffc' })
+    expect(mocks.fireflyPost).toHaveBeenCalledWith('/api/v1/tokens', { name: 'ffc CLI' })
+    expect(within(dialog).getByText(/ffc auth set-token --profile abaku --url .* --token 'pat-abc-123'/)).toBeInTheDocument()
   })
 
-  it('点「使用此令牌」把新令牌存起来并关掉弹层', async () => {
+  it('一键复制完整配对命令，不会切换当前浏览器令牌', async () => {
     mocks.fireflyPost.mockResolvedValue({ data: { access_token: 'pat-abc-123' } })
     renderPanel()
     await screen.findByText('CLI 脚本')
 
-    fireEvent.click(screen.getByRole('button', { name: '生成新令牌' }))
-    const dialog = await screen.findByRole('dialog', { name: '新令牌已生成' })
-    fireEvent.click(within(dialog).getByRole('button', { name: '使用此令牌' }))
+    fireEvent.click(screen.getByRole('button', { name: '生成配对命令' }))
+    const dialog = await screen.findByRole('dialog', { name: '连接 ffc' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '复制配对命令' }))
 
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: '新令牌已生成' })).not.toBeInTheDocument())
-    expect(sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBe('pat-abc-123')
-    expect(mocks.toast).toHaveBeenCalledWith({ kind: 'success', message: '已切换到新令牌' })
+    await waitFor(() => expect(mocks.copy).toHaveBeenCalledWith(
+      expect.stringMatching(/^ffc auth set-token --profile abaku --url '.+' --token 'pat-abc-123'$/),
+    ))
+    expect(within(dialog).getByRole('button', { name: '已复制' })).toBeInTheDocument()
+    expect(mocks.toast).toHaveBeenCalledWith({ kind: 'success', message: '配对命令已复制' })
   })
 
   it('生成失败只报错，不弹明文弹层', async () => {
@@ -191,9 +197,9 @@ describe('TokensPanel 生成', () => {
     renderPanel()
     await screen.findByText('CLI 脚本')
 
-    fireEvent.click(screen.getByRole('button', { name: '生成新令牌' }))
+    fireEvent.click(screen.getByRole('button', { name: '生成配对命令' }))
 
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith({ kind: 'error', message: '没有权限' }))
-    expect(screen.queryByRole('dialog', { name: '新令牌已生成' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '连接 ffc' })).not.toBeInTheDocument()
   })
 })

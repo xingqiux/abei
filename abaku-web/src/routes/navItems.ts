@@ -1,27 +1,28 @@
 import type { ComponentType } from 'react'
 import {
   ArrowsRightLeftIcon,
-  BanknotesIcon,
   CalendarDaysIcon,
   ChartBarIcon,
   Cog6ToothIcon,
   InboxIcon,
+  SparklesIcon,
   SunIcon,
+  TagIcon,
   WalletIcon,
 } from '@heroicons/react/24/outline'
 
 /**
  * 应用内可直达的全部导航路径（与 router.tsx 的 routeTree 保持一致）。
  *
- * 注意这里是**全部**路径，不只是侧栏那六项：`/bill-inbox` 和 `/reconciliation`
- * 虽然不占桌面侧栏，但移动端底部 tab 和「我的」sheet 都会链过去，所以类型必须覆盖。
- * 想要「只有侧栏六项」的那个集合，用 NAV_ITEMS。
+ * 注意这里是**全部**路径：`/reconciliation` 虽然不占桌面侧栏，移动端「我的」
+ * sheet 仍会链过去，所以类型必须覆盖。
  */
 export type NavPath =
   | '/'
   | '/transactions'
+  | '/assistant'
   | '/accounts'
-  | '/budgets'
+  | '/reference-data'
   | '/analysis'
   | '/settings'
   | '/bill-inbox'
@@ -33,19 +34,20 @@ export interface NavItemDef {
   icon: ComponentType<{ className?: string }>
 }
 
-/** 侧栏一级导航：今天 / 交易 / 账户 / 预算 / 分析 / 设置。 */
+/** 侧栏一级导航。 */
 export const NAV_ITEMS: NavItemDef[] = [
   { label: '今天', to: '/', icon: SunIcon },
+  { label: '财务助手', to: '/assistant', icon: SparklesIcon },
   { label: '交易', to: '/transactions', icon: ArrowsRightLeftIcon },
+  { label: '账单收件箱', to: '/bill-inbox', icon: InboxIcon },
   { label: '账户', to: '/accounts', icon: WalletIcon },
-  { label: '预算', to: '/budgets', icon: BanknotesIcon },
+  { label: '分类与标签', to: '/reference-data', icon: TagIcon },
   { label: '分析', to: '/analysis', icon: ChartBarIcon },
   { label: '设置', to: '/settings', icon: Cog6ToothIcon },
 ]
 
-/** Cmd+K「跳转」区可直达的全部路由（含收件箱/对账这两个二级页）。 */
+/** Cmd+K「跳转」区可直达的全部路由。 */
 export const ALL_ROUTES: NavItemDef[] = [
   ...NAV_ITEMS,
-  { label: '账单收件箱', to: '/bill-inbox', icon: InboxIcon },
   { label: '按天对账', to: '/reconciliation', icon: CalendarDaysIcon },
 ]

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { BanknotesIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
+import { BanknotesIcon, ChevronLeftIcon, ChevronRightIcon, MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { usePageRange } from '../../store/dateRangeStore'
 import {
   useAssetAccounts,
@@ -155,8 +155,10 @@ export function TransactionsPage() {
   const budgetsQuery = useBudgets(range)
 
   const loaded = useMemo(() => flattenTransactionGroups(query.data?.data ?? []), [query.data])
-  const totalPages = query.data?.meta?.pagination?.total_pages ?? 1
-  const canLoadMore = search.page < totalPages
+  const pagination = query.data?.meta?.pagination
+  const totalPages = pagination?.total_pages ?? 1
+  const currentPage = pagination?.current_page ?? search.page
+  const total = pagination?.total ?? query.data?.data.length ?? 0
   const pendingDeleteSplits = pendingDelete
     ? loaded.filter((row) => row.groupId === pendingDelete.groupId).map((row) => row.tx)
     : []
@@ -235,11 +237,37 @@ export function TransactionsPage() {
   }
 
   const hasFilters = !!(search.q || search.acc.length || search.cat.length || search.tag.length || search.min != null || search.max != null || search.type)
+  const activeFilters: { key: string; label: string; clear: Record<string, unknown> }[] = []
+  if (search.q) activeFilters.push({ key: 'q', label: `关键词：${search.q}`, clear: { q: undefined, page: 1 } })
+  if (search.acc.length > 0) {
+    const names = search.acc.map((id) => accountsQuery.data?.find((account) => account.id === id)?.name ?? id)
+    activeFilters.push({ key: 'acc', label: `账户：${names.join('、')}`, clear: { acc: undefined, page: 1 } })
+  }
+  if (search.cat.length > 0) activeFilters.push({ key: 'cat', label: `分类：${search.cat.join('、')}`, clear: { cat: undefined, page: 1 } })
+  if (search.tag.length > 0) activeFilters.push({ key: 'tag', label: `标签：${search.tag.join('、')}`, clear: { tag: undefined, page: 1 } })
+  if (search.min != null) activeFilters.push({ key: 'min', label: `金额 ≥ ${search.min}`, clear: { min: undefined, page: 1 } })
+  if (search.max != null) activeFilters.push({ key: 'max', label: `金额 ≤ ${search.max}`, clear: { max: undefined, page: 1 } })
+  if (search.type) {
+    activeFilters.push({
+      key: 'type',
+      label: `类型：${TABS.find((tab) => tab.value === search.type)?.label ?? search.type}`,
+      clear: { type: undefined, page: 1 },
+    })
+  }
   const batchLabel =
     batchOpen === 'category' ? '改分类' : batchOpen === 'budget' ? '改预算' : batchOpen === 'tags' ? '加标签' : ''
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <h1 className="text-lg font-semibold text-[var(--text-primary)]">交易</h1>
+        {!query.isLoading && (
+          <span className="text-xs text-[var(--text-secondary)]">
+            共 <span className="font-mono tabular-nums text-[var(--text-primary)]">{total}</span> 笔
+          </span>
+        )}
+      </div>
+
       <Tabs
         aria-label="交易类型"
         tabs={TABS.map((tab) => ({ value: tab.value, label: tab.label }))}
@@ -258,7 +286,7 @@ export function TransactionsPage() {
             onChange={(e) => patchSearch({ q: e.target.value || undefined, page: 1 })}
             placeholder="关键词"
             aria-label="关键词"
-            className={`${CONTROL_COMPACT} pl-7`}
+            className={`${CONTROL_COMPACT} w-full pl-7`}
           />
         </div>
         <select
@@ -317,6 +345,24 @@ export function TransactionsPage() {
         )}
       </Card>
 
+      {activeFilters.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5" aria-label="当前筛选">
+          {activeFilters.map((filter) => (
+            <button
+              key={filter.key}
+              type="button"
+              aria-label={`移除筛选：${filter.label}`}
+              title={`移除筛选：${filter.label}`}
+              onClick={() => patchSearch(filter.clear)}
+              className="inline-flex max-w-full items-center gap-1 rounded-md bg-[var(--surface-selected)] px-2 py-1 text-xs text-[var(--text-primary)] transition-colors hover:bg-[var(--surface-hover)]"
+            >
+              <span className="truncate">{filter.label}</span>
+              <XMarkIcon aria-hidden className="size-3.5 shrink-0 text-[var(--text-secondary)]" />
+            </button>
+          ))}
+        </div>
+      )}
+
       {selected.size > 0 && (
         // 批量操作条：说清「已选几笔」再给动作，取消选择推到最右，
         // 免得跟三个修改动作挤在一起被误点
@@ -370,15 +416,28 @@ export function TransactionsPage() {
           />
         )}
 
-        {canLoadMore && (
-          <div className="flex justify-center p-3">
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-3 pt-3">
             <Button
               variant="secondary"
-              size="md"
-              disabled={query.isFetching}
-              onClick={() => patchSearch({ page: search.page + 1 })}
+              size="sm"
+              disabled={query.isFetching || currentPage <= 1}
+              onClick={() => patchSearch({ page: currentPage - 1 })}
             >
-              {query.isFetching ? '加载中…' : '加载更多'}
+              <ChevronLeftIcon aria-hidden className="size-4" />
+              上一页
+            </Button>
+            <span className="font-mono text-xs tabular-nums text-[var(--text-secondary)]">
+              {currentPage} / {totalPages}
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={query.isFetching || currentPage >= totalPages}
+              onClick={() => patchSearch({ page: currentPage + 1 })}
+            >
+              下一页
+              <ChevronRightIcon aria-hidden className="size-4" />
             </Button>
           </div>
         )}

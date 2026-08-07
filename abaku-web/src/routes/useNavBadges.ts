@@ -1,6 +1,4 @@
-import { useBillInboxSummary, useReconciliationSummary, useRecurrences } from '../api/queries'
-import { monthRange } from '../lib/format'
-import { nextOccurrence } from '../lib/recurrence'
+import { useTodoCounts } from '../hooks/useTodoCounts'
 
 export interface NavBadge {
   text: string
@@ -14,32 +12,20 @@ export interface NavBadge {
  * 「今天」徽标 = 收件箱 + 对账 + 本月待付订阅的总待办数。
  */
 export function useNavBadges(): Partial<Record<string, NavBadge>> {
-  const inbox = useBillInboxSummary()
-  const recon = useReconciliationSummary()
-  const recurrencesQuery = useRecurrences()
-
-  const inboxCount = inbox.data
-    ? inbox.data.pending_total + inbox.data.channels.reduce((acc, c) => acc + c.parsed, 0)
-    : 0
-  const inboxKind: 'warn' | 'danger' =
-    inbox.data && (inbox.data.failed > 0 || inbox.data.needs_code > 0) ? 'danger' : 'warn'
-  const daysUnreconciled = recon.data?.days_unreconciled ?? 0
-  const thisMonthEnd = new Date(`${monthRange(new Date()).end}T23:59:59`)
-  const dueSubs = (recurrencesQuery.data?.data ?? []).filter((r) => {
-    if (r.attributes.active === false) return false
-    const next = nextOccurrence(r)
-    return next !== null && next <= thisMonthEnd
-  }).length
+  const todos = useTodoCounts()
 
   const badges: Partial<Record<string, NavBadge>> = {}
-  const todayTotal = inboxCount + daysUnreconciled + dueSubs
-  if (todayTotal > 0) {
+  if (todos.total > 0) {
     badges['/'] = {
-      text: String(todayTotal),
-      kind: inbox.data && (inbox.data.failed > 0 || inbox.data.needs_code > 0) ? 'danger' : 'warn',
+      text: String(todos.total),
+      kind: todos.hasDanger ? 'danger' : 'warn',
     }
   }
-  if (inboxCount > 0) badges['/bill-inbox'] = { text: String(inboxCount), kind: inboxKind }
-  if (daysUnreconciled > 0) badges['/reconciliation'] = { text: String(daysUnreconciled), kind: 'danger' }
+  if (todos.inboxTotal > 0) {
+    badges['/bill-inbox'] = { text: String(todos.inboxTotal), kind: todos.hasDanger ? 'danger' : 'warn' }
+  }
+  if (todos.daysUnreconciled > 0) {
+    badges['/reconciliation'] = { text: String(todos.daysUnreconciled), kind: 'danger' }
+  }
   return badges
 }

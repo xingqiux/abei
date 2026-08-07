@@ -1,9 +1,10 @@
 # Lottie 素材
 
-两个自定义 Lottie JSON，本地托管，禁止运行时外链：
+运行时使用的自定义 Lottie JSON 本地托管，禁止外链：
 
-- `empty-wallet.json` —— 空钱包插画，用于空状态（账户列表、订阅列表）。3s，循环播。
 - `celebrate.json` —— 里程碑庆祝动效（对账清零），一次性播放。5s，播完回调。
+
+`empty-wallet.json` 只保留作历史素材，空状态现在统一使用低干扰的静态图标。
 
 `raw/` 放的是改色前的原始文件，只作存档，代码不引用。来源与改色说明见 `raw/sources.txt`：
 两个素材都是用户下载后**程序化改色成 Abaku 设计 token** 的，颜色由素材自带，播放时不做覆盖。
@@ -17,13 +18,7 @@
 import { lottieArt } from '../../assets/lottie'
 import { LottieArt } from '../../components/abaku/LottieArt'
 
-<LottieArt src={lottieArt['empty-wallet']} className="size-28" fallback={<SomeIcon />} />
-```
-
-`EmptyState` 已经包了一层，空状态直接给 `art` 就行：
-
-```tsx
-<EmptyState art="empty-wallet" message="还没有账户" />
+<LottieArt src={lottieArt.celebrate} className="size-28" fallback={<SomeIcon />} />
 ```
 
 一次性播放的场景给 `loop={false}` 加 `onComplete`，参考 `CelebrateOverlay.tsx`。
@@ -37,7 +32,6 @@ import { LottieArt } from '../../components/abaku/LottieArt'
 - **用的是 `lottie-web/build/player/lottie_light`，不是完整版**。完整版靠直接 `eval` 跑 Lottie
   表达式，而 `nginx.conf` 的 CSP 是 `script-src 'self'`（没有 `unsafe-eval`），那句 eval 在生产
   会抛错把动画搞挂。light 版不带表达式引擎，只带 svg renderer，顺带小一半。
-  代价：`empty-wallet.json` 里那一条回弹表达式不生效，退回自己的关键帧，观感差别很小。
   以后要加带表达式的素材，先确认表达式对观感是不是必需，别直接换回完整版。
 - **容器尺寸必须由 `className` 给死**，lottie 渲染出的 svg 是容器的 100%，容器没尺寸就什么都看不见。
 - **`prefers-reduced-motion` 下完全不播，连播放器 chunk 都不下载**，改渲染 `fallback`。

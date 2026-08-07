@@ -33,9 +33,11 @@ export function AppShell() {
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
         <main className="min-w-0 flex-1 overflow-y-auto bg-[var(--surface-0)] px-4 py-6 pb-28 md:px-8 md:pb-8 ">
-          <PageTransition key={pathname}>
-            <Outlet />
-          </PageTransition>
+          <div className="mx-auto w-full max-w-[1440px]">
+            <PageTransition key={pathname}>
+              <Outlet />
+            </PageTransition>
+          </div>
         </main>
       </div>
       <ToastContainer />

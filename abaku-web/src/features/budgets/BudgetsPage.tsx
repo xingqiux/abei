@@ -1,24 +1,19 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { PlusIcon } from '@heroicons/react/20/solid'
-import { useSearch, useNavigate } from '@tanstack/react-router'
 import { useCreateBudget, useCreateBudgetWithLimit, useCurrencies } from '../../api/queries'
 import { useBudgetsData } from './useBudgetsData'
 import { EmptyState } from '../../components/abaku/EmptyState'
 import { ErrorState } from '../../components/abaku/ErrorState'
 import { Skeleton } from '../../components/abaku/Skeleton'
 import { Button } from '../../components/ui/Button'
-import { Card } from '../../components/ui/Card'
 import { Field, Input, Select } from '../../components/ui/Field'
-import { Tabs } from '../../components/ui/Tabs'
 import { useStaggerIn } from '../../motion/useStaggerIn'
 import { usePageRange } from '../../store/dateRangeStore'
 import { BudgetRow } from './BudgetRow'
-import { BUDGETS_TAB_CONFIG, type BudgetsTab } from './budgetsHelpers'
 import { showToast } from '../../store/toastStore'
 import { FireflyApiError } from '../../api/client'
 import { Modal } from '../../components/abaku/Modal'
 import { isPositiveDecimal, normalizeDecimalString } from '../../lib/decimal'
-import { SubscriptionsTab } from './SubscriptionsTab'
 
 function ListSkeleton({ rows = 6 }: { rows?: number }) {
   return (
@@ -30,7 +25,7 @@ function ListSkeleton({ rows = 6 }: { rows?: number }) {
   )
 }
 
-function BudgetsTabContent() {
+export function BudgetsTabContent() {
   const range = usePageRange('budgets')
   const { budgetsQuery, limitsByBudget, limitStateByBudget } = useBudgetsData(range)
   const budgets = budgetsQuery.data?.data ?? []
@@ -166,36 +161,5 @@ function BudgetsTabContent() {
         </div>
       </Modal>
     </>
-  )
-}
-
-export function BudgetsPage() {
-  const search = useSearch({ from: '/budgets' })
-  const navigate = useNavigate({ from: '/budgets' })
-  const [activeTab, setActiveTab] = useState<BudgetsTab>(search.tab === 'subscriptions' ? 'subscriptions' : 'budgets')
-
-  const content = useMemo(() => {
-    if (activeTab === 'budgets') return <BudgetsTabContent />
-    return <SubscriptionsTab />
-  }, [activeTab])
-
-  function changeTab(tab: BudgetsTab) {
-    setActiveTab(tab)
-    void navigate({ search: { tab: tab === 'budgets' ? undefined : tab }, replace: true })
-  }
-
-  return (
-    <div className="flex flex-col gap-5">
-      <h1 className="text-lg font-semibold text-[var(--text-primary)]">预算</h1>
-
-      <Tabs
-        aria-label="预算视图"
-        tabs={BUDGETS_TAB_CONFIG.map((tab) => ({ value: tab.key, label: tab.label }))}
-        value={activeTab}
-        onChange={changeTab}
-      />
-
-      <Card padded={false} className="p-2">{content}</Card>
-    </div>
   )
 }

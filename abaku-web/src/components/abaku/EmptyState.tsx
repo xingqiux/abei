@@ -1,27 +1,25 @@
 import type { ReactNode } from 'react'
-import { lottieArt, type LottieArtName } from '../../assets/lottie'
 import { AbakuMark } from './AbakuMark'
-import { LottieArt } from './LottieArt'
 import { LottieIcon, type LottieIconKind } from './LottieIcon'
 import { Button } from '../ui/Button'
 
 export function EmptyState({
   icon = <AbakuMark className="size-8" />,
   statusIcon,
-  art,
   message,
   actionLabel,
   onAction,
+  compact = false,
 }: {
   /** 静态占位图，任意节点（emoji、heroicon、自绘 svg）。 */
   icon?: ReactNode
   /** 语义状态图标（加载中/收件箱等），走 `LottieIcon`。 */
   statusIcon?: LottieIconKind
-  /** Lottie 插画，比 icon/statusIcon 优先。不播时退回 `icon`。 */
-  art?: LottieArtName
   message: string
   actionLabel?: string
   onAction?: () => void
+  /** 列表或图表内部的紧凑空态。 */
+  compact?: boolean
 }) {
   const staticIcon = (
     <div className="flex h-full items-center justify-center text-[32px] text-[var(--text-tertiary)]" aria-hidden>
@@ -31,11 +29,9 @@ export function EmptyState({
 
   return (
     <div
-      className="relative flex flex-col items-center justify-center gap-3 py-16 text-center"
+      className={`relative flex flex-col items-center justify-center text-center ${compact ? 'gap-2 py-6' : 'gap-3 py-16'}`}
     >
-      {art ? (
-        <LottieArt src={lottieArt[art]} className="size-28" fallback={staticIcon} />
-      ) : statusIcon ? (
+      {statusIcon ? (
         <LottieIcon kind={statusIcon} size={40} />
       ) : (
         <div className="h-10">{staticIcon}</div>

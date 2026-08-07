@@ -12,7 +12,7 @@ export function Topbar() {
   return (
     <header className="flex h-16 shrink-0 items-center gap-3 border-b border-[var(--border-subtle)] bg-[var(--surface-1)] px-4 md:px-6  ">
       {/* 移动端：搜索 + 居中日期范围选择器 */}
-      <div className="flex w-full items-center md:hidden">
+      <div className="mx-auto flex w-full max-w-[1440px] items-center md:hidden">
         <IconButton label="搜索" onClick={openCommandPalette}>
           <MagnifyingGlassIcon aria-hidden className="size-5" />
         </IconButton>
@@ -23,7 +23,7 @@ export function Topbar() {
       </div>
 
       {/* 桌面版：搜索框 + 日期范围选择器 + 「+ 记一笔」 */}
-      <div className="hidden w-full items-center gap-4 md:flex">
+      <div className="mx-auto hidden w-full max-w-[1440px] items-center gap-4 md:flex">
         <div className="flex-1">
           <button
             type="button"

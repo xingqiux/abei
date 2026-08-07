@@ -15,12 +15,12 @@ import type {
  * 项目里原先是一份手写的 `inputStyle` 内联对象，没有聚焦态也没有错误态。
  */
 export const CONTROL_BASE =
-  'block w-full rounded-md bg-[var(--surface-1)] text-[var(--text-primary)] ' +
+  'block rounded-md bg-[var(--surface-1)] text-[var(--text-primary)] ' +
   'outline-1 -outline-offset-1 outline-[var(--border-strong)] placeholder:text-[var(--text-tertiary)] ' +
   'focus:outline-2 focus:-outline-offset-2 focus:outline-[var(--focus-ring)] ' +
   'disabled:cursor-not-allowed disabled:opacity-50'
 
-const CONTROL = `${CONTROL_BASE} px-3 py-1.5 text-sm`
+const CONTROL = `${CONTROL_BASE} w-full px-3 py-1.5 text-sm`
 
 /**
  * 给没有可见 label 的裸控件用（筛选条那种一行摆七八个、靠 aria-label 说明的）。

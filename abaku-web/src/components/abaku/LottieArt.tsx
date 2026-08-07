@@ -30,7 +30,6 @@ export interface LottieArtProps {
  * 用的是 `lottie_light`（只带 svg renderer、不带表达式引擎）而不是完整版，两个理由：
  * 完整版靠直接 `eval` 跑 Lottie 表达式，而 nginx.conf 的 CSP 是 `script-src 'self'`，
  * 没有 `unsafe-eval`，那句 eval 在生产会直接抛错把动画搞挂；顺带压缩后从 ~300KB 降到 ~165KB。
- * 代价是 empty-wallet 里那一条回弹表达式不生效，退回它自己的关键帧，观感差别很小。
  *
  * 语义状态图标请用 `LottieIcon`，那是另一件事。
  */

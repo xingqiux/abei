@@ -4,27 +4,24 @@
    三组：中性分层 / 语义色 / 品牌色。组件一律用这些变量，
    不再出现写死的 rgb() 或 Tailwind 自带色板类名（check:colors 会拦）。
 
-   配色「墨与靛」：中性是冷石墨（微蓝偏移，跟主色同向），主色是靛蓝。
-   上一版中性带橄榄褐、深色三层只差 5 个点，结果是一片看不出层级的
-   泥色；并且深色下 --brand 是近白色，整屏没有任何彩度。这版都修了。
+   配色使用中性冷灰；品牌色同样保持中性，把颜色留给金额和状态语义。
 
    深色下「抬升 = 表面变浅 + 一道细描边」。光靠变浅在近黑区间分不开，
    所以 --ring-card 在深色下是可见发丝线、浅色下透明（浅色靠 --shadow-card），
    这是 tailwind-plus 的做法，在这里落成 token。
    ──────────────────────────────────────────────────────────── */
 @theme {
-  /* 中性：冷石墨。色相往主色的靛偏一点点，读起来是「选过的灰」而不是默认灰 */
-  --color-ink-50: #f4f6fa;
-  --color-ink-100: #e9ecf3;
-  --color-ink-200: #d9dee9;
-  --color-ink-300: #bfc6d6;
-  --color-ink-400: #949cb0;
-  --color-ink-500: #6e768b;
-  --color-ink-600: #525a6e;
-  --color-ink-700: #3a4154;
-  --color-ink-800: #262c3c;
-  --color-ink-900: #191e2b;
-  --color-ink-950: #0f131e;
+  --color-ink-50: #f3f4f6;
+  --color-ink-100: #e8eaed;
+  --color-ink-200: #d9dce1;
+  --color-ink-300: #c5c9cf;
+  --color-ink-400: #9aa0a8;
+  --color-ink-500: #747b84;
+  --color-ink-600: #565c65;
+  --color-ink-700: #3e434a;
+  --color-ink-800: #292d32;
+  --color-ink-900: #1b1e22;
+  --color-ink-950: #0e0f11;
 }
 
 :root,
@@ -35,23 +32,23 @@
   --surface-0: var(--color-ink-50); /* 页面底 */
   --surface-1: #ffffff; /* 卡片、表格行 */
   --surface-2: #ffffff; /* 浮层，靠 shadow + border 区分 */
-  --surface-hover: #edf0f6;
-  --surface-selected: #e2e8f6;
+  --surface-hover: #eceef1;
+  --surface-selected: #e3e6ea;
 
   /* 描边 */
-  --border-subtle: #e3e7f0;
-  --border-strong: #828a9f; /* 控件边界，要够 3:1 */
+  --border-subtle: #dfe2e6;
+  --border-strong: var(--color-ink-500); /* 控件边界，要够 3:1 */
   --chart-grid: var(--color-ink-200);
 
   /* 抬升：浅色用投影，深色用发丝线。两个 token 一起用，永远只有一个可见 */
-  --shadow-card: 0 1px 2px 0 rgb(15 19 30 / 0.05);
-  --shadow-pop: 0 10px 24px -6px rgb(15 19 30 / 0.14), 0 2px 6px -2px rgb(15 19 30 / 0.08);
+  --shadow-card: 0 1px 2px 0 rgb(14 15 17 / 0.05);
+  --shadow-pop: 0 10px 24px -6px rgb(14 15 17 / 0.14), 0 2px 6px -2px rgb(14 15 17 / 0.08);
   --ring-card: transparent;
 
   /* 文字 */
-  --text-primary: #171b27;
+  --text-primary: #16181c;
   --text-secondary: var(--color-ink-600);
-  --text-tertiary: #646c81;
+  --text-tertiary: #646a73;
 
   /* 语义 */
   --income: #c22b3e; /* 收入：红。5.66:1 on 白、5.10:1 on 页面底 */
@@ -68,14 +65,13 @@
   --done: #1c6b4c;
   --done-soft: #e4f2ec;
 
-  /* 品牌：靛。--brand 是实心底（配 --brand-on 的字），--brand-text 是页面上的前景色。
-     两者在浅色下同值：#4a46c9 对白 6.98:1，当底当字都够。 */
-  --brand: #4a46c9;
-  --brand-hover: #3d39b3;
+  /* 中性品牌：主操作用深底，状态与金额继续使用各自语义色。 */
+  --brand: #16181c;
+  --brand-hover: #2a2d32;
   --brand-on: #ffffff; /* 品牌底上的文字 */
-  --brand-text: #4a46c9; /* 链接、选中项、图标 */
-  --brand-soft: #e8e8fa; /* 选中态底色、chip */
-  --focus-ring: #4a46c9;
+  --brand-text: #16181c; /* 链接、选中项、图标 */
+  --brand-soft: #e3e6ea; /* 选中态底色、chip */
+  --focus-ring: #5279a3;
 
   /* 密度：交易行高，设置里可切 40/48 */
   --row-h: 40px;
@@ -85,29 +81,29 @@
   --row-h: 48px;
 }
 
-/* 深色三层：#0f131e → #1a2030 → #242b3d，每层差得开；
+/* 深色三层保持可见层级；
    再加 --ring-card 的发丝线兜底，近黑区间才真的分得出层级。 */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     color-scheme: dark;
-    --surface-0: var(--color-ink-950);
-    --surface-1: #1a2030;
-    --surface-2: #242b3d;
-    --surface-hover: #212838;
-    --surface-selected: #2c3348;
-    --border-subtle: #2a3145;
-    --border-strong: var(--color-ink-500);
+    --surface-0: #0e0f11;
+    --surface-1: #17191d;
+    --surface-2: #212429;
+    --surface-hover: #1c1f24;
+    --surface-selected: #24282e;
+    --border-subtle: #26292f;
+    --border-strong: #767c85;
     --chart-grid: rgb(255 255 255 / 0.08);
     --shadow-card: none;
     --shadow-pop: 0 16px 40px -8px rgb(0 0 0 / 0.6);
-    --ring-card: rgb(255 255 255 / 0.08);
-    --text-primary: #e6e9f2;
-    --text-secondary: var(--color-ink-400);
-    --text-tertiary: #848ca1;
-    --income: #ff7a85;
+    --ring-card: rgb(255 255 255 / 0.06);
+    --text-primary: #e8eaed;
+    --text-secondary: #a3a9b1;
+    --text-tertiary: #8a9099;
+    --income: #f0656b;
     --income-soft: #3b1d23;
     --expense: var(--text-primary);
-    --transfer: #58b0e7;
+    --transfer: #6aa9e0;
     --transfer-soft: #12293b;
     --attention: #e0a94e;
     --attention-mark: #e0a94e;
@@ -117,36 +113,36 @@
     --danger-hover: #f79184;
     --done: #4fbf8f;
     --done-soft: #122d23;
-    --brand: #5d57e8; /* 实心底：白字 5.26:1 */
-    --brand-hover: #6862ec;
-    --brand-on: #ffffff;
-    --brand-text: #9d98fa; /* 页面前景：对页面底 7.34:1 */
-    --brand-soft: #23214a;
-    --focus-ring: #7c77f0;
+    --brand: #e8eaed;
+    --brand-hover: #ffffff;
+    --brand-on: #0e0f11;
+    --brand-text: #e8eaed;
+    --brand-soft: #24282e;
+    --focus-ring: #8aa9c9;
   }
 }
 
 /* 手动锁定：必须双向压过上面的 media query */
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --surface-0: var(--color-ink-950);
-  --surface-1: #1a2030;
-  --surface-2: #242b3d;
-  --surface-hover: #212838;
-  --surface-selected: #2c3348;
-  --border-subtle: #2a3145;
-  --border-strong: var(--color-ink-500);
+  --surface-0: #0e0f11;
+  --surface-1: #17191d;
+  --surface-2: #212429;
+  --surface-hover: #1c1f24;
+  --surface-selected: #24282e;
+  --border-subtle: #26292f;
+  --border-strong: #767c85;
   --chart-grid: rgb(255 255 255 / 0.08);
   --shadow-card: none;
   --shadow-pop: 0 16px 40px -8px rgb(0 0 0 / 0.6);
-  --ring-card: rgb(255 255 255 / 0.08);
-  --text-primary: #e6e9f2;
-  --text-secondary: var(--color-ink-400);
-  --text-tertiary: #848ca1;
-  --income: #ff7a85;
+  --ring-card: rgb(255 255 255 / 0.06);
+  --text-primary: #e8eaed;
+  --text-secondary: #a3a9b1;
+  --text-tertiary: #8a9099;
+  --income: #f0656b;
   --income-soft: #3b1d23;
   --expense: var(--text-primary);
-  --transfer: #58b0e7;
+  --transfer: #6aa9e0;
   --transfer-soft: #12293b;
   --attention: #e0a94e;
   --attention-mark: #e0a94e;
@@ -156,12 +152,12 @@
   --danger-hover: #f79184;
   --done: #4fbf8f;
   --done-soft: #122d23;
-  --brand: #5d57e8;
-  --brand-hover: #6862ec;
-  --brand-on: #ffffff;
-  --brand-text: #9d98fa;
-  --brand-soft: #23214a;
-  --focus-ring: #7c77f0;
+  --brand: #e8eaed;
+  --brand-hover: #ffffff;
+  --brand-on: #0e0f11;
+  --brand-text: #e8eaed;
+  --brand-soft: #24282e;
+  --focus-ring: #8aa9c9;
 }
 
 * {
@@ -190,7 +186,7 @@ body,
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--brand) 28%, transparent);
+  background: var(--surface-selected);
 }
 
 /* 滚动条：细、低调 */

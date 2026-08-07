@@ -171,7 +171,7 @@ export function Combobox({
 
   // 边框/聚焦态跟 Field 的原生控件走同一套，否则同一张表单里两种输入框长得不一样。
   // 原先这里是 `outline-none` + 静态 border——聚焦时完全没有反馈。
-  const inputClass = `${CONTROL_BASE} px-2.5 py-1.5 text-[12.5px] ${invalid ? CONTROL_INVALID : ''}`
+  const inputClass = `${CONTROL_BASE} w-full px-2.5 py-1.5 text-[12.5px] ${invalid ? CONTROL_INVALID : ''}`
 
   return (
     <div ref={rootRef} className={`relative ${className}`}>

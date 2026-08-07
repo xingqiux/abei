@@ -1,6 +1,7 @@
 # abaku-web
 
-Abaku 的界面。React 19 + TypeScript + Vite，直接调 Firefly III 的 `/api/v1`，没有自己的后端。
+Abaku 的界面。React 19 + TypeScript + Vite；账本业务直接调 Firefly III 的 `/api/v1`，
+财务助手通过同域 `/api/ai` 调可信 `abaku-agent`。
 
 设计上的决定写在 `../docs/design/redesign-decisions.md`，Firefly 接口的取舍对照在
 `../docs/design/feature-inventory.md`。
@@ -12,10 +13,10 @@ Abaku 的界面。React 19 + TypeScript + Vite，直接调 Firefly III 的 `/api
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173，API 请求由 vite proxy 转给 Firefly
+npm run dev        # http://localhost:5173，Vite 分别代理 Firefly 和 abaku-agent
 ```
 
-proxy 目标写在 `vite.config.ts`，跟着根目录 `.env` 的 `FIREFLY_PORT` 走，改端口要两边一起改。
+proxy 目标写在 `vite.config.ts`：Firefly 是 18001，abaku-agent 是 18003。
 
 ## 令牌
 
@@ -31,10 +32,10 @@ proxy 目标写在 `vite.config.ts`，跟着根目录 `.env` 的 `FIREFLY_PORT` 
 
 ```
 src/
-  api/         Firefly 接口封装（firefly.ts）与 React Query hooks（queries.ts）
+  api/         Firefly 接口封装、React Query hooks 与 AI 流式客户端
   routes/      TanStack Router 的路由表与导航徽标
   features/    按页分：today / transactions / accounts / budgets / analysis /
-               bill-inbox / reconciliation / settings / record-transaction / command-palette
+               assistant / bill-inbox / reconciliation / settings / record-transaction / command-palette
   components/
     ui/        通用控件：Button、Card、Field、Badge、Tabs、SegmentedControl、Dropdown
     abaku/     业务件：Modal、Combobox、TransactionRow、图表、Toast、空态错误态
@@ -56,8 +57,8 @@ scripts/       check-contrast.mjs
 
 几个容易用错的：
 
-- `--brand` 是实心底的颜色，`--brand-text` 才是页面上当文字用的。深色主题下拿
-  `--brand` 当文字色对比度只有 2.x:1，基本看不见。
+- `--brand` 是实心操作底色，`--brand-text` 是页面上的品牌前景；即使当前值接近，
+  组件也要按语义选，避免主题调整时混用。
 - `--danger` 只给删除类操作。支出金额不算危险，走 `semanticColorClass()`。
 - 金额颜色只有一个来源：`lib/format.ts` 的 `semanticColorClass()`。收入红、转账蓝、
   支出和中性用正文色（红涨绿跌，跟国内习惯一致）。

@@ -468,6 +468,15 @@ export async function ignoreBillTask(taskId: string): Promise<unknown> {
   return fireflyPost(`/api/v1/bill-tasks/${taskId}/ignore`, {})
 }
 
+export async function archiveBillTask(taskId: string): Promise<BillTaskItemResponse> {
+  const raw = await fireflyPost(`/api/v1/bill-tasks/${taskId}/archive`, {})
+  return billTaskItemResponseSchema.parse(raw)
+}
+
+export async function deleteBillTask(taskId: string): Promise<void> {
+  return fireflyDelete(`/api/v1/bill-tasks/${taskId}`)
+}
+
 /**
  * POST /api/v1/bill-inbox/sync —— 触发真实邮箱同步（红线：验证时点一次即可，勿轮点）。
  * body 可选 {limit?:1-100}，默认后端 25。响应 attributes 含 scanned/created/processed 等。
@@ -1120,8 +1129,8 @@ export async function autocompleteTransactions(
  * POST /api/v1/tokens
  * 为当前用户签发一个新的个人访问令牌（abaku-web）。
  */
-export async function createApiToken(): Promise<string> {
-  const raw = await fireflyPost<{ data: { access_token: string } }>('/api/v1/tokens', {})
+export async function createApiToken(name = 'ffc AI'): Promise<string> {
+  const raw = await fireflyPost<{ data: { access_token: string } }>('/api/v1/tokens', { name })
   return raw.data.access_token
 }
 

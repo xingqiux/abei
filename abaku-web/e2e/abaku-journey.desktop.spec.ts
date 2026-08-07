@@ -135,7 +135,7 @@ test('从登录一路走到归档账户', async ({ page }) => {
   await expect(rows).toHaveCount(FIXTURE.transactions.length)
 
   // 6. 订阅：点「记这一笔」应当真生成一笔 12.34 的交易，列表也要多一笔。
-  await page.goto('/budgets?tab=subscriptions')
+  await page.goto('/accounts?view=subscriptions')
   await expect(page.getByText(FIXTURE.subscription)).toBeVisible()
   const triggered = page.waitForResponse(
     (response) =>

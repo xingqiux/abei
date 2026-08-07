@@ -11,8 +11,7 @@ interface NavItem extends NavItemDef {
 /**
  * 侧栏导航。结构取自 tailwind-plus `navigation/sidebar-navigation`。
  *
- * 选中态用「靛色底 + 靛色字 + 左侧竖条」三重表达，不是只换个背景灰——
- * 上一版选中项是近白字配深灰底，在深色主题下几乎看不出选了哪一项。
+ * 选中态用中性底、正文色和左侧竖条三重表达，不只依赖颜色。
  */
 export function Sidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })

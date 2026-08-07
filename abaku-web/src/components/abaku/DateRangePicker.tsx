@@ -8,11 +8,10 @@ import { formatMonthDay } from '../../lib/format'
 import { Button } from '../ui/Button'
 import { Field, Input } from '../ui/Field'
 
-function pageKeyOf(pathname: string): PageKey | null {
+function pageKeyOf(pathname: string, search: Record<string, unknown>): PageKey | null {
+  if (pathname === '/') return 'today'
   if (pathname === '/transactions' || pathname.startsWith('/transactions')) return 'transactions'
-  if (pathname === '/budgets' || pathname.startsWith('/budgets')) return 'budgets'
-  if (pathname === '/reconciliation') return 'reconciliation'
-  if (pathname === '/reports' || pathname === '/analysis') return 'analysis'
+  if (pathname === '/accounts' && (search.view === 'budgets' || search.view === 'subscriptions')) return 'budgets'
   return null
 }
 
@@ -87,17 +86,14 @@ function CustomRangeForm({
  * 原先这三件是手写的 pointerdown/keydown 监听，最后一件根本没做。
  */
 export function DateRangePicker({ compact = false }: { compact?: boolean }) {
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const page = pageKeyOf(pathname)
-  const pageRange = usePageRange(page ?? 'transactions')
-  const lastStart = useDateRangeStore((s) => s.start)
-  const lastEnd = useDateRangeStore((s) => s.end)
-  const lastPreset = useDateRangeStore((s) => s.preset)
+  const location = useRouterState({ select: (s) => s.location })
+  const page = pageKeyOf(location.pathname, location.search as Record<string, unknown>)
+  const pageRange = usePageRange(page ?? 'today')
   const setRange = useDateRangeStore((s) => s.setRange)
   const applyPreset = useDateRangeStore((s) => s.applyPreset)
-  const start = page ? pageRange.start : lastStart
-  const end = page ? pageRange.end : lastEnd
-  const preset = page ? pageRange.preset : lastPreset
+  const { start, end, preset } = pageRange
+
+  if (!page) return null
 
   const label = compact
     ? `${formatMonthDay(start)} → ${formatMonthDay(end)}`

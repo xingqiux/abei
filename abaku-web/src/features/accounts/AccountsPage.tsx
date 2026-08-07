@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { PlusIcon } from '@heroicons/react/20/solid'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import type { AccountType } from '../../api/firefly'
 import { useInfiniteAccountsByType, useUpdateAccount } from '../../api/queries'
 import type { Account } from '../../api/schemas'
@@ -16,8 +17,18 @@ import { AccountDialog } from './AccountDialog'
 import { FireflyApiError } from '../../api/client'
 import { showToast } from '../../store/toastStore'
 import { sumDecimalStrings } from '../../lib/decimal'
+import { BudgetsTabContent } from '../budgets/BudgetsPage'
+import { SubscriptionsTab } from '../budgets/SubscriptionsTab'
 
 const LIMIT_STEP = 40
+
+type AccountView = 'accounts' | 'budgets' | 'subscriptions'
+
+const VIEWS: { key: AccountView; label: string }[] = [
+  { key: 'accounts', label: '账户' },
+  { key: 'budgets', label: '预算' },
+  { key: 'subscriptions', label: '订阅' },
+]
 
 const TABS: { key: AccountType; label: string; emptyMessage: string; balanceTone: BalanceTone }[] = [
   { key: 'asset', label: '资产', emptyMessage: '还没有资产账户', balanceTone: 'neutral' },
@@ -26,6 +37,35 @@ const TABS: { key: AccountType; label: string; emptyMessage: string; balanceTone
 ]
 
 export function AccountsPage() {
+  const search = useSearch({ from: '/accounts' })
+  const navigate = useNavigate({ from: '/accounts' })
+  const view: AccountView = search.view === 'budgets' || search.view === 'subscriptions' ? search.view : 'accounts'
+
+  function changeView(next: AccountView) {
+    void navigate({ search: { view: next === 'accounts' ? undefined : next }, replace: true })
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <h1 className="text-lg font-semibold text-[var(--text-primary)]">账户</h1>
+      <Tabs
+        aria-label="账户视图"
+        tabs={VIEWS.map((item) => ({ value: item.key, label: item.label }))}
+        value={view}
+        onChange={changeView}
+      />
+      {view === 'accounts' ? (
+        <AccountList />
+      ) : (
+        <Card padded={false} className="p-2">
+          {view === 'budgets' ? <BudgetsTabContent /> : <SubscriptionsTab />}
+        </Card>
+      )}
+    </div>
+  )
+}
+
+function AccountList() {
   const [activeTab, setActiveTab] = useState<AccountType>('asset')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Account | null>(null)
@@ -75,8 +115,7 @@ export function AccountsPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold text-[var(--text-primary)]">账户</h1>
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <div className="flex items-center gap-3">
           {query.data && (
             <div className="text-[13px] text-[var(--text-secondary)]">
@@ -124,7 +163,6 @@ export function AccountsPage() {
           <ErrorState message="账户加载失败" onRetry={() => void query.refetch()} />
         ) : accounts.length === 0 ? (
           <EmptyState
-            art="empty-wallet"
             message={tabConfig.emptyMessage}
             actionLabel="新建账户"
             onAction={() => { setEditing(null); setDialogOpen(true) }}

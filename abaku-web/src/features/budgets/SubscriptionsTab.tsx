@@ -85,7 +85,7 @@ export function SubscriptionsTab() {
   }
   const list = recurrences.data?.data ?? []
   if (list.length === 0) {
-    return <EmptyState art="empty-wallet" message="还没有定期交易——在 Firefly III 里建一个 recurrence 就能在这里点一下记一笔" />
+    return <EmptyState message="还没有定期交易——在 Firefly III 里建一个 recurrence 就能在这里点一下记一笔" />
   }
 
   return (

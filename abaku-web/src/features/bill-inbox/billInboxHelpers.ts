@@ -1,4 +1,4 @@
-import type { BillStatementRow, BillTaskStatus } from '../../api/schemas'
+import type { BillInboxSyncResult, BillStatementRow, BillTaskStatus } from '../../api/schemas'
 import type { ChipKind } from '../../components/abaku/StatusChip'
 import { isPositiveDecimal } from '../../lib/decimal'
 
@@ -15,14 +15,24 @@ export const TASK_STATUS_META: Record<BillTaskStatus, { label: string; kind: Chi
   cleaned: { label: '已清理', kind: 'muted' },
 }
 
-export type InboxTab = 'parsed' | 'processing' | 'imported' | 'ignored'
+export type InboxTab = 'processing' | 'parsed' | 'imported' | 'ignored'
 
+/** 需处理优先：阻塞项（密码/失败/待解析）排在待审前面 */
 export const TAB_CONFIG: { key: InboxTab; label: string; statuses: BillTaskStatus[] }[] = [
-  { key: 'parsed', label: '待审', statuses: ['parsed'] },
   { key: 'processing', label: '需处理', statuses: ['received', 'ready', 'needs_secret', 'failed', 'unknown'] },
+  { key: 'parsed', label: '待审', statuses: ['parsed'] },
   { key: 'imported', label: '已入账', statuses: ['imported'] },
   { key: 'ignored', label: '已忽略', statuses: ['ignored'] },
 ]
+
+export function isInboxTab(value: unknown): value is InboxTab {
+  return typeof value === 'string' && TAB_CONFIG.some((tab) => tab.key === value)
+}
+
+/** 有阻塞任务时优先「需处理」，否则「待审」 */
+export function preferredInboxTab(processingCount: number): InboxTab {
+  return processingCount > 0 ? 'processing' : 'parsed'
+}
 
 /** 渠道 key 兜底中文名，正常情况下应优先用 /bill-inbox/summary 返回的 channel.name */
 export const SOURCE_FALLBACK_LABELS: Record<string, string> = {
@@ -30,6 +40,22 @@ export const SOURCE_FALLBACK_LABELS: Record<string, string> = {
   wechat: '微信支付',
   cmb: '招商银行',
   boc: '中国银行',
+}
+
+export function syncResultFeedback(
+  attributes: BillInboxSyncResult['data']['attributes'],
+): { kind: 'success' | 'error'; message: string } {
+  const error = attributes.errors?.find((value): value is string => typeof value === 'string' && value.trim() !== '')
+  if (error) return { kind: 'error', message: error }
+
+  const failed = attributes.failed + attributes.process_failed
+  if (failed > 0) return { kind: 'error', message: `同步失败 ${attributes.failed}，解析失败 ${attributes.process_failed}` }
+  if (attributes.scanned === 0) return { kind: 'success', message: '同步完成：未发现新的账单邮件' }
+
+  return {
+    kind: 'success',
+    message: `同步完成：扫描 ${attributes.scanned}，新建 ${attributes.created}，处理 ${attributes.processed}`,
+  }
 }
 
 /** 原始 direction 字段（中文）映射语义色的 Tailwind 文字类：支出/收入/转账，其余（不计收支等）中性 */

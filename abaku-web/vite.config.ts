@@ -16,6 +16,10 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     proxy: {
+      '/api/ai': {
+        target: 'http://127.0.0.1:18003',
+        changeOrigin: true,
+      },
       '/api': {
         target: 'http://127.0.0.1:18001',
         changeOrigin: true,

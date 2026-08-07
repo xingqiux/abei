@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { BillImportResponse, BillTask } from '../../api/schemas'
 import {
+  useArchiveBillTask,
   useBillTaskRows,
+  useDeleteBillTask,
   useImportBillTaskRows,
   useRetryBillTask,
   useSubmitBillTaskSecret,
@@ -19,6 +21,7 @@ import { FireflyApiError } from '../../api/client'
 import { LottieIcon } from '../../components/abaku/LottieIcon'
 import { StatementRow } from './StatementRow'
 import { TaskEvidencePanel } from './TaskEvidencePanel'
+import { Modal } from '../../components/abaku/Modal'
 
 const PAGE_SIZE = 50
 
@@ -35,6 +38,7 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
   const [previewRowIds, setPreviewRowIds] = useState<string[]>([])
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [ignoreOpen, setIgnoreOpen] = useState(false)
+  const [taskAction, setTaskAction] = useState<'archive' | 'delete' | null>(null)
   const [secretValue, setSecretValue] = useState('')
 
   const eligibleIds = useMemo(() => rows.filter(isRowSelectable).map((r) => r.id), [rows])
@@ -55,6 +59,8 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
   const importMutation = useImportBillTaskRows()
   const secretMutation = useSubmitBillTaskSecret()
   const retryMutation = useRetryBillTask()
+  const archiveMutation = useArchiveBillTask()
+  const deleteMutation = useDeleteBillTask()
 
   const allEligibleSelected = eligibleIds.length > 0 && eligibleIds.every((id) => selected.has(id))
   const someEligibleSelected = eligibleIds.some((id) => selected.has(id))
@@ -131,10 +137,28 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
     }
   }
 
+  async function handleTaskAction() {
+    if (!taskAction) return
+    try {
+      if (taskAction === 'archive') {
+        await archiveMutation.mutateAsync(task.id)
+        showToast({ message: '失败任务已归档', kind: 'success' })
+      } else {
+        await deleteMutation.mutateAsync(task.id)
+        showToast({ message: '失败任务已删除', kind: 'success' })
+      }
+      setTaskAction(null)
+      onIgnored()
+    } catch (err) {
+      const fallback = taskAction === 'archive' ? '归档失败，请重试' : '删除失败，请重试'
+      showToast({ message: err instanceof FireflyApiError ? err.message : fallback, kind: 'error', duration: 6000 })
+    }
+  }
+
   const visibleRows = rows.slice(0, visibleCount)
   const canLoadMore = visibleCount < rows.length
   const errorText = task.attributes.error_message || task.attributes.error_code || null
-  // 密码错了后端退回 needs_secret，把原因（含还能试几次）写在 error_message 上。
+  // 密码错了后端退回 needs_secret，把原因留在输入框旁，刷新后仍然看得到。
   // 光靠 toast 不够：它几秒就没了，刷新一下就再也看不出自己错在哪。
   const secretError = task.attributes.error_code === 'secret_rejected' ? errorText : null
 
@@ -187,7 +211,7 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
           {errorText && (
             <p className="text-xs leading-relaxed text-[var(--text-secondary)]">{errorText}</p>
           )}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="primary" size="sm" disabled={retryMutation.isPending} onClick={() => void handleRetry()}>
               {retryMutation.isPending ? (
                 <>
@@ -198,8 +222,11 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
                 '重试'
               )}
             </Button>
-            <Button variant="ghost-danger" size="sm" onClick={() => setIgnoreOpen(true)}>
-              忽略此任务
+            <Button variant="secondary" size="sm" onClick={() => setTaskAction('archive')}>
+              归档
+            </Button>
+            <Button variant="ghost-danger" size="sm" onClick={() => setTaskAction('delete')}>
+              删除
             </Button>
           </div>
         </div>
@@ -308,6 +335,35 @@ export function TaskDetailPanel({ task, onIgnored }: { task: BillTask; onIgnored
           onIgnored()
         }}
       />
+
+      <Modal
+        open={taskAction !== null}
+        onClose={() => setTaskAction(null)}
+        title={taskAction === 'archive' ? '归档失败任务' : '删除失败任务'}
+        footer={
+          <>
+            <Button variant="secondary" size="md" onClick={() => setTaskAction(null)}>
+              取消
+            </Button>
+            <Button
+              variant={taskAction === 'delete' ? 'danger' : 'primary'}
+              size="md"
+              disabled={archiveMutation.isPending || deleteMutation.isPending}
+              onClick={() => void handleTaskAction()}
+            >
+              {archiveMutation.isPending || deleteMutation.isPending
+                ? '处理中…'
+                : taskAction === 'archive' ? '确认归档' : '确认删除'}
+            </Button>
+          </>
+        }
+      >
+        <p>
+          {taskAction === 'archive'
+            ? '归档后，这条失败任务会从收件箱移走，原始邮件和本地附件仍会保留。'
+            : '删除后，这条失败任务和本地保存的附件会永久移除，无法恢复；邮箱里的原始邮件不会被删除。'}
+        </p>
+      </Modal>
     </div>
   )
 }

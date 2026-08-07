@@ -815,7 +815,6 @@ export const apiTokenSchema = z
     id: z.string(),
     name: z.string(),
     created_at: z.string().nullable(),
-    last_used: z.string().nullable(),
     expires_at: z.string().nullable(),
     current: z.boolean(),
   })

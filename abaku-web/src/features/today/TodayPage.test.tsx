@@ -8,13 +8,21 @@ const mocks = vi.hoisted(() => ({
   deleteTx: vi.fn(),
   refetch: vi.fn(),
   state: {
-    inbox: { pending_total: 0, needs_code: 0 } as Record<string, number>,
+    inbox: { pending_total: 0, needs_code: 0, unprocessed: 0, failed: 0, channels: [] } as {
+      pending_total: number
+      needs_code: number
+      unprocessed: number
+      failed: number
+      channels: Array<{ parsed: number }>
+    },
     recon: { days_unreconciled: 0 },
     recurrences: { data: [] as Recurrence[] },
     summary: {} as Record<string, unknown>,
     budgets: { data: [] as Array<{ id: string }> },
     limitsByBudget: new Map<string, Array<{ amount: string }>>(),
     transactions: { data: [] as Array<{ id: string; attributes: { transactions: unknown[] } }> },
+    transactionRange: null as { start: string; end: string } | null,
+    pageKey: '',
   },
 }))
 
@@ -23,17 +31,38 @@ vi.mock('../../api/queries', () => ({
   useReconciliationSummary: () => ({ data: mocks.state.recon }),
   useRecurrences: () => ({ data: mocks.state.recurrences }),
   useSummaryBasic: () => ({ data: mocks.state.summary }),
-  useTransactions: () => ({ data: mocks.state.transactions, isLoading: false, isError: false, refetch: mocks.refetch }),
+  useAccountOverviewChart: () => ({ data: [], isLoading: false, isError: false, refetch: mocks.refetch }),
+  useTransactions: (range: { start: string; end: string }) => {
+    mocks.state.transactionRange = range
+    return { data: mocks.state.transactions, isLoading: false, isError: false, refetch: mocks.refetch }
+  },
   useDeleteTransaction: () => ({ mutateAsync: mocks.deleteTx, isPending: false }),
 }))
 vi.mock('../budgets/useBudgetsData', () => ({
   useBudgetsData: () => ({ budgetsQuery: { data: mocks.state.budgets }, limitsByBudget: mocks.state.limitsByBudget }),
 }))
-vi.mock('../../store/dateRangeStore', () => ({ usePageRange: () => ({ start: '2026-08-01', end: '2026-08-31' }) }))
+vi.mock('../../store/dateRangeStore', () => ({
+  usePageRange: (page: string) => {
+    mocks.state.pageKey = page
+    return { start: '2026-08-01', end: '2026-08-31' }
+  },
+}))
+vi.mock('../../store/recordTxStore', () => ({ useRecordTxStore: () => vi.fn() }))
 vi.mock('@tanstack/react-router', () => ({
-  Link: ({ to, children, search: _search, ...props }: { to: string; children: ReactNode; search?: unknown }) => (
-    <a href={to} {...props}>{children}</a>
-  ),
+  Link: ({
+    to,
+    children,
+    search,
+    ...props
+  }: {
+    to: string
+    children: ReactNode
+    search?: { tab?: string; view?: string }
+  }) => {
+    const query = search?.tab ? `tab=${search.tab}` : search?.view ? `view=${search.view}` : ''
+    const href = query ? `${to}?${query}` : to
+    return <a href={href} {...props}>{children}</a>
+  },
 }))
 vi.mock('gsap', () => ({ default: { fromTo: vi.fn() } }))
 vi.mock('../../components/abaku/TransactionRow', () => ({
@@ -74,52 +103,70 @@ function txGroup(id: string, description: string) {
   }
 }
 
-/** 首屏那张卡（待办 / 本月还能花 / 引导三选一） */
-function hero() {
-  return screen.getByRole('heading', { name: '今天' }).nextElementSibling as HTMLElement
+/** 右侧状态卡（待办 / 本月还能花 / 引导三选一） */
+function focusPanel() {
+  const page = screen.getByRole('heading', { name: '今天' }).parentElement!
+  return page.children[2].lastElementChild as HTMLElement
 }
 
 beforeEach(() => {
-  mocks.state.inbox = { pending_total: 0, needs_code: 0 }
+  mocks.state.inbox = { pending_total: 0, needs_code: 0, unprocessed: 0, failed: 0, channels: [] }
   mocks.state.recon = { days_unreconciled: 0 }
   mocks.state.recurrences = { data: [] }
   mocks.state.summary = {}
   mocks.state.budgets = { data: [] }
   mocks.state.limitsByBudget = new Map()
   mocks.state.transactions = { data: [] }
+  mocks.state.transactionRange = null
+  mocks.state.pageKey = ''
 })
 
 describe('TodayPage 有待办时首屏列待办', () => {
-  it('四类待办各列一行，数量和跳转都对', () => {
-    mocks.state.inbox = { pending_total: 3, needs_code: 1 }
+  it('有收件箱时先显示汇总入口，需处理类优先，并深链 tab', () => {
+    mocks.state.inbox = {
+      pending_total: 3,
+      needs_code: 1,
+      unprocessed: 1,
+      failed: 1,
+      channels: [{ parsed: 3 }],
+    }
     mocks.state.recon = { days_unreconciled: 2 }
     mocks.state.recurrences = { data: [dailyRecurrence('1'), dailyRecurrence('2')] }
 
     render(<TodayPage />)
 
-    const items = within(hero()).getAllByRole('link')
-    expect(items).toHaveLength(4)
-    // 行尾那个箭头现在是 svg 图标（aria-hidden），不再是「→」字符
+    const items = within(focusPanel()).getAllByRole('link')
+    // 账单收件箱汇总 + 4 条子项 + 未对账 + 订阅
+    expect(items).toHaveLength(7)
     expect(items.map((el) => el.textContent)).toEqual([
-      '待审账单3',
+      '账单收件箱6',
       '待验证码1',
+      '解析失败1',
+      '待处理账单1',
+      '待审账单3',
       '未对账2',
       '本月待付订阅2',
     ])
-    expect(items[0]).toHaveAttribute('href', '/bill-inbox')
-    expect(items[2]).toHaveAttribute('href', '/reconciliation')
-    expect(items[3]).toHaveAttribute('href', '/budgets')
+    expect(items[0]).toHaveAttribute('href', '/bill-inbox?tab=processing')
+    expect(items[1]).toHaveAttribute('href', '/bill-inbox?tab=processing')
+    expect(items[4]).toHaveAttribute('href', '/bill-inbox?tab=parsed')
+    expect(items[5]).toHaveAttribute('href', '/reconciliation')
+    expect(items[6]).toHaveAttribute('href', '/accounts?view=subscriptions')
+    expect(mocks.state.pageKey).toBe('today')
   })
 
-  it('数量为 0 的待办不占位', () => {
-    mocks.state.inbox = { pending_total: 5, needs_code: 0 }
+  it('仅有待审时汇总入口仍显示，默认深链待审', () => {
+    mocks.state.inbox = { pending_total: 0, needs_code: 0, unprocessed: 0, failed: 0, channels: [{ parsed: 5 }] }
     mocks.state.recon = { days_unreconciled: 0 }
 
     render(<TodayPage />)
 
-    const items = within(hero()).getAllByRole('link')
-    expect(items).toHaveLength(1)
-    expect(items[0]).toHaveTextContent('待审账单5')
+    const items = within(focusPanel()).getAllByRole('link')
+    expect(items).toHaveLength(2)
+    expect(items[0]).toHaveTextContent('账单收件箱5')
+    expect(items[0]).toHaveAttribute('href', '/bill-inbox?tab=parsed')
+    expect(items[1]).toHaveTextContent('待审账单5')
+    expect(items[1]).toHaveAttribute('href', '/bill-inbox?tab=parsed')
     expect(screen.queryByText('待验证码')).not.toBeInTheDocument()
     expect(screen.queryByText('未对账')).not.toBeInTheDocument()
   })
@@ -133,12 +180,13 @@ describe('TodayPage 有待办时首屏列待办', () => {
   })
 
   it('有待办时不显示「本月还能花」，哪怕预算配好了', () => {
-    mocks.state.inbox = { pending_total: 1, needs_code: 0 }
+    mocks.state.inbox = { pending_total: 0, needs_code: 0, unprocessed: 0, failed: 0, channels: [{ parsed: 1 }] }
     mocks.state.budgets = { data: [{ id: 'b1' }] }
     mocks.state.limitsByBudget = new Map([['b1', [{ amount: '2000.00' }]]])
 
     render(<TodayPage />)
 
+    expect(screen.getByText('账单收件箱')).toBeInTheDocument()
     expect(screen.getByText('待审账单')).toBeInTheDocument()
     expect(screen.queryByText('本月还能花')).not.toBeInTheDocument()
   })
@@ -200,12 +248,12 @@ describe('TodayPage 待办清空 + 没配预算', () => {
     render(<TodayPage />)
 
     expect(screen.getByText('还没设月度预算')).toBeInTheDocument()
-    expect(screen.getByText('设个预算，这里就会告诉你本月还能花多少。')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '去设预算' })).toHaveAttribute('href', '/budgets')
+    expect(screen.getByText('设好后，这里会显示本月可用额度。')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '去设预算' })).toHaveAttribute('href', '/accounts?view=budgets')
 
     expect(screen.queryByText('本月还能花')).not.toBeInTheDocument()
     expect(screen.queryByText('¥0.00')).not.toBeInTheDocument()
-    expect(hero().textContent).not.toContain('¥0.00')
+    expect(focusPanel().textContent).not.toContain('¥0.00')
   })
 
   it('建了预算但限额全是 0 也算没配预算', () => {
@@ -215,7 +263,7 @@ describe('TodayPage 待办清空 + 没配预算', () => {
     render(<TodayPage />)
 
     expect(screen.getByText('还没设月度预算')).toBeInTheDocument()
-    expect(hero().textContent).not.toContain('¥0.00')
+    expect(focusPanel().textContent).not.toContain('¥0.00')
   })
 
   it('建了预算但一条限额都没有也算没配预算', () => {
@@ -229,7 +277,7 @@ describe('TodayPage 待办清空 + 没配预算', () => {
 })
 
 describe('TodayPage 今日流水', () => {
-  it('按笔列出近期交易', () => {
+  it('按笔列出今日交易，查询范围只包含当天', () => {
     mocks.state.transactions = { data: [txGroup('1', '早饭'), txGroup('2', '地铁')] }
 
     render(<TodayPage />)
@@ -237,12 +285,14 @@ describe('TodayPage 今日流水', () => {
     const rows = screen.getAllByTestId('tx-row')
     expect(rows).toHaveLength(2)
     expect(rows.map((el) => el.textContent)).toEqual(['早饭', '地铁'])
+    expect(mocks.state.transactionRange?.start).toBe(mocks.state.transactionRange?.end)
+    expect(mocks.state.transactionRange?.start).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 
   it('没有交易时出空态', () => {
     render(<TodayPage />)
 
-    expect(screen.getByText('本期暂无交易')).toBeInTheDocument()
+    expect(screen.getByText('今天还没有记账')).toBeInTheDocument()
     expect(screen.queryAllByTestId('tx-row')).toHaveLength(0)
   })
 })

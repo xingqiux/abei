@@ -12,10 +12,10 @@ import { requestTokenReset } from '../tokenEvents'
 import { Badge } from '../ui/Badge'
 
 /** 「我的」sheet 里列出的剩余导航项（今天/交易/收件箱已在底部 tab 常驻，此处不重复）。 */
-const MORE_PATHS: NavPath[] = ['/reconciliation', '/budgets', '/accounts', '/analysis', '/settings']
+const MORE_PATHS: NavPath[] = ['/assistant', '/reconciliation', '/accounts', '/reference-data', '/analysis', '/settings']
 
 /**
- * 移动端底部弹出 sheet：列出侧栏剩余五个导航项，240ms 上滑入场。
+ * 移动端底部弹出 sheet：列出侧栏剩余导航项，240ms 上滑入场。
  */
 export function MoreSheet() {
   const open = useMoreSheetStore((s) => s.open)

@@ -140,7 +140,7 @@ export function AccountDetailPage() {
     try {
       await deleteAccountMutation.mutateAsync(accountId)
       showToast({ kind: 'success', message: '账户已删除' })
-      void navigate({ to: '/accounts' })
+      void navigate({ to: '/accounts', search: { view: undefined } })
     } catch (err) {
       showToast({ kind: 'error', message: err instanceof FireflyApiError ? err.message : '删除失败', duration: 6000 })
     }
@@ -328,6 +328,7 @@ function BackLink() {
   return (
     <Link
       to="/accounts"
+      search={{ view: undefined }}
       className="inline-flex w-fit items-center gap-1 text-[12.5px] text-[var(--brand-text)] "
 
     >

@@ -10,6 +10,7 @@ import {
   autocompleteCategories,
   autocompleteTags,
   autocompleteTransactions,
+  archiveBillTask,
   createAccount,
   createTransactionAttachment,
   createTransaction,
@@ -17,6 +18,7 @@ import {
   cleanupBillInbox,
   countTransactions,
   deleteTransaction,
+  deleteBillTask,
   deleteAccount,
   deleteAttachment,
   deleteBudget,
@@ -449,6 +451,22 @@ export function useIgnoreBillTask() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (taskId: string) => ignoreBillTask(taskId),
+    onSuccess: () => invalidateBillInbox(queryClient),
+  })
+}
+
+export function useArchiveBillTask() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (taskId: string) => archiveBillTask(taskId),
+    onSuccess: () => invalidateBillInbox(queryClient),
+  })
+}
+
+export function useDeleteBillTask() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (taskId: string) => deleteBillTask(taskId),
     onSuccess: () => invalidateBillInbox(queryClient),
   })
 }

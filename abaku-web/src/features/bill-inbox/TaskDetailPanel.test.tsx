@@ -5,6 +5,8 @@ import { TaskDetailPanel } from './TaskDetailPanel'
 
 const mocks = vi.hoisted(() => ({
   importRows: vi.fn(),
+  archive: vi.fn(),
+  deleteTask: vi.fn(),
   retry: vi.fn(),
   submitSecret: vi.fn(),
   refetchRows: vi.fn(),
@@ -21,6 +23,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../api/queries', () => ({
   useBillTaskRows: () => ({ data: mocks.rowsResponse, isLoading: false, isError: mocks.rowsError, refetch: mocks.refetchRows }),
   useImportBillTaskRows: () => ({ mutateAsync: mocks.importRows, isPending: false }),
+  useArchiveBillTask: () => ({ mutateAsync: mocks.archive, isPending: false }),
+  useDeleteBillTask: () => ({ mutateAsync: mocks.deleteTask, isPending: false }),
   useRetryBillTask: () => ({ mutateAsync: mocks.retry, isPending: false }),
   useSubmitBillTaskSecret: () => ({ mutateAsync: mocks.submitSecret, isPending: false }),
 }))
@@ -42,6 +46,8 @@ describe('TaskDetailPanel', () => {
   beforeEach(() => {
     mocks.rowsError = false
     mocks.importRows.mockReset()
+    mocks.archive.mockReset()
+    mocks.deleteTask.mockReset()
     mocks.retry.mockReset()
     mocks.submitSecret.mockReset()
     mocks.refetchRows.mockReset()
@@ -85,14 +91,14 @@ describe('TaskDetailPanel', () => {
         status: 'needs_secret',
         summary: 'July bill',
         error_code: 'secret_rejected',
-        error_message: '支付宝账单解压失败，请检查密码是否正确。（还可以再试 4 次）',
+        error_message: '支付宝账单解压失败，请检查密码是否正确。',
       },
     } as BillTask
 
     render(<TaskDetailPanel task={rejected} onIgnored={vi.fn()} />)
 
     // toast 几秒就没了，刷新一下更是什么都不剩，所以错误得挂在输入框上
-    expect(screen.getByText('支付宝账单解压失败，请检查密码是否正确。（还可以再试 4 次）')).toBeInTheDocument()
+    expect(screen.getByText('支付宝账单解压失败，请检查密码是否正确。')).toBeInTheDocument()
     expect(screen.getByLabelText('需要解压密码或验证码')).toHaveAttribute('aria-invalid', 'true')
   })
 
@@ -101,5 +107,48 @@ describe('TaskDetailPanel', () => {
     render(<TaskDetailPanel task={task} onIgnored={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
     expect(mocks.refetchRows).toHaveBeenCalledOnce()
+  })
+
+  it('archives a failed task after confirmation', async () => {
+    mocks.archive.mockResolvedValue({})
+    const onIgnored = vi.fn()
+    const failed = {
+      id: '7',
+      attributes: {
+        source: 'alipay',
+        status: 'failed',
+        summary: 'July bill',
+        error_message: '附件文件不存在。',
+        row_counts: { total: 0, pending: 0, imported: 0, duplicate: 0, conflict: 0 },
+      },
+    } as BillTask
+
+    render(<TaskDetailPanel task={failed} onIgnored={onIgnored} />)
+    fireEvent.click(screen.getByRole('button', { name: '归档' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认归档' }))
+
+    await waitFor(() => expect(mocks.archive).toHaveBeenCalledWith('7'))
+    expect(onIgnored).toHaveBeenCalledOnce()
+  })
+
+  it('deletes a failed task after confirmation', async () => {
+    mocks.deleteTask.mockResolvedValue(undefined)
+    const onIgnored = vi.fn()
+    const failed = {
+      id: '7',
+      attributes: {
+        source: 'alipay',
+        status: 'unknown',
+        summary: 'Unknown bill',
+        row_counts: { total: 0, pending: 0, imported: 0, duplicate: 0, conflict: 0 },
+      },
+    } as BillTask
+
+    render(<TaskDetailPanel task={failed} onIgnored={onIgnored} />)
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+
+    await waitFor(() => expect(mocks.deleteTask).toHaveBeenCalledWith('7'))
+    expect(onIgnored).toHaveBeenCalledOnce()
   })
 })

@@ -1,23 +1,65 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ComponentType } from 'react'
+import {
+  ArrowDownTrayIcon,
+  CommandLineIcon,
+  InformationCircleIcon,
+  SwatchIcon,
+} from '@heroicons/react/24/outline'
 import { useAbout } from '../../api/queries'
 import pkg from '../../../package.json'
 import { Card, SectionHeading } from '../../components/ui/Card'
-import { Field, Select } from '../../components/ui/Field'
+import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import { ExportPanel } from './ExportPanel'
-import { ReferenceDataPanel } from './ReferenceDataPanel'
+import { ModelConnectionPanel } from './ModelConnectionPanel'
 import { TokensPanel } from './TokensPanel'
+
+type SettingsSection = 'connections' | 'appearance' | 'export' | 'about'
+
+const SECTIONS: Array<{
+  key: SettingsSection
+  label: string
+  description: string
+  icon: ComponentType<{ className?: string }>
+}> = [
+  {
+    key: 'connections',
+    label: '连接与授权',
+    description: 'AI 服务与 ffc',
+    icon: CommandLineIcon,
+  },
+  {
+    key: 'appearance',
+    label: '显示',
+    description: '主题与列表密度',
+    icon: SwatchIcon,
+  },
+  {
+    key: 'export',
+    label: '数据导出',
+    description: '下载账本副本',
+    icon: ArrowDownTrayIcon,
+  },
+  {
+    key: 'about',
+    label: '关于',
+    description: '版本信息',
+    icon: InformationCircleIcon,
+  },
+]
 
 export function SettingsPage() {
   const aboutQuery = useAbout()
+  const [section, setSection] = useState<SettingsSection>('connections')
   const [theme, setTheme] = useState<'system' | 'light' | 'dark'>(() => {
     const saved = localStorage.getItem('granary.theme')
     return saved === 'light' || saved === 'dark' ? saved : 'system'
   })
   const [density, setDensity] = useState<'compact' | 'comfortable'>(() => {
-    return localStorage.getItem('granary.density') === 'comfortable' ? 'comfortable' : 'compact'
+    return localStorage.getItem('granary.density') === 'comfortable'
+      ? 'comfortable'
+      : 'compact'
   })
 
-  // 存储键沿用 granary.* 前缀（同 date-range）：主题/密度与日期范围一起迁，不是漏改。
   useEffect(() => {
     const root = document.documentElement
     if (theme === 'system') delete root.dataset.theme
@@ -39,79 +81,140 @@ export function SettingsPage() {
       : (aboutQuery.data?.data.version ?? '暂无')
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-      <h1 className="text-xl font-semibold text-[var(--text-primary)]">设置</h1>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+      <div>
+        <h1 className="text-xl font-semibold text-[var(--text-primary)]">
+          设置
+        </h1>
+        <p className="mt-1 text-sm text-[var(--text-secondary)]">
+          管理连接、显示偏好和数据导出。
+        </p>
+      </div>
 
-      <Card>
-        <SectionHeading
-          title="基础资料"
-          description="分类和标签在记账时用于归类，归档后不再出现在选择列表里。"
-          className="mb-4"
-        />
-        <ReferenceDataPanel />
-      </Card>
+      <div className="grid items-start gap-5 md:grid-cols-[190px_minmax(0,1fr)]">
+        <nav
+          aria-label="设置分类"
+          className="flex gap-1 overflow-x-auto md:flex-col"
+        >
+          {SECTIONS.map((item) => {
+            const Icon = item.icon
+            const active = item.key === section
+            return (
+              <button
+                key={item.key}
+                type="button"
+                aria-current={active ? 'page' : undefined}
+                onClick={() => setSection(item.key)}
+                className={`flex min-w-[150px] items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors md:min-w-0 ${
+                  active
+                    ? 'bg-[var(--surface-selected)] text-[var(--text-primary)]'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <Icon aria-hidden className="size-4.5 shrink-0" />
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold">
+                    {item.label}
+                  </span>
+                  <span className="hidden truncate text-[11px] text-[var(--text-tertiary)] md:block">
+                    {item.description}
+                  </span>
+                </span>
+              </button>
+            )
+          })}
+        </nav>
 
-      <Card>
-        <SectionHeading title="外观" className="mb-4" />
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="主题" hint="跟随系统时会随系统深浅色切换">
-            <Select
-              value={theme}
-              onChange={(e) => setTheme(e.target.value as 'system' | 'light' | 'dark')}
-            >
-              <option value="system">跟随系统</option>
-              <option value="light">浅色</option>
-              <option value="dark">深色</option>
-            </Select>
-          </Field>
-          <Field label="交易行高" hint="影响交易列表每行的高度">
-            <Select
-              value={density}
-              onChange={(e) => setDensity(e.target.value as 'compact' | 'comfortable')}
-            >
-              <option value="compact">紧凑 40px</option>
-              <option value="comfortable">舒适 48px</option>
-            </Select>
-          </Field>
-        </div>
-      </Card>
+        {section === 'connections' && (
+          <Card>
+            <SectionHeading
+              title="连接与授权"
+              description="查看财务助手状态，并管理命令行访问。"
+              className="mb-5"
+            />
+            <ModelConnectionPanel />
+            <TokensPanel />
+          </Card>
+        )}
 
-      <Card>
-        <SectionHeading
-          title="访问令牌"
-          description="abaku-web 用令牌访问 Firefly，令牌只在签发时显示一次。"
-          className="mb-4"
-        />
-        <TokensPanel />
-      </Card>
+        {section === 'appearance' && (
+          <Card>
+            <SectionHeading
+              title="显示"
+              description="偏好只保存在当前浏览器。"
+              className="mb-6"
+            />
+            <div className="grid gap-6 sm:grid-cols-2">
+              <div>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                  主题
+                </h3>
+                <p className="mb-2 mt-0.5 text-xs text-[var(--text-secondary)]">
+                  跟随系统会自动切换深浅色。
+                </p>
+                <SegmentedControl
+                  aria-label="主题"
+                  value={theme}
+                  onChange={setTheme}
+                  segments={[
+                    { value: 'system', label: '系统' },
+                    { value: 'light', label: '浅色' },
+                    { value: 'dark', label: '深色' },
+                  ]}
+                />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                  交易列表
+                </h3>
+                <p className="mb-2 mt-0.5 text-xs text-[var(--text-secondary)]">
+                  调整每行信息的垂直空间。
+                </p>
+                <SegmentedControl
+                  aria-label="交易列表密度"
+                  value={density}
+                  onChange={setDensity}
+                  segments={[
+                    { value: 'compact', label: '紧凑' },
+                    { value: 'comfortable', label: '舒适' },
+                  ]}
+                />
+              </div>
+            </div>
+          </Card>
+        )}
 
-      {/* 导出面板一直存在也有测试，但没有任何页面引到它——从设置页进得去才算做完 */}
-      <Card>
-        <SectionHeading
-          title="导出 CSV"
-          description="从 Firefly 直接下载 CSV，交易类型可以再限定日期范围和账户。"
-          className="mb-4"
-        />
-        <ExportPanel />
-      </Card>
+        {section === 'export' && (
+          <Card>
+            <SectionHeading
+              title="数据导出"
+              description="从 Firefly 下载 CSV 账本副本。"
+              className="mb-5"
+            />
+            <ExportPanel />
+          </Card>
+        )}
 
-      <Card>
-        <SectionHeading title="关于" className="mb-4" />
-        <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-          <div className="flex justify-between gap-4 sm:block">
-            <dt className="text-[var(--text-secondary)]">Firefly 版本</dt>
-            <dd className="font-mono tabular-nums text-[var(--text-primary)] sm:mt-0.5">
-              {version}
-            </dd>
-          </div>
-          <div className="flex justify-between gap-4 sm:block">
-            <dt className="text-[var(--text-secondary)]">Abaku Web 版本</dt>
-            <dd className="font-mono tabular-nums text-[var(--text-primary)] sm:mt-0.5">
-              {pkg.version}
-            </dd>
-          </div>
-        </dl>
-      </Card>
+        {section === 'about' && (
+          <Card>
+            <SectionHeading title="关于 Abaku" className="mb-5" />
+            <dl className="divide-y divide-[var(--border-subtle)] text-sm">
+              <div className="flex items-center justify-between gap-4 py-3 first:pt-0">
+                <dt className="text-[var(--text-secondary)]">Firefly III</dt>
+                <dd className="font-mono tabular-nums text-[var(--text-primary)]">
+                  {version}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-4 py-3 last:pb-0">
+                <dt className="text-[var(--text-secondary)]">Abaku Web</dt>
+                <dd className="font-mono tabular-nums text-[var(--text-primary)]">
+                  {pkg.version}
+                </dd>
+              </div>
+            </dl>
+          </Card>
+        )}
+      </div>
     </div>
   )
 }

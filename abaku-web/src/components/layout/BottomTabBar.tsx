@@ -13,12 +13,9 @@ import { useNavBadges } from '../../routes/useNavBadges'
 import type { NavPath } from '../../routes/navItems'
 
 /** 「我的」sheet 覆盖的剩余导航路径，用于判断底部 tab「我的」的高亮态。 */
-const MORE_PATHS: NavPath[] = ['/reconciliation', '/budgets', '/accounts', '/analysis', '/settings']
+const MORE_PATHS: NavPath[] = ['/assistant', '/reconciliation', '/accounts', '/reference-data', '/analysis', '/settings']
 
-/**
- * 选中态用 --brand-text 而不是 --brand：后者是「实心底」的颜色，深色主题下它
- * 压在 surface-1 上当文字用只有 2.x:1，基本看不见。
- */
+/** 移动端标签颜色与桌面导航使用同一套品牌前景 token。 */
 const TAB_BASE = 'flex flex-1 flex-col items-center justify-center gap-1 text-[10px] font-medium transition-colors'
 const TAB_ACTIVE = 'text-[var(--brand-text)]'
 const TAB_IDLE = 'text-[var(--text-secondary)]'

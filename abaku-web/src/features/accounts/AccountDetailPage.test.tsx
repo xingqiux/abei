@@ -204,7 +204,7 @@ describe('AccountDetailPage 确认删除', () => {
     fireEvent.click(deleteButton())
 
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith({ kind: 'success', message: '账户已删除' }))
-    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/accounts' })
+    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/accounts', search: { view: undefined } })
   })
 
   it('删除失败时留在原地报错，不跳走也不谎报成功', async () => {

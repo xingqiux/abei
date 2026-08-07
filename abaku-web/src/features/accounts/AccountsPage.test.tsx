@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   fireflyDelete: vi.fn(),
   fireflyPost: vi.fn(),
   toast: vi.fn(),
+  navigate: vi.fn(),
 }))
 
 // 只换 HTTP 原语，api/firefly 与 api/queries 跑真的，这样能钉死「归档按钮到底发了什么请求」
@@ -23,6 +24,8 @@ vi.mock('../../api/client', async (importOriginal) => ({
 }))
 vi.mock('../../store/toastStore', () => ({ showToast: mocks.toast }))
 vi.mock('@tanstack/react-router', () => ({
+  useSearch: () => ({ view: undefined }),
+  useNavigate: () => mocks.navigate,
   Link: ({ to, params: _params, children, ...props }: { to: string; params?: unknown; children: ReactNode }) => (
     <a href={to} {...props}>{children}</a>
   ),
@@ -87,6 +90,7 @@ beforeEach(() => {
   mocks.fireflyDelete.mockReset().mockResolvedValue(undefined)
   mocks.fireflyPost.mockReset()
   mocks.toast.mockReset()
+  mocks.navigate.mockReset()
   stubAccounts([CHECKING, SAVINGS])
 })
 
