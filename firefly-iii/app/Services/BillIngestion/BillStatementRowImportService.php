@@ -70,19 +70,26 @@ class BillStatementRowImportService
         ];
     }
 
-    private function completeTaskWhenNoActionableRowsRemain(User $user, int $taskId): void
+    /**
+     * 任务转 imported 的条件：名下不存在还没处置的行。
+     *
+     * 「处置过」= dismissed / split / imported。pending 和 needs_split 都还等着人动手，
+     * 有一条就不算完。原先的判定把 duplicate/conflict 的 pending 行当「无需处理」，
+     * 于是任务带着一堆没人看过的行翻成 imported，从收件箱里消失——那些行的去留
+     * 再没人问起。判重结论不是处置结论，要划掉就得真的划掉。
+     *
+     * failed 行另算：它是导入报的错，任务得停在 parsed 把错误亮出来，不能装作完事了。
+     *
+     * 公开的：划掉一批行之后任务也可能就此收工，调用方得能自己重跑一遍判定。
+     */
+    public function completeTaskWhenNoActionableRowsRemain(User $user, int $taskId): void
     {
-        $remaining = BillStatementRow::query()
+        $unresolved = BillStatementRow::query()
             ->where('user_id', $user->id)
             ->where('bill_task_id', $taskId)
-            ->where(static function ($query): void {
-                $query->whereIn('status', ['needs_split', 'failed'])
-                    ->orWhere(static function ($pending): void {
-                        $pending->where('status', 'pending')->where('duplicate_state', 'unique');
-                    });
-            })
+            ->whereIn('status', ['pending', 'needs_split', 'failed'])
             ->exists();
-        if ($remaining) {
+        if ($unresolved) {
             return;
         }
 
@@ -100,10 +107,45 @@ class BillStatementRowImportService
     }
 
     /**
+     * 恢复一条划掉的行之后，任务不能还挂着 imported——它名下又有活了。
+     */
+    public function reopenTaskWhenRowsReturn(User $user, int $taskId): void
+    {
+        /** @var null|BillTask $task */
+        $task = BillTask::query()->where('user_id', $user->id)->find($taskId);
+        if (!$task instanceof BillTask || 'imported' !== $task->status) {
+            return;
+        }
+
+        $unresolved = BillStatementRow::query()
+            ->where('user_id', $user->id)
+            ->where('bill_task_id', $taskId)
+            ->whereIn('status', ['pending', 'needs_split', 'failed'])
+            ->exists();
+        if (!$unresolved) {
+            return;
+        }
+
+        $task->status = 'parsed';
+        $task->save();
+        $task->events()->create([
+            'event_type' => 'task.reopened',
+            'message'    => '有流水恢复成待处理，任务重新打开',
+        ]);
+    }
+
+    /**
      * @return array<string,mixed>
      */
     private function importRow(User $user, BillStatementRow $row, bool $confirm, bool $includePayload): array
     {
+        if ('dismissed' === $row->status) {
+            return $this->reportForRow($user, $row, [
+                'status' => 'skipped',
+                'error'  => '这条流水已经划掉，要入账先恢复它。',
+            ]);
+        }
+
         if (in_array($row->status, ['needs_split', 'split'], true)) {
             return $this->reportForRow($user, $row, [
                 'status' => 'skipped',

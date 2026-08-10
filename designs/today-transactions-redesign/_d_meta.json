@@ -1,0 +1,18 @@
+{
+  "type": "design",
+  "designSystems": [],
+  "primaryDesignSystem": null,
+  "assets": {
+    "阿贝 今天与交易 重做": {
+      "versions": [
+        {
+          "path": "阿贝 今天与交易 重做.html",
+          "createdAt": "2026-08-09T11:04:26.064Z",
+          "status": "needs-review"
+        }
+      ]
+    }
+  },
+  "createdAt": "2026-08-09T11:04:26.067Z",
+  "updatedAt": "2026-08-09T11:04:26.067Z"
+}

@@ -97,9 +97,36 @@ services:
     volumes:
       - ./firefly-iii/storage:/var/www/html/storage
 
-  abaku-agent:
+  # 账本数据的统一 API 面。命令行、AI agent 和前端都只对着它说话。
+  #
+  # 18002 是这个服务的号，宿主机上直接发出来：`abei` 命令行、vite dev 的 /v1 代理和
+  # playwright 都按 127.0.0.1:18002 找它，本机 cargo run 起的 abei-api 也用这个号。
+  # 容器版和本机版因此二选一，`make dev`/`make dev-web` 会先停掉容器版。
+  abei-api:
     build:
-      context: ./firefly-cli
+      context: ./abei
+      target: runtime
+    environment:
+      # 容器内固定 18002；宿主侧映射端口才由 .env 的 ABEI_API_PORT 决定。
+      ABEI_API_HOST: 0.0.0.0
+      ABEI_API_PORT: 18002
+      FIREFLY_URL: http://app
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${ABEI_API_PORT:-18002}:18002"
+    # 镜像里自带 HEALTHCHECK，但那份是 30s 间隔的生产节奏；
+    # 本地 `make up --wait` 要快，这里覆盖成密探测。
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18002/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  abei-agent:
+    build:
+      context: ./abei-agent
       target: runtime
     environment:
       AI_HOST: 0.0.0.0
@@ -110,6 +137,7 @@ services:
       APP_KEY: ${APP_KEY:-SomeRandomStringOf32CharsExactly}
       TZ: ${TZ:-Asia/Shanghai}
       FIREFLY_URL: http://app
+      ABEI_API_URL: http://abei-api:18002
       DB_HOST: db
       DB_PORT: 5432
       DB_DATABASE: ${POSTGRES_DB:-firefly}
@@ -129,24 +157,28 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${ABAKU_AGENT_PORT:-18003}:18003"
+      - "127.0.0.1:${ABEI_AGENT_PORT:-18003}:18003"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:18003/api/ai/health').then(r=>{if(!r.ok)process.exit(1)})"]
       interval: 5s
       timeout: 5s
       retries: 20
 
-  abaku-web:
+  # nginx 静态站，同域把 /v1 反代给 abei-api、/api/ai 给 abei-agent、/api 给 Firefly。
+  # 用 18004 而不是 18002：18002 是 abei-api 自己的号，两边抢会让本机开发起不来。
+  abei-web:
     build:
-      context: ./abaku-web
+      context: ./abei-web
       target: runtime
     depends_on:
       app:
         condition: service_healthy
-      abaku-agent:
+      abei-api:
+        condition: service_healthy
+      abei-agent:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${ABAKU_WEB_PORT:-18002}:80"
+      - "127.0.0.1:${ABEI_WEB_PORT:-18004}:80"
 
   test-db:
     image: postgres:17-alpine
@@ -194,13 +226,13 @@ services:
       - ./firefly-iii/mago.toml:/var/www/html/mago.toml:ro
     command: ["vendor/bin/phpunit", "--no-coverage"]
 
-  cli-test:
+  agent-test:
     image: node:22-alpine
     profiles: [test]
     working_dir: /workspace
     volumes:
-      - ./firefly-cli:/workspace
-      - cli-node-modules:/workspace/node_modules
+      - ./abei-agent:/workspace
+      - agent-node-modules:/workspace/node_modules
     command: ["sh", "-lc", "npm ci && npm run test:run"]
 
   web-test:
@@ -208,7 +240,7 @@ services:
     profiles: [test]
     working_dir: /workspace
     volumes:
-      - ./abaku-web:/workspace
+      - ./abei-web:/workspace
       - web-node-modules:/workspace/node_modules
     command: ["sh", "-lc", "npm ci && npm run test:run"]
 
@@ -235,6 +267,6 @@ services:
         npm audit --audit-level=high --registry=https://registry.npmjs.org
 
 volumes:
-  cli-node-modules:
+  agent-node-modules:
   dev-postgres:
   web-node-modules:

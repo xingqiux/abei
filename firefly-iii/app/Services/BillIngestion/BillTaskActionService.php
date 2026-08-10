@@ -18,6 +18,7 @@ class BillTaskActionService
     public function __construct(
         private readonly BillTaskProcessor $taskProcessor,
         private readonly BillSourceChannelRegistry $channelRegistry,
+        private readonly BillStatementRowDismissalService $dismissalService = new BillStatementRowDismissalService(),
     ) {}
 
     public function ignore(BillTask $billTask): BillTask
@@ -44,7 +45,13 @@ class BillTaskActionService
         $billTask->metadata            = $metadata;
         $billTask->save();
 
-        $this->appendEvent($billTask, 'task.archived', '账单任务已归档');
+        // 任务归档了，名下没处置完的行不能继续挂在待办里——任务已经从列表消失，
+        // 那些行谁也点不到，却还在计数上。级联划掉，之后想找回来在「已划掉」里恢复。
+        $dismissed                     = $this->dismissalService->dismissPendingRowsForTask($billTask);
+
+        $this->appendEvent($billTask, 'task.archived', 0 === $dismissed
+            ? '账单任务已归档'
+            : sprintf('账单任务已归档，%d 条未处置流水一并划掉', $dismissed));
 
         return $billTask->refresh();
     }
@@ -127,6 +134,7 @@ class BillTaskActionService
             ->get()
         ;
 
+        // 逐个走 archive()，行的级联划掉在那里面，这里不重复一遍。
         foreach ($tasks as $task) {
             $this->archive($task);
         }

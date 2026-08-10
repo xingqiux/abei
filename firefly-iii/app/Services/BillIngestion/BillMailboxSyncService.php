@@ -50,9 +50,16 @@ class BillMailboxSyncService
                 }
 
                 foreach ($this->searchCriteria() as $criteria) {
+                    // X-GM-RAW 是 Gmail 私有扩展，别的 IMAP 服务器不认。
+                    if (str_contains($criteria, 'X-GM-RAW') && 'gmail' !== $config->provider) {
+                        continue;
+                    }
+
                     try {
                         $foundUids = $this->client->search($criteria, $limit);
-                    } catch (\Throwable) {
+                    } catch (\Throwable $e) {
+                        $result->addError(sprintf('邮箱搜索失败（%s）：%s', $criteria, $e->getMessage()));
+
                         continue;
                     }
 

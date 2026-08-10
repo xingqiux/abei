@@ -1,3 +1,0 @@
-celebrate-original.lottie   来源 URL 待补（用户下载，2026-07-09）— 彩纸炮，原色青/粉/红/绿
-money-bag-original.lottie   来源 URL 待补（用户下载，2026-07-09）— 钱袋金币，原色 #333/#FFDB5B
-处理：已程序化改色为Abaku token（celebrate.json / empty-wallet.json），映射见 git 历史。

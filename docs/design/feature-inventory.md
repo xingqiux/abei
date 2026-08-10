@@ -1,5 +1,7 @@
 # Firefly III 功能盘点 × abaku-web 实现状态 × 取舍建议
 
+> 2026-08-09 起改名为阿贝 / abei；本文是历史设计文档，旧名与旧路径保持原样。
+
 口径日期：2026-08-05（盘点时前端目录还叫 `granary-web`，现已改名 `abaku-web`）。
 数据来源：`php artisan route:list`（291 条路由，其中 API 272 条，归一化后 201 条不同路径）与 `abaku-web/src/api/firefly.ts` 的实际调用（约 70 条路径，覆盖率约 35%）。
 

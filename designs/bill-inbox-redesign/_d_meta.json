@@ -1,0 +1,19 @@
+{
+  "type": "design",
+  "designSystems": [],
+  "primaryDesignSystem": null,
+  "assets": {
+    "账单收件箱 重做": {
+      "versions": [
+        {
+          "path": "账单收件箱 重做.html",
+          "createdAt": "2026-08-09T09:22:59.930Z",
+          "status": "needs-review",
+          "subtitle": "整页重做：来源分层、行结构 3 版、分页 3 版、平台标记一套"
+        }
+      ]
+    }
+  },
+  "createdAt": "2026-08-09T09:22:59.930Z",
+  "updatedAt": "2026-08-09T09:22:59.930Z"
+}

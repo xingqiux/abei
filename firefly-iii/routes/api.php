@@ -475,6 +475,21 @@ Route::group(
     }
 );
 
+// 跨任务的流水队列：收件箱按「还有多少笔要处理」看，不按邮件看。
+Route::group(
+    [
+        'namespace' => 'FireflyIII\Api\V1\Controllers\Models\BillTask',
+        'prefix'    => 'v1/bill-rows',
+        'as'        => 'api.v1.bill-rows.',
+    ],
+    static function (): void {
+        Route::get('', ['uses' => 'RowQueueController@index', 'as' => 'index']);
+        Route::post('dismiss', ['uses' => 'RowQueueController@dismiss', 'as' => 'dismiss']);
+        Route::post('restore', ['uses' => 'RowQueueController@restore', 'as' => 'restore']);
+        Route::post('import', ['uses' => 'RowQueueController@import', 'as' => 'import']);
+    }
+);
+
 Route::group(
     [
         'namespace' => 'FireflyIII\Api\V1\Controllers\Models\BillTask',
@@ -570,8 +585,29 @@ Route::group(
         Route::put('{category}', ['uses' => 'UpdateController@update', 'as' => 'update']);
         Route::delete('{category}', ['uses' => 'DestroyController@destroy', 'as' => 'delete']);
 
+        Route::post('{category}/merge', ['uses' => 'ActionController@merge', 'as' => 'merge']);
+
         Route::get('{category}/transactions', ['uses' => 'ListController@transactions', 'as' => 'transactions']);
         Route::get('{category}/attachments', ['uses' => 'ListController@attachments', 'as' => 'attachments']);
+    }
+);
+
+// v0.2 分类系统的自有端点：分类统计和按组预算。
+// 不挂在 /categories 下面，它们返回的都不是分类资源本身，是围着分类算出来的数。
+Route::group(
+    [
+        'namespace' => 'FireflyIII\Api\V1\Controllers\Abei',
+        'prefix'    => 'v1/abei',
+        'as'        => 'api.v1.abei.',
+    ],
+    static function (): void {
+        Route::get('category-stats', ['uses' => 'CategoryStatsController@index', 'as' => 'category-stats']);
+
+        // 用 {categoryId} 不用 {category}：这里要的是「必须是支出域顶级组」的校验，
+        // 走路由模型绑定的话不合格的 id 会先变成 404，说不清到底哪里不对。
+        Route::get('budget-groups', ['uses' => 'BudgetGroupController@index', 'as' => 'budget-groups.index']);
+        Route::put('budget-groups/{categoryId}', ['uses' => 'BudgetGroupController@update', 'as' => 'budget-groups.update'])
+            ->where('categoryId', '[0-9]+');
     }
 );
 
@@ -948,7 +984,7 @@ Route::group(
     }
 );
 
-// Personal access token management for first-party web clients (abaku-web).
+// Personal access token management for first-party web clients (abei-web).
 Route::group(
     [
         'namespace' => 'FireflyIII\Api\V1\Controllers\User',

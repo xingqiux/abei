@@ -278,6 +278,10 @@ trait BillTaskResponse
                 'bill_statement_import_id' => (string) $row->bill_statement_import_id,
                 'row_number'               => $row->row_number,
                 'status'                   => $row->status,
+                // 划掉的行带上是谁划的：duplicate_auto / zero_amount / task_archived / user。
+                // 界面据此决定「这批能不能一键恢复」——机器划错了可以，人划的不能替他反悔。
+                'dismissed_reason'         => $row->dismissed_reason,
+                'dismissed_at'             => optional($row->dismissed_at)->toAtomString(),
                 'occurred_at'              => optional($row->occurred_at)->toAtomString(),
                 'platform_category'        => $row->platform_category,
                 'counterparty'             => $row->counterparty,
@@ -316,6 +320,32 @@ trait BillTaskResponse
                 'updated_at'               => optional($row->updated_at)->toAtomString(),
             ],
         ];
+    }
+
+    /**
+     * 跨任务队列（GET /api/v1/bill-rows）用的行。
+     *
+     * 在单行资源上多挂三样：这一条落在哪一组、为什么落进去、它是从哪封邮件来的。
+     * 最后那个是「来源凭证」——队列里一行一行看的时候，人得能当场认出这笔是哪来的，
+     * 不用先跳去任务详情页。
+     *
+     * @param array<int,string> $reasons
+     */
+    protected function queueRowResource(BillStatementRow $row, string $group, array $reasons): array
+    {
+        $resource = $this->statementRowResource($row);
+        $task     = $row->billTask;
+
+        $resource['attributes']['group']   = $group;
+        $resource['attributes']['reasons'] = array_values($reasons);
+        $resource['attributes']['task']    = $task instanceof BillTask ? [
+            'id'          => (string) $task->id,
+            'source'      => $task->source,
+            'summary'     => $task->summary,
+            'received_at' => optional($task->received_at)->toAtomString(),
+        ] : null;
+
+        return $resource;
     }
 
     private function publicMetadata(mixed $metadata): mixed

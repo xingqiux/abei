@@ -1,9 +1,0 @@
-<!-- Abaku 算珠 · 主标志。算盘的一根档：竖杆 + 横梁 + 梁上一颗 + 梁下两颗。
-     用 currentColor，由使用处决定颜色。16px 以下请改用 abaku-mark-16.svg。 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" role="img" aria-label="Abaku">
-  <path d="M12 2.8v18.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-  <path d="M4.6 10.4h14.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-  <rect x="8" y="4.8" width="8" height="3.2" rx="1.6" fill="currentColor"/>
-  <rect x="8" y="13.2" width="8" height="3.2" rx="1.6" fill="currentColor"/>
-  <rect x="8" y="17.4" width="8" height="3.2" rx="1.6" fill="currentColor"/>
-</svg>

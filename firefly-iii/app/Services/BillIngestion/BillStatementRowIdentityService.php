@@ -39,6 +39,10 @@ class BillStatementRowIdentityService
         'tags',
     ];
 
+    public function __construct(
+        private readonly BillStatementRowDismissalService $dismissalService = new BillStatementRowDismissalService(),
+    ) {}
+
     /**
      * @param array<string,mixed> $attributes
      */
@@ -208,6 +212,9 @@ class BillStatementRowIdentityService
     {
         $metadata = is_array($attributes['metadata'] ?? null) ? $attributes['metadata'] : [];
         unset($attributes['metadata']);
+
+        // 五个渠道的 ImportService 建行都从这里过，0 元流水的判定就搁这一处。
+        $attributes = $this->dismissalService->applyInitialRules($attributes);
 
         return $attributes + [
             'user_id'                  => $import->user_id,

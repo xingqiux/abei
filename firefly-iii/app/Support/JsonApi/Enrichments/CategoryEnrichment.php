@@ -29,6 +29,7 @@ use FireflyIII\Models\Category;
 use FireflyIII\Models\Note;
 use FireflyIII\Models\UserGroup;
 use FireflyIII\Repositories\Category\OperationsRepositoryInterface;
+use FireflyIII\Services\Category\CategoryUsageService;
 use FireflyIII\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
@@ -36,6 +37,7 @@ use Illuminate\Support\Collection;
 class CategoryEnrichment implements EnrichmentInterface
 {
     private Collection $collection;
+    private array   $children    = [];
     private array   $earned      = [];
     private ?Carbon $end         = null;
     private array   $ids         = [];
@@ -46,6 +48,7 @@ class CategoryEnrichment implements EnrichmentInterface
     private array   $spent       = [];
     private ?Carbon $start       = null;
     private array   $transfers   = [];
+    private array   $usage       = [];
     private User $user;
     private UserGroup $userGroup;
 
@@ -54,6 +57,8 @@ class CategoryEnrichment implements EnrichmentInterface
         $this->collection = $collection;
         $this->collectIds();
         $this->collectNotes();
+        $this->collectChildren();
+        $this->collectUsage();
         $this->collectTransactions();
         $this->appendCollectedData();
 
@@ -95,18 +100,49 @@ class CategoryEnrichment implements EnrichmentInterface
         $this->collection = $this->collection->map(function (Category $item): Category {
             $id         = (int) $item->id;
             $meta       = [
-                'notes'        => $this->notes[$id] ?? null,
-                'spent'        => $this->spent[$id] ?? null,
-                'pc_spent'     => $this->pcSpent[$id] ?? null,
-                'earned'       => $this->earned[$id] ?? null,
-                'pc_earned'    => $this->pcEarned[$id] ?? null,
-                'transfers'    => $this->transfers[$id] ?? null,
-                'pc_transfers' => $this->pcTransfers[$id] ?? null,
+                'children'           => $this->children[$id] ?? [],
+                'transactions_count' => $this->usage[$id]['transactions_count'] ?? 0,
+                'last_used'          => $this->usage[$id]['last_used'] ?? null,
+                'notes'              => $this->notes[$id] ?? null,
+                'spent'              => $this->spent[$id] ?? null,
+                'pc_spent'           => $this->pcSpent[$id] ?? null,
+                'earned'             => $this->earned[$id] ?? null,
+                'pc_earned'          => $this->pcEarned[$id] ?? null,
+                'transfers'          => $this->transfers[$id] ?? null,
+                'pc_transfers'       => $this->pcTransfers[$id] ?? null,
             ];
             $item->meta = $meta;
 
             return $item;
         });
+    }
+
+    /**
+     * 一条查询把这批分类的孩子全捞回来，管理界面直接拿去画树。
+     */
+    private function collectChildren(): void
+    {
+        $children = Category::query()
+            ->where('user_id', $this->user->id)
+            ->whereIn('parent_id', $this->ids)
+            ->orderBy('name', 'ASC')
+            ->get(['categories.id', 'categories.name', 'categories.parent_id', 'categories.system', 'categories.domain', 'categories.icon', 'categories.color', 'categories.disabled_at'])
+        ;
+
+        /** @var Category $child */
+        foreach ($children as $child) {
+            $parentId                    = (int) $child->parent_id;
+            $this->children[$parentId] ??= [];
+            $this->children[$parentId][] = [
+                'id'          => (string) $child->id,
+                'name'        => $child->name,
+                'system'      => (bool) $child->system,
+                'domain'      => (string) $child->domain,
+                'icon'        => $child->icon,
+                'color'       => $child->color,
+                'disabled_at' => $child->disabled_at?->toAtomString(),
+            ];
+        }
     }
 
     private function collectIds(): void
@@ -155,5 +191,13 @@ class CategoryEnrichment implements EnrichmentInterface
                 $this->pcTransfers[$id] = array_values($opsRepository->sumCollectedTransactionsByCategory($transfers, $item, 'positive', true));
             }
         }
+    }
+
+    /**
+     * 笔数和最近使用日期。整批一条聚合查询，不按分类逐个数。
+     */
+    private function collectUsage(): void
+    {
+        $this->usage = app(CategoryUsageService::class)->usageFor($this->user, $this->ids);
     }
 }

@@ -1,9 +1,0 @@
-<!-- Abaku 算珠 · 16px 专用简化稿（favicon / 折叠侧栏）。
-     珠子减到两颗，笔画对齐 16 网格半像素，杆与梁加粗到 1.5px。
-     不要用主标志缩小到 16px——梁与珠的间隙会糊。 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="Abaku">
-  <rect x="7.25" y="1.5" width="1.5" height="13" rx="0.75"/>
-  <rect x="2" y="7.25" width="12" height="1.5" rx="0.75"/>
-  <rect x="4.5" y="3" width="7" height="2.5" rx="1.25"/>
-  <rect x="4.5" y="10.5" width="7" height="2.5" rx="1.25"/>
-</svg>

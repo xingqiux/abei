@@ -81,6 +81,12 @@ interface CategoryRepositoryInterface
      */
     public function getCategories(): Collection;
 
+    /**
+     * Categories the user maintains themselves. System categories are left out unless asked for,
+     * and so are disabled ones. Optionally narrowed down to a single domain.
+     */
+    public function getUserCategories(bool $includeSystem = false, ?string $domain = null, bool $includeDisabled = false): Collection;
+
     public function getNoteText(Category $category): ?string;
 
     /**

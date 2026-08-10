@@ -32,6 +32,7 @@ use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -43,7 +44,7 @@ class Category extends Model
     use ReturnsIntegerUserIdTrait;
     use SoftDeletes;
 
-    protected $fillable = ['user_id', 'user_group_id', 'name'];
+    protected $fillable = ['user_id', 'user_group_id', 'name', 'parent_id', 'system', 'domain', 'icon', 'color', 'disabled_at'];
 
     protected $hidden   = ['encrypted'];
 
@@ -79,11 +80,24 @@ class Category extends Model
     }
 
     /**
+     * Direct children. The tree is two levels deep at most, so a child never has children of its own.
+     */
+    public function children(): HasMany
+    {
+        return $this->hasMany(self::class, 'parent_id');
+    }
+
+    /**
      * Get all the category's notes.
      */
     public function notes(): MorphMany
     {
         return $this->morphMany(Note::class, 'noteable');
+    }
+
+    public function parent(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'parent_id');
     }
 
     public function primaryPeriodStatistics(): MorphMany
@@ -112,9 +126,12 @@ class Category extends Model
             'created_at'    => 'datetime',
             'updated_at'    => 'datetime',
             'deleted_at'    => 'datetime',
+            'disabled_at'   => 'datetime',
             'encrypted'     => 'boolean',
+            'system'        => 'boolean',
             'user_id'       => 'integer',
             'user_group_id' => 'integer',
+            'parent_id'     => 'integer',
         ];
     }
 }

@@ -32,6 +32,8 @@ use FireflyIII\Models\Category;
 use FireflyIII\Models\Note;
 use FireflyIII\Models\RecurrenceTransactionMeta;
 use FireflyIII\Models\RuleAction;
+use FireflyIII\Services\Category\CategoryHierarchyService;
+use FireflyIII\Services\Category\DefaultCategorySet;
 use FireflyIII\Services\Internal\Destroy\CategoryDestroyService;
 use FireflyIII\Services\Internal\Update\CategoryUpdateService;
 use FireflyIII\Support\Repositories\UserGroup\UserGroupInterface;
@@ -191,6 +193,31 @@ class CategoryRepository implements CategoryRepositoryInterface, UserGroupInterf
         return $this->user->categories()->with(['attachments'])->orderBy('name', 'ASC')->get();
     }
 
+    /**
+     * 用户自己维护的那些分类。
+     *
+     * v0.2 起默认词表本身就是 system=true，所以 $includeSystem 不再是「藏起对账用的内部分类」，
+     * 调用方基本都会传 true；参数留着是因为图表、导出这些内部消费者的口径没变。
+     *
+     * 禁用的分类默认不返回：禁用的意思就是「从选择器和白名单里消失」。管理页要看全的传
+     * $includeDisabled。
+     */
+    public function getUserCategories(bool $includeSystem = false, ?string $domain = null, bool $includeDisabled = false): Collection
+    {
+        $query = $this->user->categories()->with(['attachments'])->orderBy('name', 'ASC');
+        if (!$includeSystem) {
+            $query->where('categories.system', false);
+        }
+        if (null !== $domain && '' !== $domain) {
+            $query->where('categories.domain', $domain);
+        }
+        if (!$includeDisabled) {
+            $query->whereNull('categories.disabled_at');
+        }
+
+        return $query->get();
+    }
+
     public function getNoteText(Category $category): ?string
     {
         $dbNote = $category->notes()->first();
@@ -283,15 +310,23 @@ class CategoryRepository implements CategoryRepositoryInterface, UserGroupInterf
      */
     public function store(array $data): Category
     {
+        $hierarchy = app(CategoryHierarchyService::class);
+        $parent    = $hierarchy->resolveParent($this->user, null, $data['parent_id'] ?? null);
+        $name      = (string) $data['name'];
+        $hierarchy->assertNameIsFree($this->user, $name, $parent);
+
         /** @var CategoryFactory $factory */
-        $factory  = app(CategoryFactory::class);
+        $factory   = app(CategoryFactory::class);
         $factory->setUser($this->user);
 
-        $category = $factory->findOrCreate(null, $data['name']);
+        // 域跟着父级走。子分类和组不在一个域里，报表就会把同一棵树的钱记到两栏去。
+        $domain    = $parent instanceof Category
+            ? (string) $parent->domain
+            : (string) ($data['domain'] ?? DefaultCategorySet::DOMAIN_EXPENSE);
 
-        if (null === $category) {
-            throw new FireflyException(sprintf('400003: Could not store new category with name "%s"', $data['name']));
-        }
+        // 直接建，不做 findOrCreate：重名在这里是合法的（不同父级下），
+        // 复用同名分类只会把别人家的孩子抱走。
+        $category  = $factory->create($name, $parent, (bool) ($data['system'] ?? false), $domain, $data['icon'] ?? null, $data['color'] ?? null);
 
         if (array_key_exists('notes', $data) && '' === $data['notes']) {
             $this->removeNotes($category);

@@ -1,5 +1,7 @@
 # Abaku 重构：做了什么
 
+> 2026-08-09 起改名为阿贝 / abei；本文是历史设计文档，旧名与旧路径保持原样。
+
 编制 2026-08-05，同日完工后改写成记录。上游文档：`docs/design/redesign-decisions.md`（决策）、
 `docs/design/feature-inventory.md`（Firefly 接口对照）。
 

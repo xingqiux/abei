@@ -12,6 +12,17 @@ use Illuminate\Support\Collection;
 
 class BillStatementRowSummaryService
 {
+    // 进入「要你拿主意」的理由。单任务审阅和跨任务队列（GET /api/v1/bill-rows）
+    // 共用这几句话，措辞改一处就够了，别让两个界面对同一件事有两种说法。
+    public const string REASON_NEEDS_SPLIT       = '组合支付需要先拆分真实扣款账户和金额';
+    public const string REASON_CONFLICT          = '疑似重复但核心字段冲突';
+    public const string REASON_DUPLICATE         = '已存在相同账单流水';
+    public const string REASON_CROSS_SOURCE      = '疑似与已有 Firefly 交易重复（跨来源）';
+    public const string REASON_CROSS_SOURCE_HIGH = '高度疑似跨来源重复交易';
+    public const string REASON_TRANSFER          = '疑似自己账户转账';
+    public const string REASON_NEEDS_NOTE        = '用途不够明确，需要补备注';
+    public const string REASON_NOT_IMPORTABLE    = '不是可直接导入的普通收支';
+
     public function __construct(
         private readonly BillStatementCurrencyResolver $currencyResolver,
         private readonly CrossSourceDuplicateMatcher $crossSourceMatcher = new CrossSourceDuplicateMatcher(),
@@ -93,6 +104,34 @@ class BillStatementRowSummaryService
     }
 
     /**
+     * 单行分桶：这一条要么能直接入账，要么得人拿主意，理由说清楚。
+     *
+     * 单任务审阅（reviewTaskRows）和跨任务队列（BillStatementRowQueueService）
+     * 从同一处取判定，免得同一条流水在两个界面里落进不同的桶。
+     *
+     * pending / needs_split 的行必落 importable 或 attention 之一，不留第三种去处——
+     * 有一条不属于任何一组，它就从待办里消失了，谁也不会再回头找它。
+     *
+     * @param list<array<string,mixed>> $crossSourceMatches CrossSourceDuplicateMatcher 给这一行的命中
+     *
+     * @return array{group:string,reasons:array<int,string>}
+     */
+    public function classifyRow(BillStatementRow $row, array $crossSourceMatches = []): array
+    {
+        if (!in_array($row->status, ['pending', 'needs_split'], true)) {
+            // dismissed / imported / split / failed 都已经有了归宿，按 status 报。
+            return ['group' => (string) $row->status, 'reasons' => []];
+        }
+
+        $reasons = $this->attentionReasons($row, $crossSourceMatches);
+
+        return [
+            'group'   => [] === $reasons ? 'importable' : 'attention',
+            'reasons' => $reasons,
+        ];
+    }
+
+    /**
      * @return array<string,mixed>
      */
     public function reviewTaskRows(User $user, int $taskId): array
@@ -117,17 +156,17 @@ class BillStatementRowSummaryService
             $rowMatches = $crossSourceMatches[$row->id] ?? [];
             $preview['cross_source_matches'] = $rowMatches;
             if ([] !== $rowMatches) {
-                $crossSourceCandidates[] = $preview + ['reason' => '疑似与已有 Firefly 交易重复（跨来源）'];
+                $crossSourceCandidates[] = $preview + ['reason' => self::REASON_CROSS_SOURCE];
                 if ('high' === ($rowMatches[0]['confidence'] ?? '')) {
-                    $skipCandidates[] = $preview + ['reason' => '高度疑似跨来源重复交易'];
+                    $skipCandidates[] = $preview + ['reason' => self::REASON_CROSS_SOURCE_HIGH];
                 }
             }
             if ('conflict' === $row->duplicate_state) {
-                $conflictCandidates[] = $preview + ['reason' => '疑似重复但核心字段冲突'];
+                $conflictCandidates[] = $preview + ['reason' => self::REASON_CONFLICT];
                 $skipCandidates[]     = $preview + ['reason' => '重复识别冲突，需要人工确认'];
             }
             if ('duplicate' === $row->duplicate_state) {
-                $duplicateCandidates[] = $preview + ['reason' => '已存在相同账单流水'];
+                $duplicateCandidates[] = $preview + ['reason' => self::REASON_DUPLICATE];
                 if (null !== $row->user_modified_at) {
                     $preservedUserEdits[] = $preview + ['reason' => '重复流水已保留你的手动修改'];
                 }
@@ -140,13 +179,13 @@ class BillStatementRowSummaryService
                 $skipCandidates[]     = $preview + ['reason' => '疑似重复交易'];
             }
             if ($this->looksLikeTransfer($row)) {
-                $transferCandidates[] = $preview + ['reason' => '疑似自己账户转账'];
+                $transferCandidates[] = $preview + ['reason' => self::REASON_TRANSFER];
             }
             if ($this->needsUserNote($row)) {
-                $needsUserNote[] = $preview + ['reason' => '用途不够明确，需要补备注'];
+                $needsUserNote[] = $preview + ['reason' => self::REASON_NEEDS_NOTE];
             }
             if (null === $row->firefly_type || '' === $row->firefly_type || in_array($row->direction, ['不计收支', '其他'], true)) {
-                $skipCandidates[] = $preview + ['reason' => '不是可直接导入的普通收支'];
+                $skipCandidates[] = $preview + ['reason' => self::REASON_NOT_IMPORTABLE];
             }
         }
 
@@ -303,6 +342,41 @@ class BillStatementRowSummaryService
         }
 
         return false;
+    }
+
+    /**
+     * @param list<array<string,mixed>> $crossSourceMatches
+     *
+     * @return array<int,string>
+     */
+    private function attentionReasons(BillStatementRow $row, array $crossSourceMatches): array
+    {
+        $reasons = [];
+        if ('needs_split' === $row->status) {
+            $reasons[] = self::REASON_NEEDS_SPLIT;
+        }
+        if ('conflict' === $row->duplicate_state) {
+            $reasons[] = self::REASON_CONFLICT;
+        }
+        if ('duplicate' === $row->duplicate_state) {
+            $reasons[] = self::REASON_DUPLICATE;
+        }
+        if ([] !== $crossSourceMatches) {
+            $reasons[] = 'high' === ($crossSourceMatches[0]['confidence'] ?? '')
+                ? self::REASON_CROSS_SOURCE_HIGH
+                : self::REASON_CROSS_SOURCE;
+        }
+        if ($this->looksLikeTransfer($row)) {
+            $reasons[] = self::REASON_TRANSFER;
+        }
+        if ($this->needsUserNote($row)) {
+            $reasons[] = self::REASON_NEEDS_NOTE;
+        }
+        if (null === $row->firefly_type || '' === $row->firefly_type || in_array($row->direction, ['不计收支', '其他'], true)) {
+            $reasons[] = self::REASON_NOT_IMPORTABLE;
+        }
+
+        return $reasons;
     }
 
     private function looksSpecialCase(BillStatementRow $row): bool

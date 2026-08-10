@@ -1,5 +1,7 @@
 # abaku-web 重构：已定决策与实现要点
 
+> 2026-08-09 起改名为阿贝 / abei；本文是历史设计文档，旧名与旧路径保持原样。
+
 定稿日期：2026-08-05。配套文档：`feature-inventory.md`（Firefly 全功能对照表）、
 `../implementation-plan.md`（分阶段实施计划与验证结论）。
 名字与 logo 见第八节，已定为 Abaku / 算珠。

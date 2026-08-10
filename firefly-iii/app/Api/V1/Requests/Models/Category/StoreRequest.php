@@ -24,6 +24,7 @@ declare(strict_types=1);
 
 namespace FireflyIII\Api\V1\Requests\Models\Category;
 
+use FireflyIII\Services\Category\DefaultCategorySet;
 use FireflyIII\Support\Request\ChecksLogin;
 use FireflyIII\Support\Request\ConvertsDataTypes;
 use Illuminate\Foundation\Http\FormRequest;
@@ -43,14 +44,47 @@ class StoreRequest extends FormRequest
      */
     public function getAll(): array
     {
-        return ['name' => $this->convertString('name'), 'notes' => $this->stringWithNewlines('notes')];
+        $data = [
+            'name'      => $this->convertString('name'),
+            'notes'     => $this->stringWithNewlines('notes'),
+            'parent_id' => $this->nullableInteger('parent_id'),
+            'icon'      => $this->nullableString('icon'),
+            'color'     => $this->nullableString('color'),
+        ];
+        if ($this->has('domain')) {
+            $data['domain'] = $this->convertString('domain');
+        }
+
+        return $data;
     }
 
     /**
      * The rules that the incoming request must be matched against.
+     *
+     * 名字唯一性不在这里判：现在只要求同级唯一，跨父级重名是合法的，
+     * 这条规矩连同两级限制一起放在 CategoryHierarchyService。
+     *
+     * domain 只有建分类的时候能选，之后改不了——报表口径认的就是它，
+     * 一条支出分类中途变成资金往来，历史统计会当场对不上。
      */
     public function rules(): array
     {
-        return ['name' => 'required|min:1|max:100|uniqueObjectForUser:categories,name'];
+        return [
+            'name'      => 'required|min:1|max:100',
+            'parent_id' => 'nullable|numeric',
+            'domain'    => 'nullable|in:'.implode(',', DefaultCategorySet::DOMAINS),
+            'icon'      => 'nullable|string|max:64',
+            'color'     => 'nullable|in:'.implode(',', DefaultCategorySet::COLORS),
+        ];
+    }
+
+    /**
+     * 空字符串当「没有」，不是当「设成空」。图标和色号要么有值要么是 null。
+     */
+    private function nullableString(string $field): ?string
+    {
+        $value = $this->convertString($field);
+
+        return '' === $value ? null : $value;
     }
 }

@@ -4,7 +4,7 @@
 !.env.example
 node_modules/
 firefly-iii/vendor/
-firefly-cli/node_modules/
+abei-agent/node_modules/
 storage/oauth-private.key
 storage/oauth-public.key
 firefly-iii/storage/oauth-private.key
@@ -13,8 +13,9 @@ firefly-iii/storage/database/*.sqlite
 firefly-iii/storage/database/*.sqlite-*
 firefly-iii/storage/logs/*.log
 firefly-iii/.phpunit.cache/
-firefly-cli/dist/
-firefly-cli/coverage/
+abei-agent/dist/
+abei-agent/coverage/
+abei/target/
 granary-server/target/
 .playwright-mcp/
 output/
@@ -25,3 +26,6 @@ env.secret
 firefly-rmb-*.tar.gz
 storage.tar.gz
 **/backups/
+
+# 真实账单金样本备份（含敏感财务数据，入库与否待定）
+/testdata/bill-inbox-golden/

@@ -33,9 +33,9 @@ final class SeedsE2EEnvironmentTest extends TestCase
         $primaryToken   = $this->tokenDirectory . '/primary-token';
         $secondaryToken = $this->tokenDirectory . '/secondary-token';
         $arguments      = [
-            '--email'                => 'abaku-primary@example.test',
+            '--email'                => 'abei-primary@example.test',
             '--token-path'           => $primaryToken,
-            '--secondary-email'      => 'abaku-secondary@example.test',
+            '--secondary-email'      => 'abei-secondary@example.test',
             '--secondary-token-path' => $secondaryToken
         ];
 
@@ -46,7 +46,7 @@ final class SeedsE2EEnvironmentTest extends TestCase
 
         // 浏览器用例会把这个账户归档掉，重播必须还原，否则同一套 e2e 第二次跑就没有「归档」按钮可点。
         User::query()
-            ->where('email', 'abaku-primary@example.test')
+            ->where('email', 'abei-primary@example.test')
             ->firstOrFail()
             ->accounts()
             ->where('name', 'E2E 归档账户')
@@ -61,17 +61,17 @@ final class SeedsE2EEnvironmentTest extends TestCase
         $this->assertNotSame('', trim((string) file_get_contents($primaryToken)));
         $this->assertNotSame(trim((string) file_get_contents($primaryToken)), trim((string) file_get_contents($secondaryToken)));
 
-        $primary   = User::query()->where('email', 'abaku-primary@example.test')->firstOrFail();
-        $secondary = User::query()->where('email', 'abaku-secondary@example.test')->firstOrFail();
-        $this->assertSame(1, $primary->tokens()->where('name', 'abaku-e2e')->where('revoked', false)->count());
-        $this->assertSame(1, $secondary->tokens()->where('name', 'abaku-e2e')->where('revoked', false)->count());
+        $primary   = User::query()->where('email', 'abei-primary@example.test')->firstOrFail();
+        $secondary = User::query()->where('email', 'abei-secondary@example.test')->firstOrFail();
+        $this->assertSame(1, $primary->tokens()->where('name', 'abei-e2e')->where('revoked', false)->count());
+        $this->assertSame(1, $secondary->tokens()->where('name', 'abei-e2e')->where('revoked', false)->count());
         $this->assertTrue((bool) Preferences::getForUser($primary, 'bill_inbox_mailbox_enabled')?->data);
         $this->assertNull(Preferences::getForUser($secondary, 'bill_inbox_mailbox_enabled'));
         $this->assertSame('CNY', $primary->userGroup->currencies()->wherePivot('group_default', true)->firstOrFail()->code);
         $this->assertSame('CNY', $secondary->userGroup->currencies()->wherePivot('group_default', true)->firstOrFail()->code);
 
-        $group = $primary->ruleGroups()->where('title', 'Abaku E2E Synthetic Rules')->firstOrFail();
-        $rule  = $primary->rules()->where('title', 'Abaku E2E Tag Synthetic Lunch')->firstOrFail();
+        $group = $primary->ruleGroups()->where('title', 'Abei E2E Synthetic Rules')->firstOrFail();
+        $rule  = $primary->rules()->where('title', 'Abei E2E Tag Synthetic Lunch')->firstOrFail();
         $this->assertSame(1, $primary->ruleGroups()->where('title', $group->title)->count());
         $this->assertSame(1, $primary->rules()->where('title', $rule->title)->count());
         $this->assertSame($group->id, $rule->rule_group_id);
@@ -79,14 +79,14 @@ final class SeedsE2EEnvironmentTest extends TestCase
         $this->assertTrue($rule->active);
         $this->assertSame('manual-activation', $rule->ruleTriggers()->where('trigger_type', 'user_action')->firstOrFail()->trigger_value);
         $this->assertSame('合成午餐', $rule->ruleTriggers()->where('trigger_type', 'description_contains')->firstOrFail()->trigger_value);
-        $this->assertSame('abaku-e2e-reviewed', $rule->ruleActions()->where('action_type', 'add_tag')->firstOrFail()->action_value);
+        $this->assertSame('abei-e2e-reviewed', $rule->ruleActions()->where('action_type', 'add_tag')->firstOrFail()->action_value);
 
-        $recurrence  = $primary->recurrences()->where('title', 'Abaku E2E Daily Synthetic Subscription')->firstOrFail();
+        $recurrence  = $primary->recurrences()->where('title', 'Abei E2E Daily Synthetic Subscription')->firstOrFail();
         $transaction = $recurrence->recurrenceTransactions()->firstOrFail();
         $this->assertSame(1, $primary->recurrences()->where('title', $recurrence->title)->count());
         $this->assertTrue($recurrence->active);
         $this->assertSame('daily', $recurrence->recurrenceRepetitions()->firstOrFail()->repetition_type);
-        $this->assertSame('Abaku E2E Synthetic Subscription Charge', $transaction->description);
+        $this->assertSame('Abei E2E Synthetic Subscription Charge', $transaction->description);
         $this->assertSame('CNY', $transaction->transactionCurrency->code);
         $this->assertSame($primary->id, $transaction->sourceAccount->user_id);
         $this->assertSame($primary->id, $transaction->destinationAccount->user_id);
@@ -102,8 +102,8 @@ final class SeedsE2EEnvironmentTest extends TestCase
             $secondary
                 ->accounts()
                 ->whereIn('name', [
-                    'Abaku E2E Recurrence Source',
-                    'Abaku E2E Recurrence Merchant'
+                    'Abei E2E Recurrence Source',
+                    'Abei E2E Recurrence Merchant'
                 ])
                 ->count()
         );
@@ -113,7 +113,7 @@ final class SeedsE2EEnvironmentTest extends TestCase
     {
         parent::setUp();
 
-        $this->tokenDirectory = sys_get_temp_dir() . '/abaku-e2e-command-' . bin2hex(random_bytes(8));
+        $this->tokenDirectory = sys_get_temp_dir() . '/abei-e2e-command-' . bin2hex(random_bytes(8));
     }
 
     protected function tearDown(): void

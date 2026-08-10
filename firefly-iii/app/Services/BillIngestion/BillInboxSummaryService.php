@@ -16,7 +16,10 @@ use FireflyIII\User;
  */
 class BillInboxSummaryService
 {
-    public function __construct(private readonly BillSourceChannelRegistry $channelRegistry) {}
+    public function __construct(
+        private readonly BillSourceChannelRegistry $channelRegistry,
+        private readonly BillStatementRowQueueService $queueService,
+    ) {}
 
     /**
      * 每个渠道一条记录，字段含义：
@@ -89,7 +92,10 @@ class BillInboxSummaryService
     /**
      * 供 GET /api/v1/bill-inbox/summary 使用的扁平化结构。
      *
-     * @return array{pending_total:int,needs_code:int,unprocessed:int,failed:int,channels:array<int,array<string,mixed>>}
+     * todo 是全站唯一的待办口径：侧栏 badge、页头、渠道卡片都读它，不再各算各的。
+     * 之前每个界面自己拼一遍计数，同一时刻三个地方三个数，用户没法判断哪个可信。
+     *
+     * @return array{pending_total:int,needs_code:int,unprocessed:int,failed:int,todo:array{importable:int,attention:int,stuck_tasks:int,total:int},channels:array<int,array<string,mixed>>}
      */
     public function apiSummary(User $user): array
     {
@@ -116,11 +122,22 @@ class BillInboxSummaryService
             ];
         }
 
+        // 卡住了的任务：等密码的、处理失败的、认不出来的。它们是任务级的问题，
+        // 名下压根没解析出行，所以按任务数计，不混进行的计数里。
+        $stuckTasks = $needsCode + $failed;
+        $rowCounts  = $this->queueService->todoCounts($user);
+
         return [
             'pending_total' => $needsCode + $unprocessed + $failed,
             'needs_code'    => $needsCode,
             'unprocessed'   => $unprocessed,
             'failed'        => $failed,
+            'todo'          => [
+                'importable'  => $rowCounts['importable'],
+                'attention'   => $rowCounts['attention'],
+                'stuck_tasks' => $stuckTasks,
+                'total'       => $rowCounts['importable'] + $rowCounts['attention'] + $stuckTasks,
+            ],
             'channels'      => $channels,
         ];
     }

@@ -45,9 +45,9 @@ final class BillMailboxSyncServiceTest extends TestCase
             'FROM "service@mail.alipay.com"',
             'FROM "wechatpay@tencent.com"',
             'FROM "95555@message.cmbchina.com"',
-            'FROM "ccsvc@message.cmbchina.com" SUBJECT "每日信用管家"',
+            'FROM "ccsvc@message.cmbchina.com"',
             'X-GM-RAW "filename:pdf"',
-            'SUBJECT "中国银行交易流水"',
+            'FROM "ibank@bank-of-china.com"',
         ], $registry->mailboxSearchCriteria());
         $this->assertSame('alipay', $registry->find('alipay', 'alipay-statement')?->source());
         $this->assertSame('wechat', $registry->find('wechat', 'wechat-pay-statement')?->source());
@@ -202,7 +202,7 @@ final class BillMailboxSyncServiceTest extends TestCase
         $this->assertSame(0, $result->failed);
         $this->assertSame(1, $batch->processed);
         $this->assertSame(0, $batch->failed);
-        $this->assertContains('FROM "ccsvc@message.cmbchina.com" SUBJECT "每日信用管家"', $client->searches);
+        $this->assertContains('FROM "ccsvc@message.cmbchina.com"', $client->searches);
         $this->assertSame(['96'], $client->seenUids);
 
         $mail = BillMailMessage::query()->firstOrFail();
@@ -272,7 +272,7 @@ final class BillMailboxSyncServiceTest extends TestCase
         $this->assertSame(1, $result->scanned);
         $this->assertSame(1, $result->created);
         $this->assertSame(0, $result->failed);
-        $this->assertContains('SUBJECT "中国银行交易流水"', $client->searches);
+        $this->assertContains('FROM "ibank@bank-of-china.com"', $client->searches);
         $this->assertSame(['66'], $client->seenUids);
 
         $mail = BillMailMessage::query()->first();
@@ -301,15 +301,15 @@ final class BillMailboxSyncServiceTest extends TestCase
         Storage::disk('local')->assertExists($artifact->path);
     }
 
-    public function testSyncFindsBocPdfMailWhenChineseSubjectSearchDoesNotReturnUid(): void
+    public function testSyncFindsBocPdfMailWhenSenderSearchDoesNotReturnUid(): void
     {
         Storage::fake('local');
         $client = new FakeImapBillMailboxClient(
             [new FakeImapMailMessage('66', $this->bocRawMessage())],
             [],
             [
-                'X-GM-RAW "filename:pdf"' => ['66'],
-                'SUBJECT "中国银行交易流水"'   => [],
+                'X-GM-RAW "filename:pdf"'          => ['66'],
+                'FROM "ibank@bank-of-china.com"'   => [],
             ],
         );
         $this->app->instance(ImapBillMailboxClient::class, $client);
@@ -320,7 +320,7 @@ final class BillMailboxSyncServiceTest extends TestCase
         $this->assertSame(1, $result->scanned);
         $this->assertSame(1, $result->created);
         $this->assertContains('X-GM-RAW "filename:pdf"', $client->searches);
-        $this->assertContains('SUBJECT "中国银行交易流水"', $client->searches);
+        $this->assertContains('FROM "ibank@bank-of-china.com"', $client->searches);
         $this->assertSame(1, BillTask::query()->where('source', 'boc')->count());
     }
 
@@ -330,7 +330,7 @@ final class BillMailboxSyncServiceTest extends TestCase
         $client = new FakeImapBillMailboxClient(
             [new FakeImapMailMessage('66', $this->bocRawMessage())],
             [],
-            ['SUBJECT "中国银行交易流水"' => ['66']],
+            ['FROM "ibank@bank-of-china.com"' => ['66']],
             ['X-GM-RAW "filename:pdf"'],
         );
         $this->app->instance(ImapBillMailboxClient::class, $client);
@@ -389,9 +389,9 @@ final class BillMailboxSyncServiceTest extends TestCase
         $this->assertContains('FROM "service@mail.alipay.com"', $client->searches);
         $this->assertContains('FROM "wechatpay@tencent.com"', $client->searches);
         $this->assertContains('FROM "95555@message.cmbchina.com"', $client->searches);
-        $this->assertContains('FROM "ccsvc@message.cmbchina.com" SUBJECT "每日信用管家"', $client->searches);
+        $this->assertContains('FROM "ccsvc@message.cmbchina.com"', $client->searches);
         $this->assertContains('X-GM-RAW "filename:pdf"', $client->searches);
-        $this->assertContains('SUBJECT "中国银行交易流水"', $client->searches);
+        $this->assertContains('FROM "ibank@bank-of-china.com"', $client->searches);
     }
 
     public function testBuiltInAlipayChannelDoesNotDependOnCustomProcessingRules(): void
@@ -418,9 +418,9 @@ final class BillMailboxSyncServiceTest extends TestCase
         $this->assertContains('FROM "service@mail.alipay.com"', $client->searches);
         $this->assertContains('FROM "wechatpay@tencent.com"', $client->searches);
         $this->assertContains('FROM "95555@message.cmbchina.com"', $client->searches);
-        $this->assertContains('FROM "ccsvc@message.cmbchina.com" SUBJECT "每日信用管家"', $client->searches);
+        $this->assertContains('FROM "ccsvc@message.cmbchina.com"', $client->searches);
         $this->assertContains('X-GM-RAW "filename:pdf"', $client->searches);
-        $this->assertContains('SUBJECT "中国银行交易流水"', $client->searches);
+        $this->assertContains('FROM "ibank@bank-of-china.com"', $client->searches);
     }
 
     public function testSyncDoesNothingWhenMailboxIsDisabled(): void

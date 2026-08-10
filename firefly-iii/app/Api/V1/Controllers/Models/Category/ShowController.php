@@ -27,10 +27,12 @@ namespace FireflyIII\Api\V1\Controllers\Models\Category;
 use FireflyIII\Api\V1\Controllers\Controller;
 use FireflyIII\Models\Category;
 use FireflyIII\Repositories\Category\CategoryRepositoryInterface;
+use FireflyIII\Services\Category\DefaultCategorySet;
 use FireflyIII\Support\JsonApi\Enrichments\CategoryEnrichment;
 use FireflyIII\Transformers\CategoryTransformer;
 use FireflyIII\User;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use League\Fractal\Pagination\IlluminatePaginatorAdapter;
 use League\Fractal\Resource\Collection as FractalCollection;
@@ -63,35 +65,55 @@ final class ShowController extends Controller
      *
      * Display a listing of the resource.
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $manager     = $this->getManager();
+        $manager         = $this->getManager();
 
         // types to get, page size:
-        $pageSize    = $this->parameters->get('limit');
+        $pageSize        = $this->parameters->get('limit');
 
-        // get list of budgets. Count it and split it.
-        $collection  = $this->repository->getCategories();
-        $count       = $collection->count();
-        $categories  = $collection->slice(($this->parameters->get('page') - 1) * $pageSize, $pageSize);
+        // v0.2 起整套默认词表都是 system=true（system 的意思是「出厂、不可删」，
+        // 不再是 v0.1 的「藏起来的内部分类」），所以列表默认就得含 system，
+        // 否则选择器、AI 白名单全拿到空表。传 include_system=0 才排除。
+        $includeSystem   = $request->boolean('include_system', true);
+        if (!$includeSystem) {
+            $this->parameters->set('include_system', 'false');
+        }
+
+        // 禁用的分类默认不返回：禁用就是「从选择器里消失」。管理页才传 include_disabled=1。
+        $includeDisabled = $request->boolean('include_disabled');
+        if ($includeDisabled) {
+            $this->parameters->set('include_disabled', 'true');
+        }
+
+        $domain          = $request->query('domain');
+        $domain          = is_string($domain) && in_array($domain, DefaultCategorySet::DOMAINS, true) ? $domain : null;
+        if (null !== $domain) {
+            $this->parameters->set('domain', $domain);
+        }
+
+        // get list of categories. Count it and split it.
+        $collection      = $this->repository->getUserCategories($includeSystem, $domain, $includeDisabled);
+        $count           = $collection->count();
+        $categories      = $collection->slice(($this->parameters->get('page') - 1) * $pageSize, $pageSize);
 
         // enrich
         /** @var User $admin */
-        $admin       = auth()->user();
-        $enrichment  = new CategoryEnrichment();
+        $admin           = auth()->user();
+        $enrichment      = new CategoryEnrichment();
         $enrichment->setUser($admin);
         $enrichment->setStart($this->parameters->get('start'));
         $enrichment->setEnd($this->parameters->get('end'));
-        $categories  = $enrichment->enrich($categories);
+        $categories      = $enrichment->enrich($categories);
 
         // make paginator:
-        $paginator   = new LengthAwarePaginator($categories, $count, $pageSize, $this->parameters->get('page'));
+        $paginator       = new LengthAwarePaginator($categories, $count, $pageSize, $this->parameters->get('page'));
         $paginator->setPath(route('api.v1.categories.index').$this->buildParams());
 
         /** @var CategoryTransformer $transformer */
-        $transformer = app(CategoryTransformer::class);
+        $transformer     = app(CategoryTransformer::class);
         $transformer->setParameters($this->parameters);
-        $resource    = new FractalCollection($categories, $transformer, 'categories');
+        $resource        = new FractalCollection($categories, $transformer, 'categories');
         $resource->setPaginator(new IlluminatePaginatorAdapter($paginator));
 
         return response()->json($manager->createData($resource)->toArray())->header('Content-Type', self::CONTENT_TYPE);

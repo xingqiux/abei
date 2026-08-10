@@ -38,11 +38,11 @@ class TokenController extends Controller
 
     /**
      * POST /api/v1/tokens
-     * Issue a new personal access token. The name is caller-supplied and defaults to abaku-web.
+     * Issue a new personal access token. The name is caller-supplied and defaults to abei-web.
      */
     public function store(Request $request): JsonResponse
     {
-        $name   = (string) $request->input('name', 'abaku-web');
+        $name   = (string) $request->input('name', 'abei-web');
         $result = $request->user()->createToken(mb_substr($name, 0, 60));
 
         return response()->json([

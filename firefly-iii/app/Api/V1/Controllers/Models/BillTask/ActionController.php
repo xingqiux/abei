@@ -115,6 +115,10 @@ final class ActionController extends Controller
             'platform_order_no'     => ['nullable', 'string', 'max:255'],
             'merchant_order_no'     => ['nullable', 'string', 'max:255'],
             'remark'                => ['nullable', 'string', 'max:4096'],
+            // 只许改成 unique，也就是人说「这不是重复」。反过来不给改：
+            // duplicate/conflict 是判重跑出来的结论，人手动标成重复没有意义，
+            // 要不要这条流水应该按「划掉」走。
+            'duplicate_state'       => ['nullable', 'string', 'in:unique'],
             'firefly_type'          => ['nullable', 'string', 'in:withdrawal,deposit,transfer'],
             'firefly_date'          => ['nullable', 'date'],
             'firefly_amount'        => ['nullable', new IsValidPositiveAmount()],

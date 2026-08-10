@@ -41,12 +41,12 @@ final class SeedsE2EEnvironment extends Command
     private const string BROWSER_CATEGORY_RIDE  = 'E2E 交通';
     private const string BROWSER_MERCHANT       = 'E2E 商户';
     private const string MAIL_PASSWORD          = 'bills-e2e-only';
-    private const string RECURRENCE_DESTINATION = 'Abaku E2E Recurrence Merchant';
-    private const string RECURRENCE_SOURCE      = 'Abaku E2E Recurrence Source';
-    private const string RECURRENCE_TITLE       = 'Abaku E2E Daily Synthetic Subscription';
-    private const string RULE_GROUP_TITLE       = 'Abaku E2E Synthetic Rules';
-    private const string RULE_TAG               = 'abaku-e2e-reviewed';
-    private const string RULE_TITLE             = 'Abaku E2E Tag Synthetic Lunch';
+    private const string RECURRENCE_DESTINATION = 'Abei E2E Recurrence Merchant';
+    private const string RECURRENCE_SOURCE      = 'Abei E2E Recurrence Source';
+    private const string RECURRENCE_TITLE       = 'Abei E2E Daily Synthetic Subscription';
+    private const string RULE_GROUP_TITLE       = 'Abei E2E Synthetic Rules';
+    private const string RULE_TAG               = 'abei-e2e-reviewed';
+    private const string RULE_TITLE             = 'Abei E2E Tag Synthetic Lunch';
 
     /**
      * 浏览器主路径夹具的三笔支出。金额互不相同，断言里可以直接对具体数字；
@@ -58,7 +58,7 @@ final class SeedsE2EEnvironment extends Command
         ['description' => 'E2E 早餐', 'amount' => '12.00', 'category' => self::BROWSER_CATEGORY_FOOD, 'hour' => 8]
     ];
 
-    protected $description = 'Seeds the isolated Abaku browser-test user, token and synthetic mailbox fixture.';
+    protected $description = 'Seeds the isolated Abei browser-test user, token and synthetic mailbox fixture.';
 
     protected $signature = 'system:seed-e2e
                             {--email=e2e@example.test}
@@ -216,7 +216,7 @@ final class SeedsE2EEnvironment extends Command
         if (!$group instanceof RuleGroup) {
             $group = $groupRepository->store([
                 'title'       => self::RULE_GROUP_TITLE,
-                'description' => 'Synthetic manual rules used only by Abaku browser tests.',
+                'description' => 'Synthetic manual rules used only by Abei browser tests.',
                 'active'      => true
             ]);
         }
@@ -264,7 +264,7 @@ final class SeedsE2EEnvironment extends Command
             'recurrence'   => [
                 'type'              => 'withdrawal',
                 'title'             => self::RECURRENCE_TITLE,
-                'description'       => 'Synthetic daily subscription used only by Abaku browser tests.',
+                'description'       => 'Synthetic daily subscription used only by Abei browser tests.',
                 'first_date'        => Carbon::today(config('app.timezone')),
                 'nr_of_repetitions' => 0,
                 'apply_rules'       => false,
@@ -272,7 +272,7 @@ final class SeedsE2EEnvironment extends Command
             ],
             'repetitions'  => [['type' => 'daily', 'moment' => '', 'skip' => 0, 'weekend' => 1]],
             'transactions' => [[
-                'description'    => 'Abaku E2E Synthetic Subscription Charge',
+                'description'    => 'Abei E2E Synthetic Subscription Charge',
                 'amount'         => '12.34',
                 'currency_id'    => $currency->id,
                 'source_id'      => $source->id,
@@ -341,7 +341,7 @@ final class SeedsE2EEnvironment extends Command
             '2026-07-20 12:00:00,餐饮美食,合成测试商户,test@example.test,合成午餐,支出,18.80,E2E Checking,交易成功,E2E-ORDER-0001,E2E-MERCHANT-0001,自动化夹具',
             '2026-07-20 12:10:00,餐饮美食,合成拆分商户,split@example.test,合成拆分午餐,支出,23.80,招商银行储蓄卡(8705)&花呗,交易成功,E2E-ORDER-0002,E2E-MERCHANT-0002,组合支付夹具'
         ]);
-        $temp = tempnam(sys_get_temp_dir(), 'abaku-e2e-');
+        $temp = tempnam(sys_get_temp_dir(), 'abei-e2e-');
         if (false === $temp) {
             throw new RuntimeException('Could not create a temporary ZIP path.');
         }
@@ -362,11 +362,11 @@ final class SeedsE2EEnvironment extends Command
             if (false === $archive) {
                 throw new RuntimeException('Could not read the synthetic bill ZIP.');
             }
-            Mail::raw('附件是完全合成的支付宝流水，仅用于 Abaku E2E。', static function ($message) use ($archive, $recipient): void {
+            Mail::raw('附件是完全合成的支付宝流水，仅用于 Abei E2E。', static function ($message) use ($archive, $recipient): void {
                 $message
                     ->from('service@mail.alipay.com', '支付宝测试提醒')
                     ->to($recipient)
-                    ->subject('Abaku E2E 的支付宝交易流水明细')
+                    ->subject('Abei E2E 的支付宝交易流水明细')
                     ->attachData($archive, '支付宝交易明细(20260701-20260731).zip', ['mime' => 'application/zip']);
             });
         } finally {
@@ -380,11 +380,11 @@ final class SeedsE2EEnvironment extends Command
     {
         $clientCount = DB::table('oauth_clients')->where('grant_types', '["personal_access"]')->whereNull('owner_id')->count();
         if (0 === $clientCount) {
-            app(ClientRepository::class)->createPersonalAccessGrantClient('Abaku E2E Personal Access Client', null);
+            app(ClientRepository::class)->createPersonalAccessGrantClient('Abei E2E Personal Access Client', null);
         }
 
-        $user->tokens()->where('name', 'abaku-e2e')->update(['revoked' => true]);
-        $token     = $user->createToken('abaku-e2e')->accessToken;
+        $user->tokens()->where('name', 'abei-e2e')->update(['revoked' => true]);
+        $token     = $user->createToken('abei-e2e')->accessToken;
         $directory = dirname($path);
         if (!is_dir($directory) && !mkdir($directory, 0o700, true) && !is_dir($directory)) {
             throw new RuntimeException('Could not create the E2E token directory.');

@@ -63,7 +63,14 @@ final class CategoryController extends Controller
     public function categories(AutocompleteApiRequest $request): JsonResponse
     {
         $result   = $this->repository->searchCategory($request->attributes->get('query'), $request->attributes->get('limit'));
-        $filtered = $result->map(static fn (Category $item): array => ['id' => (string) $item->id, 'name' => $item->name]);
+
+        // v0.2 起默认词表全是 system=true，不能再按 system 过滤；
+        // 该从选择器里消失的是「禁用」的分类。
+        $filtered = $result
+            ->reject(static fn (Category $item): bool => null !== $item->disabled_at)
+            ->map(static fn (Category $item): array => ['id' => (string) $item->id, 'name' => $item->name])
+            ->values()
+        ;
 
         return response()->api($filtered->toArray());
     }

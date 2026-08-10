@@ -32,3 +32,4 @@ public/v2/i18n
 public/v2/i18n/*
 !public/v2/i18n/.gitignore
 !public/v2/i18n/zh_CN.json
+.phpunit.result.cache

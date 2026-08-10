@@ -56,6 +56,17 @@ class CategoryTransformer extends AbstractTransformer
             'name'                            => $category->name,
             'notes'                           => $category->meta['notes'],
 
+            // 两级树 + 域 + 图标色号 + 使用统计，管理界面靠这几个字段画列表
+            'parent_id'                       => null === $category->parent_id ? null : (string) $category->parent_id,
+            'system'                          => (bool) $category->system,
+            'domain'                          => (string) $category->domain,
+            'icon'                            => $category->icon,
+            'color'                           => $category->color,
+            'disabled_at'                     => $category->disabled_at?->toAtomString(),
+            'children'                        => $category->meta['children'] ?? [],
+            'transactions_count'              => (int) ($category->meta['transactions_count'] ?? 0),
+            'last_used'                       => ($category->meta['last_used'] ?? null)?->toAtomString(),
+
             // category never has currency settings.
             'object_has_currency_setting'     => false,
             'primary_currency_id'             => (string) $this->primaryCurrency->id,

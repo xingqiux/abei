@@ -1,6 +1,6 @@
 # Firefly AI Accounting Docker 部署
 
-这是给 JD `xkqq` 服务器准备的最小部署方案：Firefly、Abaku 前端、AI Agent、PostgreSQL、预算 cron 和账单邮箱 worker。
+这是给 JD `xkqq` 服务器准备的最小部署方案：Firefly、abei-api、阿贝前端、AI Agent、PostgreSQL、预算 cron 和账单邮箱 worker。
 
 > **cron 容器只跑 `--create-auto-budgets`，不要改回不带参数的 `firefly-iii:cron`。**
 > 不带参数会执行全部六项，其中 `--create-recurring` 会自动生成定期交易。本项目的
@@ -13,11 +13,12 @@
 
 ## 1. 本地构建镜像
 
+以下构建命令均从仓库根目录执行。
+
 ```bash
-cd /Users/youla/proj/abaku/firefly-iii
 docker buildx build --platform linux/amd64 \
   -t docker.xkqq.top/firefly/firefly-ai-accounting:latest \
-  --push .
+  --push ./firefly-iii
 ```
 
 JD 是 `x86_64`，本机 Mac/OrbStack 是 `arm64`，所以这里必须 build `linux/amd64`。JD 磁盘只剩不多，建议在本机或 CI 构建，JD 只 pull。
@@ -147,10 +148,9 @@ http://127.0.0.1:18001/health
 ## 6. 更新
 
 ```bash
-cd /Users/youla/proj/abaku/firefly-iii
 docker buildx build --platform linux/amd64 \
   -t docker.xkqq.top/firefly/firefly-ai-accounting:latest \
-  --push .
+  --push ./firefly-iii
 
 ssh xkqq
 cd /home/ziyu/services/firefly-ai-accounting
@@ -172,34 +172,45 @@ docker compose pull
 docker compose up -d
 ```
 
-## Abaku 算珠 新前端（abaku-web）
+## 阿贝前端与 API（abei-web / abei-api / abei-agent）
 
-新前端是纯静态 nginx 镜像，构建期**不注入任何令牌**（运行时由 TokenGate 存进浏览器 sessionStorage）。
+前端是纯静态 nginx 镜像，构建期**不注入任何令牌**（运行时由 TokenGate 存进浏览器 sessionStorage）。
+账本请求不再直连 Firefly：nginx 把 `/v1` 反代给 `abei-api`，所以 **`abei-api` 是必需服务**，
+少了它前端一条数据都读不出来。
 
 ### 构建推送
 
-```bash
-cd /Users/youla/proj/abaku/abaku-web
-docker buildx build --platform linux/amd64 \
-  -t docker.xkqq.top/firefly/abaku-web:latest \
-  --push .
+三个镜像都要推。`abei-api` 的构建上下文是 `abei/` 这个 Rust workspace 根：
 
-cd /Users/youla/proj/abaku/firefly-cli
+```bash
 docker buildx build --platform linux/amd64 \
-  -t docker.xkqq.top/firefly/abaku-agent:latest \
+  -t docker.xkqq.top/firefly/abei-api:latest \
   --target runtime \
-  --push .
+  --push ./abei
+
+docker buildx build --platform linux/amd64 \
+  -t docker.xkqq.top/firefly/abei-web:latest \
+  --push ./abei-web
+
+docker buildx build --platform linux/amd64 \
+  -t docker.xkqq.top/firefly/abei-agent:latest \
+  --target runtime \
+  --push ./abei-agent
 ```
+
+命令行 `abei` 不进任何镜像——它装在人的机器上，用 `cargo install --path abei/crates/abei-cli`，
+再 `abei auth login --url https://abei.xkqq.top --token <PAT>` 对上服务器。
 
 ### 服务器配置
 
 `.env` 追加：
 
 ```text
-ABAKU_WEB_IMAGE=docker.xkqq.top/firefly/abaku-web:latest
-ABAKU_AGENT_IMAGE=docker.xkqq.top/firefly/abaku-agent:latest
-ABAKU_WEB_PORT=18002
-ABAKU_AGENT_PORT=18003
+ABEI_API_IMAGE=docker.xkqq.top/firefly/abei-api:latest
+ABEI_WEB_IMAGE=docker.xkqq.top/firefly/abei-web:latest
+ABEI_AGENT_IMAGE=docker.xkqq.top/firefly/abei-agent:latest
+ABEI_AGENT_PORT=18003
+ABEI_WEB_PORT=18004
 AI_PROVIDER=openai
 AI_MODEL=gpt-5.4-mini
 OPENAI_API_KEY=替换成真实密钥
@@ -207,13 +218,22 @@ OPENAI_API_KEY=替换成真实密钥
 OPENAI_BASE_URL=https://example.com/v1
 ```
 
-`docker compose up -d abaku-agent abaku-web` 后，反向代理把新域名（如 abaku.xkqq.top）指向 `127.0.0.1:18002`。
-`/api` 与 `/oauth` 由容器内 nginx 同域反代到 `app` 服务，浏览器无跨域问题；
-`/api/ai` 同域反代到 `abaku-agent`，模型密钥不会进入浏览器；
+`docker compose up -d abei-api abei-agent abei-web` 后，反向代理把新域名（如 abei.xkqq.top）
+指向 `127.0.0.1:18004`。宿主端口分配：`18001` Firefly、`18003` abei-agent、`18004` abei-web；
+`abei-api` 只在 compose 内网监听 18002，不对外发端口，外面只需要看见 abei-web 一个入口。
+
+容器内 nginx 的同域反代：`/v1` → `abei-api`（账本数据面），`/api/ai` → `abei-agent`
+（模型密钥不进浏览器），`/api` 与 `/oauth` → `app`（令牌签发与逃生舱）。
 旧界面 `firefly.xkqq.top` → `18001` 保留为过渡期兜底。
 
-Agent 健康检查：`http://127.0.0.1:18003/api/ai/health`。返回 `configured: false`
-表示服务已启动但模型密钥或模型名还没配好。
+健康检查：
+
+```text
+abei-api    http://127.0.0.1:18002/health   （只在 compose 内网，用 docker compose exec 探）
+abei-agent  http://127.0.0.1:18003/api/ai/health
+```
+
+agent 返回 `configured: false` 表示服务已启动但模型密钥或模型名还没配好。
 
 ### 首次打开
 
@@ -223,11 +243,11 @@ Agent 健康检查：`http://127.0.0.1:18003/api/ai/health`。返回 `configured
 docker compose exec app php artisan user:create-pat
 ```
 
-把打印出来的令牌粘进 TokenGate 保存即可。之后在 Abaku 的 设置 → 访问令牌 里可以列出和撤销
+把打印出来的令牌粘进 TokenGate 保存即可。之后在 阿贝 的 设置 → 访问令牌 里可以列出和撤销
 （走 `GET`/`DELETE /api/v1/tokens`），不必再登服务器。
 
 令牌存在 **sessionStorage**，只在当前标签页有效——关掉浏览器要重新粘一次。这是有意的：
 自托管记账数据敏感，不留长期凭证在磁盘上。
 
-回滚：`.env` 里 `ABAKU_WEB_IMAGE`、`ABAKU_AGENT_IMAGE` 改回旧 tag 后
-`docker compose up -d abaku-agent abaku-web`。
+回滚：`.env` 里 `ABEI_API_IMAGE`、`ABEI_WEB_IMAGE`、`ABEI_AGENT_IMAGE` 改回旧 tag 后
+`docker compose up -d abei-api abei-agent abei-web`。

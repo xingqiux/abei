@@ -25,6 +25,7 @@ namespace FireflyIII\Factory;
 
 use FireflyIII\Exceptions\FireflyException;
 use FireflyIII\Models\Category;
+use FireflyIII\Services\Category\DefaultCategorySet;
 use FireflyIII\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Log;
@@ -35,6 +36,34 @@ use Illuminate\Support\Facades\Log;
 class CategoryFactory
 {
     private User $user;
+
+    /**
+     * Create a category. The only place a category row is born, so parent, system and the v0.2
+     * domain/icon/color land here too.
+     *
+     * @throws FireflyException
+     */
+    public function create(string $name, ?Category $parent = null, bool $system = false, ?string $domain = null, ?string $icon = null, ?string $color = null): Category
+    {
+        try {
+            return Category::create([
+                'user_id'       => $this->user->id,
+                'user_group_id' => $this->user->user_group_id,
+                'name'          => $name,
+                'parent_id'     => $parent?->id,
+                'system'        => $system,
+                // 隐式建分类（导入、规则、findOrCreate）没人指定域，落在支出域最不容易出错
+                'domain'        => $domain ?? $parent?->domain ?? DefaultCategorySet::DOMAIN_EXPENSE,
+                'icon'          => $icon,
+                'color'         => $color,
+            ]);
+        } catch (QueryException $e) {
+            Log::error($e->getMessage());
+            Log::error($e->getTraceAsString());
+
+            throw new FireflyException('400003: Could not store new category.', 0, $e);
+        }
+    }
 
     public function findByName(string $name): ?Category
     {
@@ -70,14 +99,7 @@ class CategoryFactory
                 return $category;
             }
 
-            try {
-                return Category::create(['user_id' => $this->user->id, 'user_group_id' => $this->user->user_group_id, 'name' => $categoryName]);
-            } catch (QueryException $e) {
-                Log::error($e->getMessage());
-                Log::error($e->getTraceAsString());
-
-                throw new FireflyException('400003: Could not store new category.', 0, $e);
-            }
+            return $this->create($categoryName);
         }
 
         return null;

@@ -46,7 +46,8 @@ class CmbCreditDailyBillSourceChannel implements BillSourceChannel
      */
     public function mailboxSearchCriteria(): array
     {
-        return ['FROM "ccsvc@message.cmbchina.com" SUBJECT "每日信用管家"'];
+        // IMAP SEARCH 只接受 US-ASCII，中文主题会被 Gmail 以 BAD 拒绝；主题过滤交给 matches()。
+        return ['FROM "ccsvc@message.cmbchina.com"'];
     }
 
     /**

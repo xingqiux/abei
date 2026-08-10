@@ -18,7 +18,7 @@ use Tests\integration\TestCase;
 /**
  * Class TokenControllerTest
  *
- * 个人访问令牌的签发/列出/撤销，abaku-web 用这三个端点管理自己的令牌。
+ * 个人访问令牌的签发/列出/撤销，abei-web 用这三个端点管理自己的令牌。
  *
  * @internal
  *
@@ -31,7 +31,7 @@ final class TokenControllerTest extends TestCase
     public static function nameProvider(): array
     {
         return [
-            '缺省用 abaku-web'   => [null, 'abaku-web'],
+            '缺省用 abei-web'   => [null, 'abei-web'],
             '调用方指定名字'     => ['macbook', 'macbook'],
             '超过 60 字符被截断' => [str_repeat('x', 200), str_repeat('x', 60)],
             // mb_substr 按字符截，不是按字节，中文名不会被砍成半个字。
@@ -218,7 +218,7 @@ final class TokenControllerTest extends TestCase
 
     private function createPersonalAccessClient(): Client
     {
-        return app(ClientRepository::class)->createPersonalAccessGrantClient('abaku-web test client', 'users');
+        return app(ClientRepository::class)->createPersonalAccessGrantClient('abei-web test client', 'users');
     }
 
     private function createUser(string $email): User

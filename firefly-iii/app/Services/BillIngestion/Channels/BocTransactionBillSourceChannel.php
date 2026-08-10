@@ -48,9 +48,10 @@ class BocTransactionBillSourceChannel implements BillSourceChannel
      */
     public function mailboxSearchCriteria(): array
     {
+        // IMAP SEARCH 只接受 US-ASCII，中文主题会被 Gmail 以 BAD 拒绝；主题过滤交给 matches()。
         return [
             'X-GM-RAW "filename:pdf"',
-            'SUBJECT "中国银行交易流水"',
+            'FROM "ibank@bank-of-china.com"',
         ];
     }
 

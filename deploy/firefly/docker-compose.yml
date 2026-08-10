@@ -20,21 +20,44 @@ services:
       timeout: 5s
       retries: 5
 
-  # Abaku 算珠 新前端：纯静态 nginx，/api 与 /oauth 同域反代到 app（见 abaku-web/nginx.conf）。
-  # 反代域名建议指到这个端口；旧界面 app 保留原端口作过渡期兜底。
-  abaku-web:
-    image: ${ABAKU_WEB_IMAGE}
+  # 账本数据的统一 API 面。abei-web 的 nginx 把 /v1 全部反代给它，没有它前端开不了张。
+  # 不往宿主机发端口：外面只需要看见 abei-web 一个入口。
+  abei-api:
+    image: ${ABEI_API_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ABEI_API_HOST: 0.0.0.0
+      ABEI_API_PORT: 18002
+      FIREFLY_URL: http://app
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18002/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  # 阿贝前端：纯静态 nginx，同域把 /v1 反代给 abei-api、/api/ai 给 abei-agent、
+  # /api 与 /oauth 给 app（见 abei-web/nginx.conf）。反代域名指到这个端口。
+  abei-web:
+    image: ${ABEI_WEB_IMAGE}
     restart: unless-stopped
     depends_on:
       app:
         condition: service_healthy
-      abaku-agent:
+      abei-api:
+        condition: service_healthy
+      abei-agent:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${ABAKU_WEB_PORT:-18002}:80"
+      - "127.0.0.1:${ABEI_WEB_PORT:-18004}:80"
 
-  abaku-agent:
-    image: ${ABAKU_AGENT_IMAGE}
+  abei-agent:
+    image: ${ABEI_AGENT_IMAGE}
     restart: unless-stopped
     env_file:
       - path: .env
@@ -43,13 +66,14 @@ services:
       AI_HOST: 0.0.0.0
       AI_PORT: 18003
       FIREFLY_URL: http://app
+      ABEI_API_URL: http://abei-api:18002
     depends_on:
       app:
         condition: service_healthy
       db:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${ABAKU_AGENT_PORT:-18003}:18003"
+      - "127.0.0.1:${ABEI_AGENT_PORT:-18003}:18003"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:18003/api/ai/health').then(r=>{if(!r.ok)process.exit(1)})"]
       interval: 10s
