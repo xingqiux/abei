@@ -1,0 +1,12 @@
+[package]
+name = "abei-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "阿贝能力目录：资源 × 动词 × schema，全系统唯一真源。"
+
+[dependencies]
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true

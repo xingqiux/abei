@@ -1,0 +1,33 @@
+[package]
+name = "abei-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "阿贝 API：能力目录、资源接口与 Firefly 透传。"
+
+[features]
+# 假 Firefly + 进程内起服务。abei-cli 的端到端测试也吃这一份，别在两处各造一个。
+testkit = []
+
+[dependencies]
+abei-core.workspace = true
+axum = "0.8"
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "json",
+    "stream",
+] }
+schemars.workspace = true
+serde.workspace = true
+serde_html_form = "0.2"
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tower-http = { version = "0.6", features = ["request-id", "trace"] }
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+abei-api = { path = ".", features = ["testkit"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
