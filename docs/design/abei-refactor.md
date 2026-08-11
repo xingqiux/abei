@@ -1,6 +1,6 @@
 # 阿贝（abei）重构方案
 
-2026-08-09 · 状态：待审批（v2：按用户意见改为 abei-api + abei-cli 双 Rust 项目，granary-server 延后）
+2026-08-09 · 状态：历史方案与实施记录。当前约束以根目录 `abei-cli.md`、`abei-api.md` 为准。
 
 这次重构做四件事：项目改名阿贝/abei；新建 **abei-api（Rust）** 作为全系统唯一 API 面，CLI 和 web 都只对接它；在能力目录之上新建 **abei-cli（Rust）**（以 AI 为主要使用者设计）；Firefly 的能力经由 abei-api 逐步剥离。MCP 整个清除。
 
@@ -23,7 +23,7 @@
 服务      abei-api (Rust: axum+sqlx) :18002      abei-agent (TS: pi-agent) :18003
           资源 API · 能力目录 /v1/catalog          /api/ai：聊天流、会话、审批、模型配置
           统一错误 · 风险闸 · dry-run              工具从 /v1/catalog 生成，
-          Firefly 透传逃生舱                       执行统一走 abei-api invoke
+          内部 web 迁移代理                        执行只走 catalog 建模能力
                        │ 账本/账单操作委托（过渡期）        │
                        ▼                                  │
 引擎      Firefly III(REST) :18001 —— 逐步瘦身 ◄───────────┘
@@ -44,7 +44,7 @@ firefly-iii/          # 引擎，随剥离回归近原生
 granary-server/       # 继续封存
 ```
 
-abei-api 不是无功能转发层：它承载能力目录、统一错误、风险闸、dry-run，并且是剥离 Firefly 的控制面。过渡期未建模的端点走透传逃生舱（`/v1/firefly/*` 原样代理），web 切流因此可以先换代理地址、再逐域换成建模后的资源 API。风险闸（read/draft/confirm）在 abei-api 服务端统一执行——CLI、agent、web 三个入口绕不过同一道闸。
+abei-api 不是无功能转发层：它承载能力目录、统一错误、风险闸、dry-run，并且是剥离 Firefly 的控制面。过渡期未建模的端点只允许现有 web 页面走内部迁移代理，再逐域换成建模后的资源 API；该代理不进入 catalog、OpenAPI、CLI 或 agent 工具。建模能力的风险闸（read/draft/confirm）在服务端统一执行。
 
 ## 三、能力目录（唯一真源）
 
@@ -55,17 +55,17 @@ abei-api 不是无功能转发层：它承载能力目录、统一错误、风�
 | `resource` / `verb` | **一等字段**。命令路径 `abei bills review`、agent 工具名、API 路由都由此直接得出，不存在需要人工翻译的 operationId（Oxide 的教训：他们为此维护着一张 431 行的手写映射表） |
 | `schema` | 参数 JSON Schema，未知字段严格拒绝 |
 | `risk` | `read / draft / confirm` 三档（现状语义沿用） |
-| `backend` | `firefly / abei / agent`——**剥离 = 改这一格的指向，客户端无感** |
+| `backend` | `firefly / abei / server`——**剥离 = 改这一格的指向，客户端无感** |
 | 其余 | 中文 label、description、examples、preview/execute 实现 |
 
 对外形态：
-- **`GET /v1/catalog`**（运行时 discovery）：abei-cli 用它做 `explain`/动态 did-you-mean，abei-agent（TS）直接消费 JSON Schema 构造 LLM 工具，web 取标签、审批文案与表单校验——三处硬编码标签就此收敛。
+- **`GET /v1/catalog`**（运行时 discovery）：abei-agent（TS）只从这里构造 LLM 工具，web 取标签、审批文案与表单校验。Rust CLI 与 API 直接共享 `abei-core`，不在运行时复制契约。
 - **OpenAPI 是导出产物不是真源**（utoipa 顺手导出），用途只有一个：给 abei-web 生成 TS 类型与 Zod 校验（hey-api/openapi-ts），杀掉 Rust↔TS 的 schema 漂移。
 - Rust 侧 CLI 与 API 之间**共享 crate、零 codegen**，改类型立刻编译报错。
 
 ## 四、命令系统规范
 
-**动词表**（跨资源含义一致，绝不同义并存）：`list / show / create / update / delete` + 意图动词 `review / import / ignore / retry / summary / sync / process`。资源名宽容解析：单复数、短别名（`tx`、`acc`）都认。
+**动词表**（跨资源含义一致，绝不同义并存）：`list / get / show / create / update / delete` + 意图动词 `search / review / import / ignore / retry / summary / sync / process / unlock / split`。资源名宽容解析短别名（`tx`、`acc`）。
 
 **查询语法**借 hledger：位置参数即描述/账户子串，前缀限定 `date:2026-07`、`amt:'>100'`、`cur:CNY`、`not:` 取反，空格并列。
 
@@ -75,10 +75,11 @@ abei tx list 餐饮 date:2026-07 amt:'>100'
 abei bills review 42
 abei bills import 42 --dry-run          # 先看会改什么
 abei bills import 42 --yes              # 再落库
-abei tx list --json amount,category --jq 'map(.amount)|add'
-abei explain bills                      # 从 /v1/catalog 出文档
+abei tx list --json=amount,category
+abei tx list --jq 'map(.amount)|add'
+abei explain bills                      # 从共享能力目录出文档
 abei guide                              # 一页 agent 说明书，可直接进 AGENTS.md/skill
-abei api get /v1/bill-tasks             # 逃生舱：任意 API 直通（承接现 ffc api）
+make man                                # 开发者生成 abei/target/man/abei.1
 ```
 
 **输出**：默认人话文本（TTY 才上色/表格）；`--json [字段]` 转 JSON 且不带参数时列出全部可用字段名（agent 自发现）；`--jq` 内置；数据走 stdout、进度提示走 stderr；非 TTY 不弹交互。**`--json` 字段名算 API 契约，纳入版本管理**。
@@ -89,7 +90,7 @@ abei api get /v1/bill-tasks             # 逃生舱：任意 API 直通（承接
 
 **以 AI 为主的包容设计**：命令/flag 拼错 clap 自带 did-you-mean，目录里的动态资源名用 Damerau-Levenshtein 自做建议（抄 SpacetimeDB 的 `edit_distance.rs`）；未知字段严格报错并附纠正建议（财务工具里静默丢弃字段是最危险的失败）；查询语法解析错误用 miette 带波浪线指到具体字符；所有写操作支持 `--dry-run`；help 全带示例（示例存在目录里，与 web 助手起手语同源）。
 
-**实现结构**（抄 Oxide 的结构，不抄代码）：命令树由目录在 clap **builder** API 上生成；手写命令（`auth`、`api`、`completion` 等）用 derive 写好后按路径嫁接进命令树（oxide `add_custom` 模式）；human/`--json` 双输出、`--dry-run`、`--yes` 集中挂在一个输出/请求钩子 trait 上（oxide `CliConfig` 模式，七个输出钩子 + 每操作一个请求改写钩子），不散进每个命令。生成物签入仓库、CI 校验同步（Oxide 的工程习惯）。stdout 全部走防 EPIPE 打印宏，`abei bills list | head` 不得 panic。
+**实现结构**（抄 Oxide 的结构，不抄代码）：命令树由目录在 clap **builder** API 上生成；手写命令只保留 `auth`、`explain`、`guide`、`completion` 等本地工具，不提供原始 API 或 man 子命令。human/`--json` 双输出、`--dry-run`、`--yes` 集中放在通用钩子，不散进每个命令。man page 由开发侧 `make man` 从同一命令树生成。stdout 全部走防 EPIPE 打印宏，`abei bills list | head` 不得 panic。
 
 ## 五、技术选型（2026-08 调研结论）
 
@@ -99,19 +100,19 @@ abei api get /v1/bill-tasks             # 逃生舱：任意 API 直通（承接
 | Schema | **schemars 1.x 为主线**，utoipa 5.x 只作 OpenAPI 导出 | 能力目录要的是干净的 JSON Schema 2020-12（LLM 工具同款），OpenAPI 是副产品，不让它反向定义领域 |
 | 校验 | garde | 条件校验、上下文注入、字段级错误路径 |
 | 错误 | 手写 RFC 9457 结构体 | 格式简单到不值得引依赖，且要塞自定义扩展字段 |
-| CLI | **clap 4.6**（builder 生成 + derive 嫁接）+ clap_complete + clap_mangen | did-you-mean 在默认 features 里；cargo 式外部子命令 `abei-<name>` 免费得插件机制 |
+| CLI | **clap 4.6**（builder 生成 + derive 嫁接）+ clap_complete；开发依赖 clap_mangen | did-you-mean 在默认 features 里；man page 只在 `make man` 时生成 |
 | 终端 | anstream/anstyle（clap 已依赖，零成本）、comfy-table、indicatif | NO_COLOR/管道检测全自动 |
 | `--jq` | jaq-core | 2026 唯一成熟的纯 Rust jq，可嵌入 |
-| 凭据/路径 | keyring + etcetera | PAT 进系统钥匙串；XDG 规范路径 |
+| 凭据/路径 | etcetera | PAT 存配置目录下 0600 令牌文件；XDG 规范路径（弃钥匙串：授权绑二进制哈希，重编译即重弹窗） |
 | 查询语法报错 | miette（仅此处） | span 波浪线定位，配 hledger 式语法 |
 | TS 生成 | hey-api/openapi-ts | 一次产出 SDK + Zod + TanStack Query hooks，Zod 给 agent 校验 LLM 输出复用 |
 
-**重点参照项目**：oxidecomputer/oxide.rs + progenitor（`CliConfig` 钩子、`add_custom` 嫁接、生成物签入+CI 校验；progenitor 本体不用——它为跨组织分发 SDK 设计，同仓 workspace 里共享 crate 更简单）；Railway CLI（`api.rs` 通用逃生舱、自更新）；SpacetimeDB CLI（`edit_distance.rs`）；SurrealDB CLI（自定义 clap value parser，对应查询语法解析）。
+**重点参照项目**：oxidecomputer/oxide.rs + progenitor（`CliConfig` 钩子、`add_custom` 嫁接、生成物签入+CI 校验；progenitor 本体不用——它为跨组织分发 SDK 设计，同仓 workspace 里共享 crate 更简单）；SpacetimeDB CLI（`edit_distance.rs`）；SurrealDB CLI（自定义 clap value parser，对应查询语法解析）。Railway CLI 的通用 API 逃生舱做法已明确拒绝：对 agent 暴露任意 HTTP 面超出能力目录的安全边界。
 
 ## 六、pi-agent 融合与多端同步
 
 - **abei-agent（原 firefly-cli 收缩）**：删全部 commander 命令与 MCP，留 pi-agent 运行时、`/api/ai` HTTP 面（手写 if 链路由换 Hono）、autofill/backfill 等后台建议循环。
-- **工具来源**：启动时拉 `GET /v1/catalog` 构造 LLM 工具；**执行统一走 abei-api 的 invoke**——风险闸、dry-run、审计只在服务端一处实现，agent 不再进程内直连 Firefly。
+- **工具来源**：按需拉 `GET /v1/catalog` 构造 LLM 工具；执行统一走 catalog 声明的 abei-api 建模路由。confirm 调用先 dry-run、再由人审批，模型不能直接发送 `confirm=true`。
 - **同步机制**：目录加一条能力 → CLI 命令、agent 工具、web 助手标签与审批卡同时出现。专门的页面 UI 仍手写，这是诚实的边界。
 - **移动端契约**（与 web 完全同源）：① 配对 `POST /v1/tokens` 换 PAT；② 数据走 abei-api 资源 API；③ AI 走 `/api/ai` 的会话、NDJSON 聊天流（`meta/text_delta/tool_start/tool_end/approval/done/error` 事件表已定型）与审批端点。AI 逻辑全在服务端，客户端只渲染事件流。
 - 后排可选：`abei ask "..."`，终端里走同一 `/api/ai`。
@@ -123,7 +124,7 @@ abei api get /v1/bill-tasks             # 逃生舱：任意 API 直通（承接
 
 ## 八、剥离路线
 
-abei-api 从第一天起就是唯一 API 面，但**初期大量委托**：账本操作 → Firefly REST；账单收件箱 → fork 里的扩展 API；未建模端点 → 透传逃生舱。然后逐域内迁，每迁一域改目录 `backend` 指向：
+abei-api 从第一天起就是唯一 API 面，但**初期大量委托**：账本操作 → Firefly REST；账单收件箱 → fork 里的扩展 API；web 尚未建模的既有调用 → 内部迁移代理。CLI 与 agent 不得使用该代理。然后逐域内迁，每迁一域改目录 `backend` 指向：
 
 1. **只读统计先行**：category-stats、budget-groups、spending summary 迁入 abei-api（练手 + 立约定）。
 2. **剥 bill-inbox**：约 9.5k 行 PHP（38 个服务 + 控制器）+ 7 张表迁出 Firefly schema。**按渠道移植**（支付宝/微信/招行/中行/招行信用管家），每渠道金样本（含 ~180 封招行历史邮件）回归通过后切换并删对应 PHP；worker 循环变 abei-api 内 tokio 任务。fork 随之回归近原生 Firefly。
@@ -140,8 +141,8 @@ abei-api 从第一天起就是唯一 API 面，但**初期大量委托**：账�
 | 阶段 | 内容 | 可并行派发 | 验证门 |
 |---|---|---|---|
 | 0 盘点 | 渠道格式与金样本清单；abaku/ffc/firefly-cli 残留全扫；granary-server 体检（为远期账本备档） | 三个子任务并行 | 清单与体检报告 |
-| 1 Rust 立根 | `abei/` workspace：abei-core 目录结构 + abei-api 骨架（PAT 透传鉴权、RFC 9457 错误、`/v1/catalog`、Firefly 透传逃生舱、首批只读能力） | core / api / 透传 分件 | cargo test + 对本机 Firefly 冒烟 |
-| 2 abei-cli ✅ | 目录→clap builder 生成器、钩子层（双输出/--dry-run/--yes）、查询语法（miette 报错）、explain/guide、did-you-mean、补全与 man | 生成器 / 输出层 / 查询语法 并行 | 全命令冒烟 + 文档示例即测试 |
+| 1 Rust 立根 | `abei/` workspace：abei-core 目录结构 + abei-api 骨架（PAT 透传鉴权、RFC 9457 错误、`/v1/catalog`、内部 web 迁移代理、首批只读能力） | core / api / 代理 分件 | cargo test + 对本机 Firefly 冒烟 |
+| 2 abei-cli ✅ | 目录→clap builder 生成器、钩子层（双输出/--dry-run/--yes）、查询语法（miette 报错）、explain/guide、did-you-mean、补全；man 由 Makefile 生成 | 生成器 / 输出层 / 查询语法 并行 | 全命令冒烟 + 文档示例即测试 |
 | 3 接源切流 | web 切 abei-api（先透传换址、后逐域用 hey-api 类型）；abei-agent 收缩（删命令与 MCP、Hono 重写路由、工具改走 catalog+invoke）；web 删硬编码标签；改名硬切全仓落地 | web / agent / 改名清扫 并行 | web 五条验证命令 + 助手页 e2e |
 | 4 剥 bill-inbox | 按渠道 PHP→Rust + 表迁移 + worker tokio 化，每渠道金样本回归后删 PHP | 一渠道一子任务 | 金样本全绿 |
 | 远期 | 账本切换（granary 种子）、自有认证 | — | 不排期 |
@@ -300,8 +301,8 @@ web 端可以据此删掉硬编码的能力名到中文的映射表。
 
 ## 十四、阶段 3B-2 的落地：网页改吃 abei-api（2026-08-09）
 
-交易、账户、账单、流水行、能力目录五个域改打 `/v1/*`；没建模的能力走 `/v1/firefly/*`
-逃生舱（预算限额、分类标签、货币、附件、`summary/basic`、`insight/*`、令牌、
+交易、账户、账单、流水行、能力目录五个域改打 `/v1/*`；web 当时没建模的既有能力暂走内部迁移代理
+（预算限额、分类标签、货币、附件、`summary/basic`、`insight/*`、令牌、
 账户的 `cash` 类型、行的 `duplicate_state`），只加前缀不改路径。
 
 请求侧的类型从 `abei/openapi.json` 用 hey-api 生成（`npm run gen:api` → `src/api/generated/`），
@@ -324,7 +325,7 @@ web 端可以据此删掉硬编码的能力名到中文的映射表。
 - **`check_limit` 上限 100**，页面原来一页取 200 会吃 400。
 - **`accounts.list` 覆盖不住页面的账户页签**：阿贝收 `asset|expense|revenue|liability|all`，
   页面用的是 `asset|cash|liabilities`。查过 `AccountFilter.php`，`liability` 与 `liabilities`
-  解析成同一集合，重映射行为等价；`cash` 没有对应能力，回落逃生舱。
+  解析成同一集合，重映射行为等价；`cash` 没有对应能力，当时回落内部 web 迁移代理。
 - **`/v1/transactions/summary` 不是 Firefly 的 `/api/v1/summary/basic`**，形状完全不同
   （前者是阿贝自己的分类报告），`getSummaryBasic` 继续走代理。
 - **干跑响应形状不统一**：只有 `bills.import` 回真实预览，其余写能力回

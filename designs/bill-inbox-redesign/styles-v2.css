@@ -1,0 +1,245 @@
+/* ─────────────────────────────────────────────────────────────
+   账单收件箱 · 重做 v2 —— 信息架构层的追加样式。
+   叠在 styles.css 之上：token、行、chip、批量条全部沿用 v1，
+   这里只有 v2 新增的结构件：管道叙事、两层开关、邮件清单、
+   需判断条、已完成筛选、行内溯源。
+   ───────────────────────────────────────────────────────────── */
+
+/* ── 管道叙事：一条从邮箱到交易的流水线 ────────────────────
+   四个状态桶的数字关系原来说不清，就是因为没有一条线把
+   「收到 → 解析 → 系统处理 → 人处理 → 入账」串起来。 */
+
+.pipe {
+  padding: 13px 16px 12px;
+  display: flex; flex-direction: column; gap: 9px;
+}
+
+.pipe-line { display: flex; align-items: stretch; gap: 4px; flex-wrap: wrap; }
+
+.stage {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0;
+  padding: 5px 10px 6px; border-radius: 9px; text-align: left;
+  border: 1px solid transparent;
+}
+.stage:hover { background: var(--surface-hover); }
+.stage[data-active='true'] { background: var(--brand-soft); border-color: color-mix(in oklab, var(--brand) 24%, transparent); }
+.stage .v { font-size: 16px; font-weight: 650; line-height: 1.35; }
+.stage .v small { font-size: 11px; font-weight: 400; color: var(--text-secondary); margin-left: 2px; }
+.stage .k { font-size: 11px; color: var(--text-tertiary); line-height: 1.5; white-space: nowrap; }
+.stage[data-tone='warn'] .v { color: var(--attention); }
+.stage[data-tone='brand'] .v { color: var(--brand-text); }
+.stage[data-tone='done'] .v { color: var(--done); }
+
+.pipe-arrow {
+  align-self: center; color: var(--text-tertiary); display: inline-flex;
+  padding: 0 1px; opacity: 0.7;
+}
+
+/* 卡住的邮件：不再折进侧边栏徽标里当一个数字，摆到明面上 */
+.pipe-warn {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 7px 10px; border-radius: 8px;
+  background: var(--attention-soft); color: var(--attention);
+  font-size: 12px;
+}
+.pipe-warn b { font-weight: 600; }
+.pipe-warn .btn { margin-left: auto; }
+
+/* 分步卡变体：同一条管道，換成等宽步骤卡 */
+.pipe-steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.pstep {
+  position: relative; display: flex; flex-direction: column; gap: 1px;
+  padding: 9px 12px 10px; border-radius: 9px; text-align: left;
+  background: var(--surface-0); border: 1px solid var(--border-subtle);
+}
+.pstep:hover { background: var(--surface-hover); }
+.pstep[data-active='true'] { background: var(--brand-soft); border-color: color-mix(in oklab, var(--brand) 30%, transparent); }
+.pstep .v { font-size: 17px; font-weight: 650; }
+.pstep .v small { font-size: 11px; font-weight: 400; color: var(--text-secondary); margin-left: 2px; }
+.pstep .k { font-size: 11px; color: var(--text-tertiary); }
+.pstep .arrow {
+  position: absolute; right: -7px; top: 50%; transform: translateY(-50%);
+  z-index: 1; color: var(--text-tertiary); background: var(--surface-1); border-radius: 999px;
+}
+.pstep[data-tone='warn'] .v { color: var(--attention); }
+.pstep[data-tone='brand'] .v { color: var(--brand-text); }
+.pstep[data-tone='done'] .v { color: var(--done); }
+
+.pipe-note { font-size: 11px; color: var(--text-tertiary); }
+.pipe-note button { color: var(--brand-text); font-weight: 550; }
+
+/* ── 两层开关：待处理 / 已完成 ─────────────────────────────
+   这是页面唯一的一级切换。四个平级 tab 退役。 */
+
+.layerseg { display: flex; gap: 4px; padding: 3px; border-radius: 10px; background: var(--surface-hover); }
+.layerseg button {
+  display: flex; align-items: baseline; gap: 6px;
+  height: 32px; padding: 0 14px; border-radius: 8px;
+  font-size: 13px; color: var(--text-secondary); align-items: center;
+}
+.layerseg button[aria-selected='true'] {
+  background: var(--surface-1); color: var(--text-primary); font-weight: 600;
+  box-shadow: var(--shadow-card);
+}
+.layerseg .n { font-size: 11.5px; color: var(--text-tertiary); }
+.layerseg button[aria-selected='true'] .n { color: var(--brand-text); }
+.layerseg .dot { width: 5px; height: 5px; border-radius: 999px; background: var(--attention-mark); }
+
+/* ── 账单来源行：语义写在明面上 ────────────────────────────
+   chip 的数字只有一个含义：该来源还剩多少笔待处理。不再跟着
+   当前 tab 变，也不受别的来源选中影响。 */
+
+.srcline { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.srcline .lbl { font-size: 11.5px; color: var(--text-tertiary); flex: none; }
+.chip .n[data-zero='true'] { color: var(--text-tertiary); opacity: 0.7; }
+
+.stickline { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding-bottom: 9px; }
+.stickline .srcline { margin-left: auto; }
+
+/* ── 需你判断：待处理层里的前置条 ──────────────────────────
+   「待确认」不再是平级 tab；它是待处理里需要人出主意的那部分。 */
+
+.attn {
+  margin: 10px 12px 2px; border-radius: 9px;
+  border: 1px solid color-mix(in oklab, var(--attention-mark) 30%, transparent);
+  background: color-mix(in oklab, var(--attention-soft) 55%, var(--surface-1));
+  overflow: hidden;
+}
+.attn-head {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 8px 12px; text-align: left; font-size: 12.5px; color: var(--text-primary);
+}
+.attn-head:hover { background: color-mix(in oklab, var(--attention-soft) 85%, var(--surface-1)); }
+.attn-head b { font-weight: 650; color: var(--attention); }
+.attn-head .kinds { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--text-secondary); font-size: 11.5px; }
+.attn-head .kinds .sep { color: var(--border-strong); }
+.attn-head .caret { margin-left: auto; color: var(--text-tertiary); display: inline-flex; transition: transform 140ms; }
+.attn-head[data-open='false'] .caret { transform: rotate(-90deg); }
+.attn-body { border-top: 1px solid color-mix(in oklab, var(--attention-mark) 22%, transparent); background: var(--surface-1); }
+
+/* 判断小节头：沿用 daygroup 骨架，但不吸顶（吸顶留给日期头） */
+.judgehead {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 12px 5px;
+  font-size: 11.5px; color: var(--text-secondary);
+  border-bottom: 1px solid color-mix(in oklab, var(--border-subtle) 55%, transparent);
+}
+.judgehead .d { font-weight: 600; color: var(--text-primary); }
+
+/* 可直接入账的节头 */
+.qsection {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px 6px; font-size: 12.5px;
+}
+.qsection .d { font-weight: 650; }
+.qsection .hint { font-size: 11.5px; color: var(--text-tertiary); }
+.qsection .right { margin-left: auto; display: flex; gap: 7px; }
+
+/* ── 已完成层：处理方式筛选 ────────────────────────────────
+   已入账和各种忽略是「结果」，不是并排的工作区。这里按
+   「谁处理的 / 怎么处理的」筛，系统行为和人的决定分开。 */
+
+.doneline { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 9px 12px 0; }
+.doneline .lbl { font-size: 11.5px; color: var(--text-tertiary); }
+
+.hintline {
+  margin: 8px 12px 0; padding: 7px 10px; border-radius: 8px;
+  background: var(--surface-0); font-size: 11.5px; color: var(--text-secondary);
+  display: flex; align-items: center; gap: 7px;
+}
+
+/* ── 邮件清单：管道第一站展开后的样子 ──────────────────────
+   「账单收件箱」终于有收件箱的样子 —— 一封封邮件、各自的
+   状态和解析进度，全在这里。 */
+
+.ledger { overflow: hidden; }
+.ledger-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px 9px; border-bottom: 1px solid var(--border-subtle);
+}
+.ledger-head h2 { font-size: 13px; font-weight: 650; }
+.ledger-head .sub { font-size: 11.5px; color: var(--text-secondary); }
+.ledger-head .icon-btn { margin-left: auto; }
+.ledger-cols {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0 14px; padding: 10px 14px 12px;
+}
+.ledger-chan { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ledger-chan > .chead {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 7px; border-radius: 7px; margin-bottom: 3px;
+  background: color-mix(in oklab, var(--pf-use) calc(var(--pf-tint) * 100%), transparent);
+  font-size: 12px; font-weight: 600;
+}
+.ledger-chan > .chead .n { font-size: 11px; font-weight: 400; color: var(--text-secondary); margin-left: auto; }
+
+.lmail {
+  display: flex; flex-direction: column; gap: 1px; width: 100%;
+  padding: 5px 7px; border-radius: 7px; text-align: left;
+}
+.lmail:hover { background: var(--surface-hover); }
+.lmail[aria-current='true'] { background: var(--surface-selected); }
+.lmail .top { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; }
+.lmail .top .subject { min-width: 0; color: var(--text-primary); }
+.lmail .top .num { color: var(--text-tertiary); font-size: 11px; flex: none; }
+.lmail .sub { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-tertiary); }
+.lmail .state { display: inline-flex; align-items: center; gap: 4px; }
+.lmail .state[data-kind='warn'] { color: var(--attention); }
+.lmail .state[data-kind='danger'] { color: var(--danger); }
+.lmail .state[data-kind='ok'] { color: var(--done); }
+.lmail .state .pip { width: 5px; height: 5px; border-radius: 999px; background: currentColor; }
+
+.lmail-more { padding: 4px 7px; font-size: 11px; color: var(--text-tertiary); text-align: left; border-radius: 7px; }
+.lmail-more:hover { background: var(--surface-hover); color: var(--text-secondary); }
+
+/* 解锁：密码留在本机，两步确认 —— 跟真实链路一致 */
+.unlockbox {
+  display: flex; flex-direction: column; gap: 6px;
+  margin: 2px 7px 6px; padding: 8px 9px; border-radius: 8px;
+  background: var(--attention-soft);
+}
+.unlockbox .line { display: flex; align-items: center; gap: 6px; }
+.unlockbox input {
+  flex: 1; min-width: 0; height: 26px; padding: 0 8px; border-radius: 6px;
+  border: 1px solid var(--border-subtle); background: var(--surface-1); font-size: 12px;
+}
+.unlockbox .note { font-size: 10.5px; color: var(--attention); line-height: 1.5; }
+
+/* ── 行内溯源徽章（Tweaks 变体）───────────────────────────── */
+
+.prov {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  height: 19px; padding: 0 7px; border-radius: 6px;
+  background: var(--surface-hover); color: var(--text-tertiary);
+  font-size: 10.5px; white-space: nowrap;
+}
+.prov:hover { color: var(--text-secondary); }
+
+/* 展开详情里的「出现在两封邮件」 */
+.mergecard {
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 8px 10px; border-radius: 8px;
+  background: var(--surface-1); border: 1px dashed color-mix(in oklab, var(--attention-mark) 45%, transparent);
+  font-size: 11.5px;
+}
+.mergecard .l { display: flex; align-items: center; gap: 7px; }
+.mergecard .l .num { color: var(--text-tertiary); }
+
+/* 支付方式：行上的小灰 tag（原来这个字段前端根本没显示） */
+.paytag {
+  flex: none; height: 19px; padding: 0 7px; border-radius: 6px;
+  display: inline-flex; align-items: center;
+  background: var(--surface-hover); color: var(--text-tertiary);
+  font-size: 10.5px; white-space: nowrap;
+}
+
+/* ── 空态（微信 0 那种要能解释自己）───────────────────────── */
+
+.empty .why { font-size: 12px; color: var(--text-tertiary); max-width: 400px; text-align: center; line-height: 1.8; }
+.empty .row-btns { display: flex; gap: 8px; }
+
+@media (max-width: 1180px) {
+  .pipe-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ledger-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; }
+  .stickline .srcline { margin-left: 0; }
+}
