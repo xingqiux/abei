@@ -3,20 +3,24 @@ pub mod bills;
 pub mod catalog;
 pub mod proxy;
 pub mod rows;
+pub mod server;
 pub mod transactions;
 
 use axum::Json;
+use axum::extract::State;
 use axum::http::Uri;
 use serde_json::{Value, json};
 
 use crate::problem::Problem;
+use crate::state::AppState;
 
 /// 免鉴权。
-pub async fn health() -> Json<Value> {
+pub async fn health(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "status": "ok",
         "service": "abei-api",
         "version": env!("CARGO_PKG_VERSION"),
+        "web_url": state.web_url,
     }))
 }
 

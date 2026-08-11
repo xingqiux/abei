@@ -17,14 +17,12 @@ anstyle = "1"
 # string：命令树是运行时从目录生成的，参数名不是 'static 字面量。
 clap = { version = "4.6", features = ["derive", "env", "wrap_help", "string"] }
 clap_complete = "4.6"
-clap_mangen = "0.3"
 comfy-table = "8"
 jaq-core = "3"
 jaq-json = "2"
 jaq-std = "3"
 # 裸 abei 要知道「本月」是哪个月，得按本机时区算。jaq-std 已经把 jiff 编进来了，白拿。
 jiff = "0.2"
-keyring = "4"
 etcetera = "0.11"
 miette = { version = "7", features = ["fancy"] }
 reqwest = { version = "0.12", default-features = false, features = [
@@ -40,4 +38,5 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
 # testkit：进程内起真 abei-api + 假 Firefly，CLI 的端到端测试打的是真路由。
 abei-api = { path = "../abei-api", features = ["testkit"] }
 axum = "0.8"
+clap_mangen = "0.3"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

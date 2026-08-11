@@ -42,7 +42,11 @@ fn kind_of(schema: &Value) -> FieldKind {
 
 /// `exclude_category` -> `--exclude-category`
 fn flag_name(field: &str) -> String {
-    field.replace('_', "-")
+    match field {
+        "labels" => "label".to_owned(),
+        "submitted_by" => "by".to_owned(),
+        _ => field.replace('_', "-"),
+    }
 }
 
 /// 列表项的模式。`Vec<u64>` 和 `Vec<RowSplit>` 在命令行上要写成不同的样子，
@@ -194,6 +198,9 @@ fn leaf(capability: &Capability) -> Command {
     let human_only = capability.human_only();
 
     for (field, schema) in properties(capability) {
+        if capability.fixed_param_value(&field).is_some() {
+            continue;
+        }
         let help = schema
             .get("description")
             .and_then(Value::as_str)
@@ -358,6 +365,9 @@ pub fn params_from(
     let human_only = capability.human_only();
 
     for (field, schema) in properties(capability) {
+        if capability.fixed_param_value(&field).is_some() {
+            continue;
+        }
         if field == "id" && id_is_positional(capability) {
             if let Some(id) = matches.get_one::<String>("id") {
                 params.insert("id".to_owned(), Value::String(id.clone()));
@@ -398,6 +408,10 @@ pub fn params_from(
                 }
             }
         }
+    }
+
+    for fixed in capability.fixed_params() {
+        params.insert(fixed.name.to_owned(), Value::String(fixed.value.to_owned()));
     }
 
     Ok(params)
@@ -605,6 +619,22 @@ mod tests {
             .collect();
         assert!(names.contains(&"__yes"));
         assert!(names.contains(&"__dry_run"));
+    }
+
+    #[test]
+    fn fixed_params_are_hidden_and_injected() {
+        let matches = root()
+            .try_get_matches_from([
+                "feedback", "create", "--title", "标题", "--body", "正文", "--kind", "idea",
+                "--by", "codex",
+            ])
+            .unwrap();
+        let (_, sub) = matches.subcommand().unwrap();
+        let (_, leaf) = sub.subcommand().unwrap();
+        let capability = catalog().get("feedback", Verb::Create).unwrap();
+        assert!(leaf.try_get_one::<String>("source").is_err());
+        let params = params_from(capability, leaf).unwrap();
+        assert_eq!(params["source"], "cli");
     }
 
     #[test]

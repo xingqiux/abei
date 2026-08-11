@@ -8,10 +8,10 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
-use axum::extract::{Path, Query};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{any, get};
+use axum::routing::{any, delete, get, post};
 use axum::{Json, Router};
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
@@ -40,13 +40,270 @@ pub async fn start_api() -> String {
 /// 同上，但假上游收到的写请求都记进 recorder，方便断言「到底发了什么给上游」。
 pub async fn start_api_recording(recorder: Recorder) -> String {
     let firefly = spawn(mock_firefly_recording(recorder)).await;
+    let server = spawn(mock_server()).await;
     let config = Config {
         firefly_url: format!("http://{firefly}"),
+        server_url: format!("http://{server}"),
         ..Config::default()
     };
     let state = AppState::new(&config).unwrap();
     let api = spawn(crate::build_app(state)).await;
     format!("http://{api}")
+}
+
+/// CLI e2e 用的假 abei-server，保留本进程内创建的反馈。
+pub fn mock_server() -> Router {
+    type Feedback = std::sync::Arc<std::sync::Mutex<Vec<Value>>>;
+    let feedback: Feedback = Default::default();
+    Router::new()
+        .route(
+            "/v1/feedback",
+            post(
+                |State(feedback): State<Feedback>,
+                 Query(gate): Query<HashMap<String, String>>,
+                 Json(mut body): Json<Value>| async move {
+                    if gate.get("dry_run").is_some_and(|value| value == "true") {
+                        body["status"] = json!("open");
+                        return Json(json!({ "dry_run": true, "data": body })).into_response();
+                    }
+                    if gate.get("confirm").is_none_or(|value| value != "true") {
+                        return (
+                            StatusCode::CONFLICT,
+                            Json(json!({
+                                "reason": "ConfirmationRequired",
+                                "title": "这一步要人确认",
+                                "status": 409
+                            })),
+                        )
+                            .into_response();
+                    }
+                    let mut rows = feedback.lock().unwrap();
+                    body["id"] = Value::from(rows.len() + 1);
+                    body["status"] = json!("open");
+                    body["response"] = Value::Null;
+                    body["responded_by"] = Value::Null;
+                    body["responded_at"] = Value::Null;
+                    body["duplicate_of"] = Value::Null;
+                    body["sync_status"] = json!("local");
+                    body["github_issue_url"] = Value::Null;
+                    body["github_issue_number"] = Value::Null;
+                    body["sync_error"] = Value::Null;
+                    body["created_at"] = json!("2026-08-09 00:00:00+00");
+                    body["updated_at"] = json!("2026-08-09 00:00:00+00");
+                    rows.push(body.clone());
+                    (StatusCode::CREATED, Json(json!({ "data": body }))).into_response()
+                },
+            )
+            .get(|State(feedback): State<Feedback>| async move {
+                let rows = feedback.lock().unwrap().clone();
+                Json(json!({ "data": rows }))
+            }),
+        )
+        .route(
+            "/v1/feedback/{id}",
+            get(
+                |State(feedback): State<Feedback>, Path(id): Path<usize>| async move {
+                    feedback
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .find(|row| row["id"] == id)
+                        .cloned()
+                        .map(|row| Json(json!({ "data": row })).into_response())
+                        .unwrap_or_else(|| StatusCode::NOT_FOUND.into_response())
+                },
+            )
+            .patch(
+                |State(feedback): State<Feedback>,
+                 Path(id): Path<usize>,
+                 Query(gate): Query<HashMap<String, String>>,
+                 Json(body): Json<Value>| async move {
+                    if gate.get("dry_run").is_some_and(|value| value == "true") {
+                        return Json(json!({ "dry_run": true, "data": {
+                                "id": id, "to_status": body["status"]
+                            } }))
+                        .into_response();
+                    }
+                    if gate.get("confirm").is_none_or(|value| value != "true") {
+                        return (
+                            StatusCode::CONFLICT,
+                            Json(json!({
+                                "reason": "ConfirmationRequired", "title": "这一步要人确认",
+                                "status": 409
+                            })),
+                        )
+                            .into_response();
+                    }
+                    let mut rows = feedback.lock().unwrap();
+                    let Some(row) = rows.iter_mut().find(|row| row["id"] == id) else {
+                        return StatusCode::NOT_FOUND.into_response();
+                    };
+                    row["status"] = body["status"].clone();
+                    row["response"] = body.get("response").cloned().unwrap_or(Value::Null);
+                    row["duplicate_of"] = body.get("duplicate_of").cloned().unwrap_or(Value::Null);
+                    Json(json!({ "data": row.clone() })).into_response()
+                },
+            )
+            .delete(
+                |State(feedback): State<Feedback>,
+                 Path(id): Path<usize>,
+                 Query(gate): Query<HashMap<String, String>>,
+                 Json(body): Json<Value>| async move {
+                    if gate.get("dry_run").is_some_and(|value| value == "true") {
+                        return Json(json!({ "dry_run": true, "data": {
+                                "id": id, "reason": body["reason"]
+                            } }))
+                        .into_response();
+                    }
+                    if gate.get("confirm").is_none_or(|value| value != "true") {
+                        return (
+                            StatusCode::CONFLICT,
+                            Json(json!({
+                                "reason": "ConfirmationRequired", "title": "这一步要人确认",
+                                "status": 409
+                            })),
+                        )
+                            .into_response();
+                    }
+                    let mut rows = feedback.lock().unwrap();
+                    let before = rows.len();
+                    rows.retain(|row| row["id"] != id);
+                    if rows.len() == before {
+                        return StatusCode::NOT_FOUND.into_response();
+                    }
+                    Json(json!({ "data": { "id": id, "deleted": true } })).into_response()
+                },
+            ),
+        )
+        .route(
+            "/v1/feedback/{id}/retry",
+            post(
+                |State(feedback): State<Feedback>,
+                 Path(id): Path<usize>,
+                 Query(gate): Query<HashMap<String, String>>| async move {
+                    if gate.get("dry_run").is_some_and(|value| value == "true") {
+                        return Json(json!({ "dry_run": true, "data": { "id": id } }))
+                            .into_response();
+                    }
+                    if gate.get("confirm").is_none_or(|value| value != "true") {
+                        return (
+                            StatusCode::CONFLICT,
+                            Json(json!({
+                                "reason": "ConfirmationRequired", "title": "这一步要人确认",
+                                "status": 409
+                            })),
+                        )
+                            .into_response();
+                    }
+                    feedback
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .find(|row| row["id"] == id)
+                        .cloned()
+                        .map(|row| Json(json!({ "data": row })).into_response())
+                        .unwrap_or_else(|| StatusCode::NOT_FOUND.into_response())
+                },
+            ),
+        )
+        .route(
+            "/v1/bills/mailbox",
+            get(|headers: HeaderMap| async move {
+                Json(
+                    json!({ "data": { "type": "bill-inbox-settings", "attributes": {
+                    "enabled": false,
+                    "provider": "gmail",
+                    "auth_method": "google_oauth",
+                    "email": "a@b.c",
+                    "host": "imap.gmail.com",
+                    "port": 993,
+                    "encryption": "ssl",
+                    "username": "a@b.c",
+                    "folder": "INBOX",
+                    "has_password": false,
+                    "google_connected": false,
+                    "google_oauth_available": true,
+                    "built_in_channels": [],
+                    "authenticated_user_id": headers
+                        .get("x-abei-authenticated-user-id")
+                        .and_then(|value| value.to_str().ok())
+                } } }),
+                )
+            })
+            .put(|headers: HeaderMap, Json(body): Json<Value>| async move {
+                Json(
+                    json!({ "data": { "type": "bill-inbox-settings", "attributes": {
+                    "enabled": body.get("enabled").cloned().unwrap_or(Value::Bool(false)),
+                    "provider": "gmail",
+                    "auth_method": "google_oauth",
+                    "email": body.get("email").cloned().unwrap_or(json!("a@b.c")),
+                    "host": "imap.gmail.com",
+                    "port": 993,
+                    "encryption": "ssl",
+                    "username": "a@b.c",
+                    "folder": "INBOX",
+                    "has_password": body.get("password").is_some(),
+                    "google_connected": false,
+                    "google_oauth_available": true,
+                    "built_in_channels": [],
+                    "authenticated_user_id": headers
+                        .get("x-abei-authenticated-user-id")
+                        .and_then(|value| value.to_str().ok())
+                } } }),
+                )
+            }),
+        )
+        .route(
+            "/v1/bills/mailbox/google/connect",
+            post(|headers: HeaderMap| async move {
+                Json(json!({ "data": { "type": "google-oauth", "attributes": {
+                    "authorization_url": "https://accounts.google.test/authorize",
+                    "authenticated_user_id": headers
+                        .get("x-abei-authenticated-user-id")
+                        .and_then(|value| value.to_str().ok())
+                } } }))
+            }),
+        )
+        .route(
+            "/v1/bills/mailbox/google/callback",
+            post(|headers: HeaderMap, Json(body): Json<Value>| async move {
+                Json(json!({ "data": { "attributes": {
+                    "code": body["code"],
+                    "state": body["state"],
+                    "authenticated_user_id": headers
+                        .get("x-abei-authenticated-user-id")
+                        .and_then(|value| value.to_str().ok())
+                } } }))
+            }),
+        )
+        .route(
+            "/v1/bills/mailbox/google",
+            delete(|headers: HeaderMap| async move {
+                Json(json!({ "data": { "attributes": {
+                    "authenticated_user_id": headers
+                        .get("x-abei-authenticated-user-id")
+                        .and_then(|value| value.to_str().ok())
+                } } }))
+            }),
+        )
+        .route(
+            "/v1/bills/sync",
+            post(|headers: HeaderMap, Json(body): Json<Value>| async move {
+                (
+                    StatusCode::ACCEPTED,
+                    Json(
+                        json!({ "data": { "type": "bill-inbox-sync-state", "attributes": {
+                        "status": "queued",
+                        "limit": body.get("limit").cloned().unwrap_or(json!(25)),
+                        "authenticated_user_id": headers
+                            .get("x-abei-authenticated-user-id")
+                            .and_then(|value| value.to_str().ok())
+                    } } }),
+                    ),
+                )
+            }),
+        )
+        .with_state(feedback)
 }
 
 fn authorized(headers: &HeaderMap) -> bool {
@@ -213,9 +470,24 @@ pub fn mock_firefly_recording(recorder: Recorder) -> Router {
                 |headers: HeaderMap, Path(action): Path<String>, Json(body): Json<Value>| async move {
                     match guard(&headers) {
                         Some(response) => response,
+                        None if action == "sync" => (
+                            StatusCode::ACCEPTED,
+                            Json(json!({ "data": {
+                                "type": "bill-inbox-sync-state",
+                                "attributes": {
+                                    "status": "queued",
+                                    "requested_at": "2026-08-10T01:02:03+00:00",
+                                    "started_at": null,
+                                    "finished_at": null,
+                                    "result": null,
+                                    "error_message": null
+                                }
+                            } })),
+                        )
+                            .into_response(),
                         None => Json(json!({ "data": { "action": action, "handled": 1,
                                                        "limit": body.get("limit") } }))
-                        .into_response(),
+                            .into_response(),
                     }
                 },
             ),
@@ -258,8 +530,10 @@ pub fn mock_firefly_recording(recorder: Recorder) -> Router {
             get(|headers: HeaderMap| async move {
                 match guard(&headers) {
                     Some(response) => response,
-                    None => Json(json!({ "data": { "attributes": { "email": "a@b.c" } } }))
-                        .into_response(),
+                    None => Json(json!({ "data": { "id": "1", "attributes": {
+                        "email": "a@b.c", "role": "owner"
+                    } } }))
+                    .into_response(),
                 }
             }),
         )

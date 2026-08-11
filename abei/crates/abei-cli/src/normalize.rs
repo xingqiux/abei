@@ -3,7 +3,7 @@
 //! 行的字段名就是 `--json` 的契约：人话表格的列、`--json 字段` 的可选项、
 //! `--json`（不带值）列出来的清单，三者同一份，改名字算破坏性变更。
 //!
-//! 全量原始响应没有丢——`--jq` 作用在原始响应体上，`abei api` 也照原样吐。
+//! 全量原始响应没有丢——`--jq` 直接作用在原始响应体上。
 
 use serde_json::{Map, Value};
 
@@ -84,8 +84,50 @@ pub fn rows_for(capability_id: &str, body: &Value) -> Rows {
         "transactions.summary" => summary(body),
         "bills.list" | "bills.show" => bills(body),
         "bills.review" => review(body),
+        "feedback.create" | "feedback.update" | "feedback.retry" | "feedback.list"
+        | "feedback.get" => feedback(body),
         _ => generic(body),
     }
+}
+
+const FEEDBACK_FIELDS: &[&str] = &[
+    "id",
+    "title",
+    "body",
+    "labels",
+    "kind",
+    "submitted_by",
+    "source",
+    "status",
+    "response",
+    "responded_by",
+    "responded_at",
+    "duplicate_of",
+    "github_issue_url",
+    "github_issue_number",
+    "sync_status",
+    "sync_error",
+    "created_at",
+    "updated_at",
+];
+
+fn feedback(body: &Value) -> Rows {
+    let rows = array(body, "data")
+        .into_iter()
+        .filter_map(|item| item.as_object().cloned())
+        .map(|item| {
+            FEEDBACK_FIELDS
+                .iter()
+                .map(|field| {
+                    (
+                        (*field).to_owned(),
+                        item.get(*field).cloned().unwrap_or(Value::Null),
+                    )
+                })
+                .collect()
+        })
+        .collect();
+    Rows::new(FEEDBACK_FIELDS, rows)
 }
 
 const TRANSACTION_FIELDS: &[&str] = &[

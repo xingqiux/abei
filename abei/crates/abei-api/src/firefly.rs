@@ -31,6 +31,14 @@ pub struct Firefly {
     http: reqwest::Client,
 }
 
+/// Firefly 已认证的调用者。反馈审计使用这份身份，不信任请求体里自报的名字。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedUser {
+    pub id: i64,
+    pub actor: String,
+    pub role: String,
+}
+
 impl Firefly {
     pub fn new(base_url: &str) -> Result<Self, reqwest::Error> {
         let http = reqwest::Client::builder().timeout(TIMEOUT).build()?;
@@ -44,8 +52,8 @@ impl Firefly {
         format!("{}{}", self.base, path)
     }
 
-    /// 校验令牌。Firefly 说 200 就算通过。
-    pub async fn verify_token(&self, token: &str) -> Result<(), Problem> {
+    /// 校验令牌并取回可信身份；结果由 AppState 短期缓存。
+    pub async fn verify_token(&self, token: &str) -> Result<VerifiedUser, Problem> {
         let response = self
             .http
             .get(self.url("/api/v1/about/user"))
@@ -56,7 +64,17 @@ impl Firefly {
             .map_err(|error| Problem::upstream_unavailable(error.to_string()))?;
 
         match response.status() {
-            StatusCode::OK => Ok(()),
+            StatusCode::OK => {
+                let body = response.json::<Value>().await.map_err(|error| {
+                    Problem::upstream_error(
+                        StatusCode::OK,
+                        format!("Firefly 的用户身份响应不是 JSON：{error}"),
+                    )
+                })?;
+                verified_user(&body).ok_or_else(|| {
+                    Problem::upstream_error(StatusCode::OK, "Firefly 没返回用户 id 或 email。")
+                })
+            }
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => Err(Problem::invalid_token()),
             other => Err(Problem::upstream_error(
                 other,
@@ -118,6 +136,19 @@ impl Firefly {
         path: &str,
         body: &Value,
     ) -> Result<Value, Problem> {
+        self.send_json_with_status(token, method, path, body)
+            .await
+            .map(|(_, value)| value)
+    }
+
+    /// 与 `send_json` 相同，但保留上游成功状态码。
+    pub async fn send_json_with_status(
+        &self,
+        token: &str,
+        method: Method,
+        path: &str,
+        body: &Value,
+    ) -> Result<(StatusCode, Value), Problem> {
         let response = self
             .http
             .request(method, self.url(path))
@@ -133,11 +164,12 @@ impl Firefly {
 
         if status.is_success() {
             if text.trim().is_empty() {
-                return Ok(Value::Null);
+                return Ok((status, Value::Null));
             }
-            return serde_json::from_str(&text).map_err(|error| {
+            let value = serde_json::from_str(&text).map_err(|error| {
                 Problem::upstream_error(status, format!("Firefly 返回的不是 JSON：{error}"))
-            });
+            })?;
+            return Ok((status, value));
         }
 
         Err(match status {
@@ -211,6 +243,56 @@ impl Firefly {
     }
 }
 
-fn is_hop_by_hop(name: &HeaderName) -> bool {
+fn verified_user(body: &Value) -> Option<VerifiedUser> {
+    let data = body.get("data")?;
+    let attributes = data.get("attributes").unwrap_or(data);
+    let id = data
+        .get("id")
+        .and_then(|value| {
+            value
+                .as_str()
+                .and_then(|id| id.parse::<i64>().ok())
+                .or_else(|| value.as_i64())
+        })
+        .filter(|id| *id > 0)?;
+    let email = attributes.get("email").and_then(Value::as_str);
+    let actor = email
+        .filter(|value| value.is_ascii() && !value.chars().any(char::is_control))
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("user-{id}"));
+    let role = attributes
+        .get("role")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_owned();
+    Some(VerifiedUser { id, actor, role })
+}
+
+pub(crate) fn is_hop_by_hop(name: &HeaderName) -> bool {
     HOP_BY_HOP.contains(&name.as_str())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn verified_identity_comes_from_firefly_not_the_request_body() {
+        let user = verified_user(&json!({
+            "data": {
+                "id": "7",
+                "attributes": { "email": "owner@example.com", "role": "owner" }
+            }
+        }))
+        .unwrap();
+        assert_eq!(user.id, 7);
+        assert_eq!(user.actor, "owner@example.com");
+        assert_eq!(user.role, "owner");
+
+        let fallback = verified_user(&json!({ "data": { "id": "8" } })).unwrap();
+        assert_eq!(fallback.id, 8);
+        assert_eq!(fallback.actor, "user-8");
+        assert_eq!(fallback.role, "unknown");
+    }
 }

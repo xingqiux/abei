@@ -663,7 +663,7 @@
     },
     "/v1/bills/sync": {
       "post": {
-        "description": "立刻收一次邮箱，把新账单邮件拉进收件箱。后台每隔几分钟自己也会收。",
+        "description": "提交一次邮箱同步任务；任务在后台拉取并解析新账单邮件。",
         "operationId": "bills.sync",
         "parameters": [
           {
@@ -719,7 +719,17 @@
                 }
               }
             },
-            "description": "立刻收一次邮箱，把新账单邮件拉进收件箱。后台每隔几分钟自己也会收。"
+            "description": "提交一次邮箱同步任务；任务在后台拉取并解析新账单邮件。"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "提交一次邮箱同步任务；任务在后台拉取并解析新账单邮件。"
           },
           "400": {
             "content": {
@@ -890,7 +900,7 @@
         "tags": [
           "bills"
         ],
-        "x-abei-backend": "firefly",
+        "x-abei-backend": "server",
         "x-abei-risk": "draft"
       }
     },
@@ -2240,90 +2250,86 @@
         ]
       }
     },
-    "/v1/firefly/{path}": {
-      "delete": {
-        "description": "还没建模的接口走这里，请求原样转发。",
-        "operationId": "proxyDelete",
-        "parameters": [
-          {
-            "description": "Firefly 的完整路径，例如 api/v1/about。",
-            "in": "path",
-            "name": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Firefly 的原始响应。"
-          },
-          "401": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "properties": {
-                    "detail": {
-                      "type": "string"
-                    },
-                    "reason": {
-                      "description": "机读错误码，驼峰。",
-                      "type": "string"
-                    },
-                    "resource": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "integer"
-                    },
-                    "title": {
-                      "type": "string"
-                    },
-                    "type": {
-                      "type": "string"
-                    },
-                    "upstream": {},
-                    "verb": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "title",
-                    "status",
-                    "reason"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
-          }
-        },
-        "summary": "透传 DELETE 请求给 Firefly",
-        "tags": [
-          "firefly"
-        ]
-      },
+    "/v1/feedback": {
       "get": {
-        "description": "还没建模的接口走这里，请求原样转发。",
-        "operationId": "proxyGet",
+        "description": "倒序列出反馈，可按类型、业务状态和同步状态筛选。",
+        "operationId": "feedback.list",
         "parameters": [
           {
-            "description": "Firefly 的完整路径，例如 api/v1/about。",
-            "in": "path",
-            "name": "path",
-            "required": true,
+            "description": "按反馈类型筛选：bug、friction 或 idea。",
+            "in": "query",
+            "name": "kind",
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "返回条数，1 到 100，默认 50。",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "跳过条数，默认 0。",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "按业务状态筛选。",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "description": "反馈的业务状态。GitHub 同步是否成功由独立的 `sync_status` 表示。",
+                  "enum": [
+                    "open",
+                    "planned",
+                    "started",
+                    "completed",
+                    "declined",
+                    "duplicate"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "description": "按同步状态筛选：local、synced 或 failed。",
+            "in": "query",
+            "name": "sync_status",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         ],
@@ -2336,7 +2342,48 @@
                 }
               }
             },
-            "description": "Firefly 的原始响应。"
+            "description": "倒序列出反馈，可按类型、业务状态和同步状态筛选。"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
           },
           "401": {
             "content": {
@@ -2378,39 +2425,8 @@
               }
             },
             "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
-          }
-        },
-        "summary": "透传 GET 请求给 Firefly",
-        "tags": [
-          "firefly"
-        ]
-      },
-      "patch": {
-        "description": "还没建模的接口走这里，请求原样转发。",
-        "operationId": "proxyPatch",
-        "parameters": [
-          {
-            "description": "Firefly 的完整路径，例如 api/v1/about。",
-            "in": "path",
-            "name": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Firefly 的原始响应。"
           },
-          "401": {
+          "502": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2452,25 +2468,89 @@
             "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
           }
         },
-        "summary": "透传 PATCH 请求给 Firefly",
+        "summary": "查看反馈",
         "tags": [
-          "firefly"
-        ]
+          "feedback"
+        ],
+        "x-abei-backend": "server",
+        "x-abei-risk": "read"
       },
       "post": {
-        "description": "还没建模的接口走这里，请求原样转发。",
-        "operationId": "proxyPost",
+        "description": "标题一句话说清问题；正文分 现象/期望/复现/环境。确认后写入本地，并按配置同步 GitHub issue。",
+        "operationId": "feedback.create",
         "parameters": [
           {
-            "description": "Firefly 的完整路径，例如 api/v1/about。",
-            "in": "path",
-            "name": "path",
-            "required": true,
+            "description": "只跑校验和预览，不落库。响应会带 dry_run: true。",
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "显式确认。这条能力是 confirm 档，不带它也不带 dry_run 就是 409。",
+            "in": "query",
+            "name": "confirm",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "description": "`feedback create` 的参数。CLI 会把 source 固定成 cli。",
+                "properties": {
+                  "body": {
+                    "description": "Markdown 正文，分为现象、期望、复现、环境。",
+                    "type": "string"
+                  },
+                  "kind": {
+                    "description": "反馈类型：bug、friction 或 idea。",
+                    "type": "string"
+                  },
+                  "labels": {
+                    "description": "标签，可重复；优先参考 bug、friction、idea。",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": [
+                      "array",
+                      "null"
+                    ]
+                  },
+                  "source": {
+                    "description": "来源：cli 或 web。CLI 固定填 cli。",
+                    "type": "string"
+                  },
+                  "submitted_by": {
+                    "description": "提交者的 AI 名字或人名。",
+                    "type": "string"
+                  },
+                  "title": {
+                    "description": "一句话说清问题，最多 120 字。",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title",
+                  "body",
+                  "kind",
+                  "submitted_by",
+                  "source"
+                ],
+                "title": "FeedbackCreateParams",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -2480,7 +2560,58 @@
                 }
               }
             },
-            "description": "Firefly 的原始响应。"
+            "description": "标题一句话说清问题；正文分 现象/期望/复现/环境。确认后写入本地，并按配置同步 GitHub issue。"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "标题一句话说清问题；正文分 现象/期望/复现/环境。确认后写入本地，并按配置同步 GitHub issue。"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
           },
           "401": {
             "content": {
@@ -2522,12 +2653,987 @@
               }
             },
             "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
           }
         },
-        "summary": "透传 POST 请求给 Firefly",
+        "summary": "提交反馈",
         "tags": [
-          "firefly"
-        ]
+          "feedback"
+        ],
+        "x-abei-backend": "server",
+        "x-abei-risk": "confirm"
+      }
+    },
+    "/v1/feedback/{id}": {
+      "delete": {
+        "description": "从反馈列表中删除一条反馈；必须说明原因，服务端保留审计记录。",
+        "operationId": "feedback.delete",
+        "parameters": [
+          {
+            "description": "对象 id，正整数。",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "只跑校验和预览，不落库。响应会带 dry_run: true。",
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "显式确认。这条能力是 confirm 档，不带它也不带 dry_run 就是 409。",
+            "in": "query",
+            "name": "confirm",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "description": "`feedback delete` 的参数。服务端采用可审计的软删除。",
+                "properties": {
+                  "reason": {
+                    "description": "删除原因，供审计与误删排查。",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "title": "FeedbackDeleteParams",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "从反馈列表中删除一条反馈；必须说明原因，服务端保留审计记录。"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          }
+        },
+        "summary": "删除反馈",
+        "tags": [
+          "feedback"
+        ],
+        "x-abei-backend": "server",
+        "x-abei-risk": "confirm"
+      },
+      "get": {
+        "description": "按 id 查看一条反馈及其 GitHub 同步结果。",
+        "operationId": "feedback.get",
+        "parameters": [
+          {
+            "description": "对象 id，正整数。",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "按 id 查看一条反馈及其 GitHub 同步结果。"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          }
+        },
+        "summary": "查看单条反馈",
+        "tags": [
+          "feedback"
+        ],
+        "x-abei-backend": "server",
+        "x-abei-risk": "read"
+      },
+      "patch": {
+        "description": "更新业务状态并留下处理说明；改回 open 表示重开，duplicate 必须指定原反馈。",
+        "operationId": "feedback.update",
+        "parameters": [
+          {
+            "description": "对象 id，正整数。",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "只跑校验和预览，不落库。响应会带 dry_run: true。",
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "显式确认。这条能力是 confirm 档，不带它也不带 dry_run 就是 409。",
+            "in": "query",
+            "name": "confirm",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "description": "`feedback update` 的参数。把状态改回 open 就是重开。",
+                "properties": {
+                  "duplicate_of": {
+                    "description": "原反馈 id；status=duplicate 时必填，其余状态不能填写。",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "response": {
+                    "description": "给提交者看的处理说明。completed 与 declined 必填。",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "description": "新状态：open、planned、started、completed、declined 或 duplicate。",
+                    "enum": [
+                      "open",
+                      "planned",
+                      "started",
+                      "completed",
+                      "declined",
+                      "duplicate"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "status"
+                ],
+                "title": "FeedbackUpdateParams",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "更新业务状态并留下处理说明；改回 open 表示重开，duplicate 必须指定原反馈。"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          }
+        },
+        "summary": "处理反馈",
+        "tags": [
+          "feedback"
+        ],
+        "x-abei-backend": "server",
+        "x-abei-risk": "confirm"
+      }
+    },
+    "/v1/feedback/{id}/retry": {
+      "post": {
+        "description": "重新把当前反馈内容和状态同步到 GitHub。",
+        "operationId": "feedback.retry",
+        "parameters": [
+          {
+            "description": "对象 id，正整数。",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "只跑校验和预览，不落库。响应会带 dry_run: true。",
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "显式确认。这条能力是 confirm 档，不带它也不带 dry_run 就是 409。",
+            "in": "query",
+            "name": "confirm",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "description": "只按 id 取一个对象的能力共用这一个参数类型。",
+                "properties": {},
+                "required": [],
+                "title": "IdParams",
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "重新把当前反馈内容和状态同步到 GitHub。"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          }
+        },
+        "summary": "重试反馈同步",
+        "tags": [
+          "feedback"
+        ],
+        "x-abei-backend": "server",
+        "x-abei-risk": "confirm"
       }
     },
     "/v1/openapi.json": {

@@ -4,7 +4,7 @@
 //! `--dry-run` / `--yes` 的语义因此只有一份实现，新增能力自动继承。
 //! 对应 Oxide CLI 里 `CliConfig` 那一层的位置。
 
-use abei_core::Capability;
+use abei_core::{Capability, Risk};
 use serde_json::Value;
 
 use crate::error::CliError;
@@ -57,10 +57,9 @@ impl Hooks {
         }
     }
 
-    /// 写闸门。写能力必须显式 `--yes`，或者先 `--dry-run` 看一眼。
-    /// 只读能力不受影响。
+    /// 只有 confirm 档必须显式 `--yes`，draft 可以直接写草稿。
     pub fn gate(&self, capability: &Capability, command: &str) -> Result<(), CliError> {
-        if !capability.risk.is_write() || self.yes || self.dry_run {
+        if capability.risk != Risk::Confirm || self.yes || self.dry_run {
             return Ok(());
         }
         Err(CliError::NeedsConfirmation {

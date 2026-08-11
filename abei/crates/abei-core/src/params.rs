@@ -11,6 +11,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// `transactions list` 的参数。
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -98,6 +99,95 @@ pub struct BillsListParams {
 pub struct IdParams {
     /// 对象 id，正整数。
     pub id: String,
+}
+
+/// `feedback create` 的参数。CLI 会把 source 固定成 cli。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FeedbackCreateParams {
+    /// 一句话说清问题，最多 120 字。
+    pub title: String,
+    /// Markdown 正文，分为现象、期望、复现、环境。
+    pub body: String,
+    /// 标签，可重复；优先参考 bug、friction、idea。
+    pub labels: Option<Vec<String>>,
+    /// 反馈类型：bug、friction 或 idea。
+    pub kind: String,
+    /// 提交者的 AI 名字或人名。
+    pub submitted_by: String,
+    /// 来源：cli 或 web。CLI 固定填 cli。
+    pub source: String,
+}
+
+/// 反馈的业务状态。GitHub 同步是否成功由独立的 `sync_status` 表示。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum FeedbackStatus {
+    Open,
+    Planned,
+    Started,
+    Completed,
+    Declined,
+    Duplicate,
+}
+
+impl FeedbackStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Planned => "planned",
+            Self::Started => "started",
+            Self::Completed => "completed",
+            Self::Declined => "declined",
+            Self::Duplicate => "duplicate",
+        }
+    }
+}
+
+impl fmt::Display for FeedbackStatus {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+/// `feedback update` 的参数。把状态改回 open 就是重开。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FeedbackUpdateParams {
+    /// 反馈 id，正整数。
+    pub id: String,
+    /// 新状态：open、planned、started、completed、declined 或 duplicate。
+    pub status: FeedbackStatus,
+    /// 给提交者看的处理说明。completed 与 declined 必填。
+    pub response: Option<String>,
+    /// 原反馈 id；status=duplicate 时必填，其余状态不能填写。
+    pub duplicate_of: Option<u64>,
+}
+
+/// `feedback delete` 的参数。服务端采用可审计的软删除。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FeedbackDeleteParams {
+    /// 反馈 id，正整数。
+    pub id: String,
+    /// 删除原因，供审计与误删排查。
+    pub reason: String,
+}
+
+/// `feedback list` 的筛选与分页参数。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FeedbackListParams {
+    /// 按反馈类型筛选：bug、friction 或 idea。
+    pub kind: Option<String>,
+    /// 按业务状态筛选。
+    pub status: Option<FeedbackStatus>,
+    /// 按同步状态筛选：local、synced 或 failed。
+    pub sync_status: Option<String>,
+    /// 返回条数，1 到 100，默认 50。
+    pub limit: Option<u32>,
+    /// 跳过条数，默认 0。
+    pub offset: Option<u32>,
 }
 
 /// `bills import` 的参数。all 与 row_ids 二选一。

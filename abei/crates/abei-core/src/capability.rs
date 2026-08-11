@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt;
 use std::str::FromStr;
 
@@ -35,7 +36,7 @@ impl Risk {
 pub enum Backend {
     Firefly,
     Abei,
-    Agent,
+    Server,
 }
 
 impl Backend {
@@ -43,7 +44,7 @@ impl Backend {
         match self {
             Self::Firefly => "firefly",
             Self::Abei => "abei",
-            Self::Agent => "agent",
+            Self::Server => "server",
         }
     }
 }
@@ -90,6 +91,7 @@ pub enum Target {
 #[serde(rename_all = "lowercase")]
 pub enum Verb {
     List,
+    Get,
     Show,
     Create,
     Update,
@@ -109,6 +111,7 @@ pub enum Verb {
 impl Verb {
     pub const ALL: &'static [Verb] = &[
         Verb::List,
+        Verb::Get,
         Verb::Show,
         Verb::Create,
         Verb::Update,
@@ -128,6 +131,7 @@ impl Verb {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::List => "list",
+            Self::Get => "get",
             Self::Show => "show",
             Self::Create => "create",
             Self::Update => "update",
@@ -149,7 +153,7 @@ impl Verb {
     pub fn is_crud(self) -> bool {
         matches!(
             self,
-            Self::List | Self::Show | Self::Create | Self::Update | Self::Delete
+            Self::List | Self::Get | Self::Show | Self::Create | Self::Update | Self::Delete
         )
     }
 
@@ -161,7 +165,8 @@ impl Verb {
             | Self::Search
             | Self::Sync
             | Self::Process => Target::Collection,
-            Self::Show
+            Self::Get
+            | Self::Show
             | Self::Update
             | Self::Delete
             | Self::Review
@@ -175,7 +180,9 @@ impl Verb {
 
     pub fn method(self) -> Method {
         match self {
-            Self::List | Self::Show | Self::Summary | Self::Search | Self::Review => Method::Get,
+            Self::List | Self::Get | Self::Show | Self::Summary | Self::Search | Self::Review => {
+                Method::Get
+            }
             Self::Create
             | Self::Import
             | Self::Ignore
@@ -230,6 +237,13 @@ pub struct Example {
     pub params: Value,
 }
 
+/// 目录声明的固定参数。CLI 等生成器会隐藏字段并注入这里的值。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FixedParam {
+    pub name: &'static str,
+    pub value: &'static str,
+}
+
 impl Example {
     pub fn new(title: &str, command: &str, params: Value) -> Self {
         Self {
@@ -251,6 +265,7 @@ pub struct Capability {
     pub description: &'static str,
     pub examples: Vec<Example>,
     pub params: Schema,
+    fixed_params: Vec<FixedParam>,
 }
 
 impl Capability {
@@ -263,6 +278,7 @@ impl Capability {
             label: "",
             description: "",
             examples: Vec::new(),
+            fixed_params: Vec::new(),
         }
     }
 
@@ -332,6 +348,17 @@ impl Capability {
             .map(|(name, _)| name.clone())
     }
 
+    pub fn fixed_params(&self) -> &[FixedParam] {
+        &self.fixed_params
+    }
+
+    pub fn fixed_param_value(&self, name: &str) -> Option<&'static str> {
+        self.fixed_params
+            .iter()
+            .find(|param| param.name == name)
+            .map(|param| param.value)
+    }
+
     pub fn view(&self) -> CapabilityView {
         CapabilityView {
             id: self.id(),
@@ -346,6 +373,11 @@ impl Capability {
             tool_name: self.tool_name(),
             command: self.command_path().map(str::to_owned).to_vec(),
             human_only: self.human_only(),
+            fixed_params: self
+                .fixed_params
+                .iter()
+                .map(|param| (param.name.to_owned(), param.value.to_owned()))
+                .collect(),
             examples: self.examples.clone(),
             params: self.params.clone(),
         }
@@ -370,6 +402,7 @@ pub struct CapabilityBuilder {
     label: &'static str,
     description: &'static str,
     examples: Vec<Example>,
+    fixed_params: Vec<FixedParam>,
 }
 
 impl CapabilityBuilder {
@@ -398,6 +431,11 @@ impl CapabilityBuilder {
         self
     }
 
+    pub fn fixed_param(mut self, name: &'static str, value: &'static str) -> Self {
+        self.fixed_params.push(FixedParam { name, value });
+        self
+    }
+
     /// 收尾：绑定参数类型，从它生成 JSON Schema。
     pub fn params<P: JsonSchema>(self) -> Capability {
         let mut schema = SchemaGenerator::default().into_root_schema_for::<P>();
@@ -411,6 +449,7 @@ impl CapabilityBuilder {
             description: self.description,
             examples: self.examples,
             params: schema,
+            fixed_params: self.fixed_params,
         }
     }
 }
@@ -494,6 +533,9 @@ pub struct CapabilityView {
     pub command: Vec<String>,
     /// 只能由人现场输入的参数名。空数组是常态。
     pub human_only: Vec<String>,
+    /// 客户端必须隐藏并自动注入的固定参数。
+    #[serde(default)]
+    pub fixed_params: BTreeMap<String, String>,
     pub examples: Vec<Example>,
     pub params: Schema,
 }

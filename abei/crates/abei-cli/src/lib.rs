@@ -9,6 +9,7 @@ pub mod hooks;
 pub mod io;
 pub mod jq;
 pub mod normalize;
+pub mod pairing;
 pub mod query;
 pub mod render;
 pub mod suggest;

@@ -1,6 +1,6 @@
 //! 打 abei-api 的 HTTP 客户端。
 //!
-//! CLI 只认 abei-api 一个地址：能力走资源路由，没建模的接口走 `/v1/firefly/*` 逃生舱。
+//! CLI 只认 abei-api 一个地址，能力走资源路由。
 //! 服务端的 problem+json 在这里翻成 `CliError`，退出码由 `reason` 决定。
 
 use std::time::Duration;

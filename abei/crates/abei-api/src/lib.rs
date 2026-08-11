@@ -11,7 +11,7 @@ pub mod summary;
 pub mod testkit;
 
 use axum::Router;
-use axum::routing::{any, get, patch, post};
+use axum::routing::{any, delete, get, patch, post};
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::trace::TraceLayer;
 
@@ -32,6 +32,19 @@ pub fn build_app(state: AppState) -> Router {
         .route("/v1/accounts", get(routes::accounts::list))
         // 账单收件箱。集合级的意图动词排在 {id} 前面，静态段先匹配。
         .route("/v1/bills", get(routes::bills::list))
+        .route(
+            "/v1/bills/mailbox",
+            get(routes::server::proxy).put(routes::server::proxy),
+        )
+        .route(
+            "/v1/bills/mailbox/google/connect",
+            post(routes::server::proxy),
+        )
+        .route(
+            "/v1/bills/mailbox/google/callback",
+            post(routes::server::proxy),
+        )
+        .route("/v1/bills/mailbox/google", delete(routes::server::proxy))
         .route("/v1/bills/sync", post(routes::bills::sync))
         .route("/v1/bills/process", post(routes::bills::process))
         .route("/v1/bills/{id}", get(routes::bills::show))
@@ -42,6 +55,17 @@ pub fn build_app(state: AppState) -> Router {
         .route("/v1/bills/{id}/retry", post(routes::bills::retry))
         .route("/v1/rows/{id}", patch(routes::rows::update))
         .route("/v1/rows/{id}/split", post(routes::rows::split))
+        .route(
+            "/v1/feedback",
+            get(routes::server::proxy).post(routes::server::proxy),
+        )
+        .route("/v1/feedback/{id}/retry", post(routes::server::proxy))
+        .route(
+            "/v1/feedback/{id}",
+            get(routes::server::proxy)
+                .patch(routes::server::proxy)
+                .delete(routes::server::proxy),
+        )
         .route("/v1/firefly/{*path}", any(routes::proxy::proxy))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

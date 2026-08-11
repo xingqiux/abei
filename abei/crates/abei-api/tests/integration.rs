@@ -2,7 +2,11 @@
 //!
 //! 假上游和起服务的代码在 abei_api::testkit 里，abei-cli 的端到端测试吃的是同一份。
 
-use abei_api::testkit::{GOOD_TOKEN, Recorder, start_api, start_api_recording};
+use abei_api::config::Config;
+use abei_api::state::AppState;
+use abei_api::testkit::{
+    GOOD_TOKEN, Recorder, mock_firefly, spawn, start_api, start_api_recording,
+};
 use axum::http::{Method, StatusCode};
 use serde_json::{Value, json};
 
@@ -86,6 +90,7 @@ async fn health_needs_no_token() {
     let body: Value = response.json().await.unwrap();
     assert_eq!(body["status"], "ok");
     assert_eq!(body["service"], "abei-api");
+    assert_eq!(body["web_url"], "http://127.0.0.1:18004");
 }
 
 #[tokio::test]
@@ -156,6 +161,13 @@ async fn catalog_serves_the_whole_capability_list() {
     assert!(summary["params"]["properties"]["start"].is_object());
     assert!(!summary["examples"].as_array().unwrap().is_empty());
 
+    let feedback = capabilities
+        .iter()
+        .find(|c| c["id"] == "feedback.create")
+        .unwrap();
+    assert_eq!(feedback["fixed_params"]["source"], "cli");
+    assert_eq!(feedback["risk"], "confirm");
+
     assert!(
         body["resources"]
             .as_array()
@@ -167,8 +179,8 @@ async fn catalog_serves_the_whole_capability_list() {
 
 /// 目录里的每条能力都必须真的挂上了路由，方法也要对得上。
 ///
-/// 只看「挂没挂上」：404 说明路径没挂，405 说明方法挂错了。参数校验不合格（400）
-/// 不算漂移，那是各条能力自己的测试管的事。
+/// 只看「挂没挂上」：API fallback 的 404 说明路径没挂，资源不存在的 404 是合法业务
+/// 响应；405 说明方法挂错。参数校验不合格（400）不算漂移。
 #[tokio::test]
 async fn every_capability_route_is_mounted() {
     let harness = Harness::start().await;
@@ -187,20 +199,23 @@ async fn every_capability_route_is_mounted() {
             abei_core::Method::Delete => Method::DELETE,
         };
         let response = harness.send(method, &probe, Some(json!({}))).await;
+        let status = response.status();
 
         assert_ne!(
-            response.status(),
-            StatusCode::NOT_FOUND,
-            "{} 的路由 {path} 没挂上",
-            capability.id()
-        );
-        assert_ne!(
-            response.status(),
+            status,
             StatusCode::METHOD_NOT_ALLOWED,
             "{} 挂在 {path} 上的方法不是 {:?}",
             capability.id(),
             capability.method()
         );
+        if status == StatusCode::NOT_FOUND {
+            let body = response.text().await.unwrap_or_default();
+            assert!(
+                !body.contains("没有这个接口"),
+                "{} 的路由 {path} 没挂上",
+                capability.id()
+            );
+        }
     }
 }
 
@@ -220,6 +235,78 @@ async fn bills_review_returns_the_buckets() {
     assert_eq!(response.status(), 200);
     let body: Value = response.json().await.unwrap();
     assert!(body["data"]["buckets"]["needs_attention"].is_array());
+}
+
+#[tokio::test]
+async fn bills_sync_preserves_the_upstream_accepted_status() {
+    let harness = Harness::start().await;
+    let response = harness.post("/v1/bills/sync", json!({ "limit": 10 })).await;
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["data"]["attributes"]["status"], "queued");
+    assert_eq!(body["data"]["attributes"]["authenticated_user_id"], "1");
+}
+
+#[tokio::test]
+async fn mailbox_settings_use_the_verified_user_id() {
+    let harness = Harness::start().await;
+    let response = harness
+        .client
+        .get(format!("{}/v1/bills/mailbox", harness.base))
+        .bearer_auth(GOOD_TOKEN)
+        .header("x-abei-authenticated-user-id", "999")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["data"]["attributes"]["authenticated_user_id"], "1");
+
+    let response = harness
+        .send(
+            Method::PUT,
+            "/v1/bills/mailbox",
+            Some(json!({ "enabled": true, "email": "bills@example.com", "password": "secret" })),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["data"]["attributes"]["email"], "bills@example.com");
+    assert_eq!(body["data"]["attributes"]["has_password"], true);
+}
+
+#[tokio::test]
+async fn google_oauth_routes_use_the_verified_user_id() {
+    let harness = Harness::start().await;
+    let response = harness
+        .post("/v1/bills/mailbox/google/connect", json!({}))
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["data"]["attributes"]["authenticated_user_id"], "1");
+
+    let response = harness
+        .post(
+            "/v1/bills/mailbox/google/callback",
+            json!({ "code": "code", "state": "state" }),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["data"]["attributes"]["code"], "code");
+    assert_eq!(body["data"]["attributes"]["authenticated_user_id"], "1");
+
+    let response = harness
+        .client
+        .delete(format!("{}/v1/bills/mailbox/google", harness.base))
+        .bearer_auth(GOOD_TOKEN)
+        .header("x-abei-authenticated-user-id", "999")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["data"]["attributes"]["authenticated_user_id"], "1");
 }
 
 /// confirm 档的能力，不带确认参数就该被挡在服务端——CLI 的 --yes 只是本地礼貌，
@@ -626,6 +713,83 @@ async fn proxy_still_requires_a_token() {
     let harness = Harness::start().await;
     let response = harness.get("/v1/firefly/api/v1/about").await;
     assert_eq!(response.status(), 401);
+}
+
+#[tokio::test]
+async fn feedback_proxy_preserves_dry_run_create_and_get_semantics() {
+    let harness = Harness::start().await;
+    let feedback = json!({
+        "title": "错误信息不够明确",
+        "body": "## 现象\n失败\n## 期望\n指出字段",
+        "labels": ["friction"],
+        "kind": "friction",
+        "submitted_by": "codex",
+        "source": "cli"
+    });
+
+    let response = harness
+        .post("/v1/feedback?dry_run=true", feedback.clone())
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["dry_run"], true);
+
+    let response = harness.get_auth("/v1/feedback").await;
+    let body: Value = response.json().await.unwrap();
+    assert!(body["data"].as_array().unwrap().is_empty());
+
+    let response = harness.post("/v1/feedback", feedback.clone()).await;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+
+    let response = harness.post("/v1/feedback?confirm=true", feedback).await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let response = harness.get_auth("/v1/feedback/1").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["data"]["title"], "错误信息不够明确");
+
+    let response = harness
+        .patch(
+            "/v1/feedback/1?confirm=true",
+            json!({ "status": "completed", "response": "已修复" }),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["data"]["status"], "completed");
+
+    let response = harness
+        .send(
+            Method::DELETE,
+            "/v1/feedback/1?confirm=true",
+            Some(json!({ "reason": "测试清理" })),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = harness.get_auth("/v1/feedback/1").await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn unavailable_feedback_server_is_a_plain_502() {
+    let firefly = spawn(mock_firefly()).await;
+    let config = Config {
+        firefly_url: format!("http://{firefly}"),
+        server_url: "http://127.0.0.1:1".to_owned(),
+        ..Config::default()
+    };
+    let api = spawn(abei_api::build_app(AppState::new(&config).unwrap())).await;
+    let response = reqwest::Client::new()
+        .get(format!("http://{api}/v1/feedback"))
+        .bearer_auth(GOOD_TOKEN)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 502);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["reason"], "ServerUnavailable");
+    assert!(body["detail"].as_str().unwrap().contains("ABEI_SERVER_URL"));
 }
 
 #[tokio::test]

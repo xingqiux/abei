@@ -1,19 +1,21 @@
 //! 地址与令牌。
 //!
-//! 地址放 XDG 配置目录（`~/.config/abei/config.json`），令牌放系统钥匙串。
-//! 两个环境变量可以整体绕开它们：`ABEI_API_URL`、`ABEI_TOKEN` —— agent 和 CI
-//! 用环境变量就不会弹钥匙串授权框。
+//! 都放配置目录（默认 XDG 的 `~/.config/abei/`）：地址在 `config.json`，令牌在
+//! `token` 文件（权限 0600，只有本人可读）。`ABEI_CONFIG_DIR` 可整体改放目录；
+//! `ABEI_API_URL`、`ABEI_TOKEN` 两个环境变量可以整体绕开磁盘——agent 和 CI 用
+//! 环境变量最省事。
+//!
+//! 不用系统钥匙串：钥匙串授权绑定二进制哈希，本地每次重编译都要重新弹窗授权，
+//! 开发节奏下不可用。
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use etcetera::BaseStrategy;
 use serde::{Deserialize, Serialize};
 
 use crate::error::CliError;
 
-const SERVICE: &str = "abei";
-const ACCOUNT: &str = "default";
 const DEFAULT_URL: &str = "http://127.0.0.1:18002";
 
 /// 一次运行要用的连接信息。
@@ -24,7 +26,7 @@ pub struct Settings {
 }
 
 impl Settings {
-    /// 测试和内嵌调用用：直接给定，不碰磁盘和钥匙串。
+    /// 测试和内嵌调用用：直接给定，不碰磁盘。
     pub fn new(api_url: impl Into<String>, token: Option<String>) -> Self {
         Self {
             api_url: api_url.into().trim_end_matches('/').to_owned(),
@@ -32,7 +34,7 @@ impl Settings {
         }
     }
 
-    /// 环境变量优先，其次配置文件与钥匙串，最后默认值。
+    /// 环境变量优先，其次配置目录里的文件，最后默认值。
     pub fn resolve() -> Self {
         let stored = StoredConfig::load().unwrap_or_default();
         let api_url = std::env::var("ABEI_API_URL")
@@ -85,42 +87,92 @@ impl StoredConfig {
     }
 }
 
-pub fn config_path() -> Option<PathBuf> {
-    let strategy = etcetera::choose_base_strategy().ok()?;
-    Some(strategy.config_dir().join("abei").join("config.json"))
+/// 配置目录：`ABEI_CONFIG_DIR` 指哪用哪（测试与多环境用），默认 XDG 下的 `abei/`。
+pub fn config_dir() -> Option<PathBuf> {
+    config_dir_from(std::env::var("ABEI_CONFIG_DIR").ok().as_deref())
 }
 
-/// 钥匙串里没有这条记录不算错，返回 None。
+fn config_dir_from(env_override: Option<&str>) -> Option<PathBuf> {
+    if let Some(dir) = env_override.filter(|dir| !dir.is_empty()) {
+        return Some(PathBuf::from(dir));
+    }
+    let strategy = etcetera::choose_base_strategy().ok()?;
+    Some(strategy.config_dir().join("abei"))
+}
+
+pub fn config_path() -> Option<PathBuf> {
+    Some(config_dir()?.join("config.json"))
+}
+
+fn token_path() -> Option<PathBuf> {
+    Some(config_dir()?.join("token"))
+}
+
+/// 没有令牌文件不算错，返回 None。
 pub fn read_token() -> Result<Option<String>, CliError> {
-    match keyring::Entry::new(SERVICE, ACCOUNT) {
-        Ok(entry) => match entry.get_password() {
-            Ok(token) => Ok(Some(token)),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(error) => Err(CliError::Other(format!("读不了钥匙串：{error}"))),
-        },
-        // 没有可用钥匙串（比如无桌面会话的服务器）不该让命令直接死掉，
-        // 用 ABEI_TOKEN 照样能跑。
-        Err(_) => Ok(None),
+    match token_path() {
+        Some(path) => read_token_at(&path),
+        None => Ok(None),
     }
 }
 
 pub fn write_token(token: &str) -> Result<(), CliError> {
-    let entry = keyring::Entry::new(SERVICE, ACCOUNT)
-        .map_err(|error| CliError::Other(format!("打不开钥匙串：{error}")))?;
-    entry
-        .set_password(token)
-        .map_err(|error| CliError::Other(format!("存不进钥匙串：{error}")))
+    let path = token_path().ok_or_else(|| CliError::Other("找不到配置目录。".to_owned()))?;
+    write_token_at(&path, token)
 }
 
 pub fn delete_token() -> Result<bool, CliError> {
-    let entry = match keyring::Entry::new(SERVICE, ACCOUNT) {
-        Ok(entry) => entry,
-        Err(_) => return Ok(false),
-    };
-    match entry.delete_credential() {
+    match token_path() {
+        Some(path) => delete_token_at(&path),
+        None => Ok(false),
+    }
+}
+
+fn read_token_at(path: &Path) -> Result<Option<String>, CliError> {
+    match fs::read_to_string(path) {
+        Ok(text) => {
+            let token = text.trim();
+            Ok((!token.is_empty()).then(|| token.to_owned()))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(CliError::Other(format!("读不了令牌文件：{error}"))),
+    }
+}
+
+fn write_token_at(path: &Path, token: &str) -> Result<(), CliError> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| CliError::Other(format!("建不了配置目录：{error}")))?;
+    }
+    let content = format!("{token}\n");
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)
+            .map_err(|error| CliError::Other(format!("写不了令牌文件：{error}")))?;
+        // mode 只管新建；文件已经存在（比如权限被改宽过）也拧回 0600。
+        file.set_permissions(fs::Permissions::from_mode(0o600))
+            .map_err(|error| CliError::Other(format!("改不了令牌文件权限：{error}")))?;
+        file.write_all(content.as_bytes())
+            .map_err(|error| CliError::Other(format!("写不了令牌文件：{error}")))?;
+    }
+    #[cfg(not(unix))]
+    fs::write(path, &content)
+        .map_err(|error| CliError::Other(format!("写不了令牌文件：{error}")))?;
+    Ok(())
+}
+
+fn delete_token_at(path: &Path) -> Result<bool, CliError> {
+    match fs::remove_file(path) {
         Ok(()) => Ok(true),
-        Err(keyring::Error::NoEntry) => Ok(false),
-        Err(error) => Err(CliError::Other(format!("删不掉钥匙串记录：{error}"))),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(CliError::Other(format!("删不掉令牌文件：{error}"))),
     }
 }
 
@@ -172,7 +224,55 @@ mod tests {
 
     #[test]
     fn config_path_lands_under_abei() {
-        let path = config_path().expect("应该能算出配置路径");
-        assert!(path.ends_with("abei/config.json"), "{path:?}");
+        let path = config_dir_from(None).expect("应该能算出配置目录");
+        assert!(path.ends_with("abei"), "{path:?}");
+    }
+
+    #[test]
+    fn env_override_wins_and_empty_is_ignored() {
+        assert_eq!(
+            config_dir_from(Some("/tmp/abei-x")),
+            Some(PathBuf::from("/tmp/abei-x"))
+        );
+        // 空值等同没设，回落到默认目录。
+        assert_eq!(config_dir_from(Some("")), config_dir_from(None));
+    }
+
+    /// 临时目录，每个测试独立一份，跑完删掉。
+    fn scratch(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("abei-config-test-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        dir
+    }
+
+    #[test]
+    fn token_file_roundtrip_trims_and_deletes() {
+        let dir = scratch("roundtrip");
+        let path = dir.join("token");
+        assert_eq!(read_token_at(&path).unwrap(), None);
+        write_token_at(&path, "tok-123").unwrap();
+        // 写入带换行、读取去空白，令牌本体不变。
+        assert_eq!(read_token_at(&path).unwrap().as_deref(), Some("tok-123"));
+        assert!(delete_token_at(&path).unwrap());
+        assert!(!delete_token_at(&path).unwrap());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn token_file_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("perms");
+        let path = dir.join("token");
+        write_token_at(&path, "tok").unwrap();
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&path), 0o600);
+        // 权限被改宽过的旧文件，重写后也要拧回 0600。
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        write_token_at(&path, "tok2").unwrap();
+        assert_eq!(mode(&path), 0o600);
+        assert_eq!(read_token_at(&path).unwrap().as_deref(), Some("tok2"));
+        let _ = fs::remove_dir_all(&dir);
     }
 }

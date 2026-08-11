@@ -39,7 +39,7 @@ impl ServerProblem {
         match self.reason.as_str() {
             "MissingToken" | "InvalidToken" => Exit::Unauthenticated,
             "InvalidParams" | "InvalidDate" => Exit::InvalidUsage,
-            "UpstreamUnavailable" | "UpstreamError" => Exit::Upstream,
+            "UpstreamUnavailable" | "UpstreamError" | "ServerUnavailable" => Exit::Upstream,
             _ => Exit::Failure,
         }
     }
@@ -160,6 +160,7 @@ mod tests {
             ("InvalidDate", Exit::InvalidUsage),
             ("UpstreamUnavailable", Exit::Upstream),
             ("UpstreamError", Exit::Upstream),
+            ("ServerUnavailable", Exit::Upstream),
             ("NotFound", Exit::Failure),
         ];
         for (reason, expected) in cases {

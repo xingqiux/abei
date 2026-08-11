@@ -6,12 +6,17 @@ use axum::http::request::Parts;
 use axum::middleware::Next;
 use axum::response::Response;
 
+use crate::firefly::VerifiedUser;
 use crate::problem::Problem;
 use crate::state::AppState;
 
 /// 当前请求携带的 Firefly 令牌，由鉴权中间件放进扩展里。
 #[derive(Clone, Debug)]
 pub struct AuthToken(pub String);
+
+/// 已由 Firefly 验证的用户身份，供内部后端做权限和审计。
+#[derive(Clone, Debug)]
+pub struct AuthIdentity(pub VerifiedUser);
 
 impl<S: Send + Sync> FromRequestParts<S> for AuthToken {
     type Rejection = Problem;
@@ -31,8 +36,9 @@ pub async fn require_token(
     next: Next,
 ) -> Result<Response, Problem> {
     let token = bearer(request.headers()).ok_or_else(Problem::missing_token)?;
-    state.verify(&token).await?;
+    let identity = state.verify(&token).await?;
     request.extensions_mut().insert(AuthToken(token));
+    request.extensions_mut().insert(AuthIdentity(identity));
     Ok(next.run(request).await)
 }
 

@@ -1,6 +1,6 @@
 //! 端到端：进程内起真的 abei-api（上游是假 Firefly），CLI 打真路由。
 //!
-//! 不碰钥匙串，也不碰真 Firefly：Settings 直接构造，令牌显式传。
+//! 不碰本机配置目录，也不碰真 Firefly：Settings 直接构造，令牌显式传。
 
 use abei_api::testkit::{GOOD_TOKEN, Recorder, start_api, start_api_recording};
 use abei_cli::app;
@@ -24,11 +24,15 @@ impl Run {
 
 /// 跑一条命令，拿到退出码和两路输出。
 async fn run(base: &str, token: &str, args: &[&str]) -> Run {
+    run_with_token(base, Some(token), args).await
+}
+
+async fn run_with_token(base: &str, token: Option<&str>, args: &[&str]) -> Run {
     let out = SharedBuffer::new();
     let err = SharedBuffer::new();
     let mut io = Io::capture(out.clone(), err.clone());
 
-    let settings = Settings::new(base.to_owned(), Some(token.to_owned()));
+    let settings = Settings::new(base.to_owned(), token.map(str::to_owned));
     let argv: Vec<String> = std::iter::once("abei")
         .chain(args.iter().copied())
         .map(str::to_owned)
@@ -40,6 +44,21 @@ async fn run(base: &str, token: &str, args: &[&str]) -> Run {
         out: out.text(),
         err: err.text(),
     }
+}
+
+#[tokio::test]
+async fn missing_token_in_captured_io_keeps_the_old_prompts() {
+    let base = start_api().await;
+
+    let bare = run_with_token(&base, None, &[]).await;
+    assert_eq!(bare.exit, Exit::Unauthenticated);
+    assert!(bare.err.contains("abei auth login"), "{}", bare.err);
+    assert!(!bare.err.contains("已经在浏览器打开"), "{}", bare.err);
+
+    let login = run_with_token(&base, None, &["auth", "login"]).await;
+    assert_eq!(login.exit, Exit::InvalidUsage);
+    assert!(login.err.contains("配对要有令牌"), "{}", login.err);
+    assert!(!login.err.contains("已经在浏览器打开"), "{}", login.err);
 }
 
 async fn ok(base: &str, args: &[&str]) -> Run {
@@ -248,31 +267,21 @@ async fn bare_abei_shows_the_month_overview() {
     assert!(result.err.contains("abei guide"), "{}", result.err);
 }
 
+/// 原始 HTTP 命令已按 2026-08-10 决定移除：CLI 不得暴露绕过能力目录的请求面。
 #[tokio::test]
-async fn api_escape_hatch_reaches_firefly_through_the_proxy() {
-    let base = start_api().await;
-    let result = ok(&base, &["api", "get", "/v1/firefly/api/v1/about"]).await;
-    assert_eq!(result.json()["data"]["version"], "6.0.0");
-}
-
-#[tokio::test]
-async fn api_escape_hatch_passes_query_parameters() {
-    let base = start_api().await;
-    let result = ok(
-        &base,
-        &["api", "get", "/v1/transactions", "-q", "type=withdrawal"],
-    )
-    .await;
-    assert_eq!(result.json()["meta"]["pagination"]["count"], 2);
+async fn raw_api_command_stays_removed() {
+    let result = run("http://127.0.0.1:1", "x", &["api", "get", "/v1/catalog"]).await;
+    assert_eq!(result.exit, Exit::InvalidUsage);
 }
 
 /// 服务端的 problem+json 要变成人话，并且带上退出码。
 #[tokio::test]
 async fn server_problems_become_plain_sentences() {
     let base = start_api().await;
-    let result = run(&base, GOOD_TOKEN, &["api", "get", "/v1/nope"]).await;
-    assert_eq!(result.exit, Exit::Failure);
-    assert!(result.err.contains("/v1/catalog"), "{}", result.err);
+    let result = run(&base, GOOD_TOKEN, &["tx", "list", "--limit", "200"]).await;
+    assert_eq!(result.exit, Exit::InvalidUsage);
+    assert!(result.err.contains("1 到 100"), "{}", result.err);
+    assert!(result.err.contains("[InvalidParams]"), "{}", result.err);
 }
 
 /// 机器模式下报错也要是 JSON，不然 agent 得去 parse 中文。
@@ -563,13 +572,112 @@ async fn server_side_validation_comes_back_as_a_usage_error() {
     assert!(result.err.contains("2 到 20"), "{}", result.err);
 }
 
-/// draft 档在服务端不用确认，但命令行仍然要 --yes：本地这一道是给人的提醒。
+/// draft 档直接执行，不要求 --yes。
 #[tokio::test]
-async fn draft_writes_still_need_yes_on_the_command_line() {
+async fn draft_writes_do_not_need_yes_on_the_command_line() {
     let base = start_api().await;
-    let blocked = run(&base, GOOD_TOKEN, &["bills", "retry", "42"]).await;
-    assert_eq!(blocked.exit, Exit::ConfirmationRequired);
-
-    let done = run(&base, GOOD_TOKEN, &["bills", "retry", "42", "--yes"]).await;
+    let done = run(&base, GOOD_TOKEN, &["bills", "retry", "42"]).await;
     assert_eq!(done.exit, Exit::Ok, "{}", done.err);
+}
+
+#[tokio::test]
+async fn feedback_create_and_list_travel_through_api() {
+    let base = start_api().await;
+    let created = ok(
+        &base,
+        &[
+            "feedback",
+            "create",
+            "--title",
+            "错误信息不够明确",
+            "--body",
+            "## 现象\n失败\n## 期望\n指出字段\n## 复现\n运行命令\n## 环境\n测试",
+            "--label",
+            "friction",
+            "--kind",
+            "friction",
+            "--by",
+            "codex",
+            "--yes",
+            "--jq",
+            ".data.source",
+        ],
+    )
+    .await;
+    assert_eq!(created.out.trim(), "\"cli\"");
+
+    let listed = ok(&base, &["feedback", "list", "--jq", ".data[0].title"]).await;
+    assert_eq!(listed.out.trim(), "\"错误信息不够明确\"");
+
+    let fetched = ok(&base, &["feedback", "get", "1", "--jq", ".data.title"]).await;
+    assert_eq!(fetched.out.trim(), "\"错误信息不够明确\"");
+
+    let resolved = ok(
+        &base,
+        &[
+            "feedback",
+            "update",
+            "1",
+            "--status",
+            "completed",
+            "--response",
+            "已修复",
+            "--yes",
+            "--jq",
+            ".data.status",
+        ],
+    )
+    .await;
+    assert_eq!(resolved.out.trim(), "\"completed\"");
+
+    let retried = ok(
+        &base,
+        &["feedback", "retry", "1", "--yes", "--jq", ".data.id"],
+    )
+    .await;
+    assert_eq!(retried.out.trim(), "1");
+
+    let deleted = ok(
+        &base,
+        &[
+            "feedback",
+            "delete",
+            "1",
+            "--reason",
+            "测试清理",
+            "--yes",
+            "--jq",
+            ".data.deleted",
+        ],
+    )
+    .await;
+    assert_eq!(deleted.out.trim(), "true");
+}
+
+#[tokio::test]
+async fn feedback_dry_run_does_not_create_a_record() {
+    let base = start_api().await;
+    let preview = ok(
+        &base,
+        &[
+            "feedback",
+            "create",
+            "--title",
+            "只预览",
+            "--body",
+            "不会落库",
+            "--kind",
+            "idea",
+            "--by",
+            "codex",
+            "--dry-run",
+            "--jq",
+            ".dry_run",
+        ],
+    )
+    .await;
+    assert_eq!(preview.out.trim(), "true");
+
+    let listed = ok(&base, &["feedback", "list", "--jq", ".data | length"]).await;
+    assert_eq!(listed.out.trim(), "0");
 }

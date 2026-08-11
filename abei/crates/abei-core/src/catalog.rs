@@ -6,7 +6,8 @@ use serde_json::json;
 use crate::capability::{Backend, Capability, CapabilityView, Risk, Verb};
 use crate::params::{
     AccountsListParams, BillsBatchParams, BillsImportParams, BillsListParams, BillsUnlockParams,
-    IdParams, RowsSplitParams, RowsUpdateParams, TransactionsListParams, TransactionsSearchParams,
+    FeedbackCreateParams, FeedbackDeleteParams, FeedbackListParams, FeedbackUpdateParams, IdParams,
+    RowsSplitParams, RowsUpdateParams, TransactionsListParams, TransactionsSearchParams,
     TransactionsShowParams, TransactionsSummaryParams,
 };
 
@@ -133,6 +134,12 @@ fn build() -> Catalog {
             label: "账单流水",
             description: "账单解析出来的一条条流水，入账前的草稿。",
             aliases: &["row", "line", "lines"],
+        },
+        ResourceDef {
+            name: "feedback",
+            label: "产品反馈",
+            description: "把使用中遇到的问题和想法交给产品团队。",
+            aliases: &["fb"],
         },
     ];
 
@@ -300,9 +307,9 @@ fn build() -> Catalog {
             .params::<IdParams>(),
         Capability::define("bills", Verb::Sync)
             .risk(Risk::Draft)
-            .backend(Backend::Firefly)
+            .backend(Backend::Server)
             .label("收取账单邮件")
-            .description("立刻收一次邮箱，把新账单邮件拉进收件箱。后台每隔几分钟自己也会收。")
+            .description("提交一次邮箱同步任务；任务在后台拉取并解析新账单邮件。")
             .example("现在收一次", "abei bills sync --yes", json!({}))
             .params::<BillsBatchParams>(),
         Capability::define("bills", Verb::Process)
@@ -341,6 +348,88 @@ fn build() -> Catalog {
                 ]}),
             )
             .params::<RowsSplitParams>(),
+        Capability::define("feedback", Verb::Create)
+            .risk(Risk::Confirm)
+            .backend(Backend::Server)
+            .label("提交反馈")
+            .fixed_param("source", "cli")
+            .description(
+                "标题一句话说清问题；正文分 现象/期望/复现/环境。确认后写入本地，并按配置同步 GitHub issue。",
+            )
+            .example(
+                "记录一处 CLI 摩擦",
+                "abei feedback create --title '错误提示缺少字段名' --body '## 现象\n...\n## 期望\n...\n## 复现\n...\n## 环境\n...' --label friction --kind friction --by codex --yes",
+                json!({
+                    "title": "错误提示缺少字段名",
+                    "body": "## 现象\n...\n## 期望\n...\n## 复现\n...\n## 环境\n...",
+                    "labels": ["friction"],
+                    "kind": "friction",
+                    "submitted_by": "codex",
+                    "source": "cli"
+                }),
+            )
+            .params::<FeedbackCreateParams>(),
+        Capability::define("feedback", Verb::Update)
+            .risk(Risk::Confirm)
+            .backend(Backend::Server)
+            .label("处理反馈")
+            .description(
+                "更新业务状态并留下处理说明；改回 open 表示重开，duplicate 必须指定原反馈。",
+            )
+            .example(
+                "确认第 42 条反馈已解决",
+                "abei feedback update 42 --status completed --response '已在 0.2.0 修复' --yes",
+                json!({
+                    "id": "42",
+                    "status": "completed",
+                    "response": "已在 0.2.0 修复"
+                }),
+            )
+            .params::<FeedbackUpdateParams>(),
+        Capability::define("feedback", Verb::Retry)
+            .risk(Risk::Confirm)
+            .backend(Backend::Server)
+            .label("重试反馈同步")
+            .description("重新把当前反馈内容和状态同步到 GitHub。")
+            .example(
+                "重试第 42 条反馈",
+                "abei feedback retry 42 --yes",
+                json!({ "id": "42" }),
+            )
+            .params::<IdParams>(),
+        Capability::define("feedback", Verb::Delete)
+            .risk(Risk::Confirm)
+            .backend(Backend::Server)
+            .label("删除反馈")
+            .description("从反馈列表中删除一条反馈；必须说明原因，服务端保留审计记录。")
+            .example(
+                "删除一条包含隐私的反馈",
+                "abei feedback delete 42 --reason '包含个人隐私' --yes",
+                json!({ "id": "42", "reason": "包含个人隐私" }),
+            )
+            .params::<FeedbackDeleteParams>(),
+        Capability::define("feedback", Verb::List)
+            .risk(Risk::Read)
+            .backend(Backend::Server)
+            .label("查看反馈")
+            .description("倒序列出反馈，可按类型、业务状态和同步状态筛选。")
+            .example(
+                "看同步失败的反馈",
+                "abei feedback list --sync-status failed",
+                json!({ "sync_status": "failed" }),
+            )
+            .params::<FeedbackListParams>(),
+        Capability::define("feedback", Verb::Get)
+            .risk(Risk::Read)
+            .backend(Backend::Server)
+            .label("查看单条反馈")
+            .description("按 id 查看一条反馈及其 GitHub 同步结果。")
+            .example(
+                "看第 42 条反馈",
+                "abei feedback get 42",
+                json!({ "id": "42" }),
+            )
+            .params::<IdParams>(),
     ];
 
     Catalog {
@@ -478,6 +567,13 @@ mod tests {
             .unwrap();
         assert_eq!(summary.label, "汇总消费");
         assert_eq!(summary.path, "/v1/transactions/summary");
+
+        let feedback = back
+            .capabilities
+            .iter()
+            .find(|c| c.id == "feedback.create")
+            .unwrap();
+        assert_eq!(feedback.fixed_params["source"], "cli");
         assert_eq!(summary.risk, Risk::Read);
         assert_eq!(summary.backend, Backend::Firefly);
         assert_eq!(summary.command, vec!["transactions", "summary"]);

@@ -5,7 +5,7 @@
 //! 再声明一遍（两个真源，正是方案要避免的），它的 builder 又只是把同一份 JSON 换个类型装。
 //! 直接从目录拼 JSON 更短也更诚实。
 
-use abei_core::{Capability, Method};
+use abei_core::{Capability, Method, Verb};
 use serde_json::{Map, Value, json};
 
 pub fn document() -> Value {
@@ -60,16 +60,6 @@ pub fn document() -> Value {
             "responses": { "200": ok_response("完整能力目录。"), "401": problem_response() }
         }
     }));
-
-    paths.insert(
-        "/v1/firefly/{path}".to_owned(),
-        json!({
-            "get": proxy_operation("proxyGet", Method::Get),
-            "post": proxy_operation("proxyPost", Method::Post),
-            "patch": proxy_operation("proxyPatch", Method::Patch),
-            "delete": proxy_operation("proxyDelete", Method::Delete),
-        }),
-    );
 
     json!({
         "openapi": "3.1.0",
@@ -164,6 +154,20 @@ fn operation(capability: &Capability, params: &Value) -> Value {
         operation["responses"]["409"] = problem_response();
     }
 
+    if capability.verb == Verb::Create
+        && let Some(responses) = operation["responses"].as_object_mut()
+        && let Some(response) = responses.get("200").cloned()
+    {
+        responses.insert("201".to_owned(), response);
+    }
+
+    if capability.id() == "bills.sync"
+        && let Some(responses) = operation["responses"].as_object_mut()
+        && let Some(response) = responses.get("200").cloned()
+    {
+        responses.insert("202".to_owned(), response);
+    }
+
     operation["parameters"] = Value::Array(parameters);
     operation
 }
@@ -211,23 +215,6 @@ fn request_body(params: &Value, has_id: bool) -> Value {
             .and_then(Value::as_array)
             .is_some_and(|list| !list.is_empty()),
         "content": { "application/json": { "schema": schema } }
-    })
-}
-
-fn proxy_operation(operation_id: &str, method: Method) -> Value {
-    json!({
-        "operationId": operation_id,
-        "summary": format!("透传 {method} 请求给 Firefly"),
-        "description": "还没建模的接口走这里，请求原样转发。",
-        "tags": ["firefly"],
-        "parameters": [{
-            "name": "path",
-            "in": "path",
-            "required": true,
-            "description": "Firefly 的完整路径，例如 api/v1/about。",
-            "schema": { "type": "string" }
-        }],
-        "responses": { "200": ok_response("Firefly 的原始响应。"), "401": problem_response() }
     })
 }
 
@@ -359,6 +346,28 @@ mod tests {
         let list = &document["paths"]["/v1/bills"]["get"];
         assert!(list["responses"].get("409").is_none());
         assert!(list.get("requestBody").is_none());
+    }
+
+    #[test]
+    fn queued_mailbox_sync_documents_accepted() {
+        let document = document();
+        let sync = &document["paths"]["/v1/bills/sync"]["post"];
+        assert!(sync["responses"]["202"].is_object());
+        assert!(sync["responses"]["200"].is_object());
+    }
+
+    #[test]
+    fn creates_document_created_and_dry_run_statuses() {
+        let document = document();
+        let create = &document["paths"]["/v1/feedback"]["post"];
+        assert!(create["responses"]["200"].is_object());
+        assert!(create["responses"]["201"].is_object());
+    }
+
+    #[test]
+    fn internal_firefly_proxy_is_not_advertised() {
+        let document = document();
+        assert!(document["paths"].get("/v1/firefly/{path}").is_none());
     }
 
     /// 签进仓库的 `abei/openapi.json` 必须与代码一致。

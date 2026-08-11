@@ -20,6 +20,35 @@ services:
       timeout: 5s
       retries: 5
 
+  abei-server:
+    image: ${ABEI_API_IMAGE}
+    restart: unless-stopped
+    entrypoint: ["abei-server"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ABEI_SERVER_ADDR: 0.0.0.0:18005
+      ABEI_MAIL_STORAGE: /var/www/html/storage/app
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - ./storage:/var/www/html/storage
+    networks:
+      - abei-feedback
+      - abei-server-egress
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18005/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
   # 账本数据的统一 API 面。abei-web 的 nginx 把 /v1 全部反代给它，没有它前端开不了张。
   # 不往宿主机发端口：外面只需要看见 abei-web 一个入口。
   abei-api:
@@ -31,15 +60,21 @@ services:
     environment:
       ABEI_API_HOST: 0.0.0.0
       ABEI_API_PORT: 18002
+      ABEI_SERVER_URL: http://abei-server:18005
       FIREFLY_URL: http://app
     depends_on:
       app:
+        condition: service_healthy
+      abei-server:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18002/health"]
       interval: 30s
       timeout: 5s
       retries: 5
+    networks:
+      - default
+      - abei-feedback
 
   # 阿贝前端：纯静态 nginx，同域把 /v1 反代给 abei-api、/api/ai 给 abei-agent、
   # /api 与 /oauth 给 app（见 abei-web/nginx.conf）。反代域名指到这个端口。
@@ -111,7 +146,7 @@ services:
     volumes:
       - ./storage:/var/www/html/storage
 
-  # 生产环境账单邮箱 worker：定时拉取新邮件，再处理所有可继续的解析任务。
+  # Rust 收信后，PHP 只继续处理下载、解密和账单解析。
   # 与 app 共用 storage，附件与解析产物因此在两个容器间可见。
   bill-worker:
     image: ${FIREFLY_IMAGE}
@@ -122,7 +157,7 @@ services:
     depends_on:
       app:
         condition: service_healthy
-    command: sh -lc 'while true; do php artisan firefly-iii:sync-bill-mailbox --limit=100 || true; php artisan firefly-iii:process-bill-tasks --limit=100 || true; sleep 300; done'
+    command: sh -lc 'while true; do php artisan firefly-iii:process-bill-tasks --limit=100 || true; sleep 300; done'
     volumes:
       - ./storage:/var/www/html/storage
 
@@ -140,3 +175,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks:
+      - default
+      - abei-feedback
+
+networks:
+  abei-feedback:
+    internal: true
+  abei-server-egress:

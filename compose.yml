@@ -48,6 +48,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    networks:
+      - default
+      - abei-feedback
 
   mail:
     image: greenmail/standalone:2.1.3
@@ -61,6 +64,9 @@ services:
       - "127.0.0.1:${MAIL_SMTP_PORT:-13025}:3025"
       - "127.0.0.1:${MAIL_IMAP_PORT:-13143}:3143"
     healthcheck: *mail-healthcheck
+    networks:
+      - default
+      - abei-server-egress
 
   app:
     build: &app-build
@@ -93,9 +99,52 @@ services:
     depends_on:
       app:
         condition: service_healthy
-    command: sh -lc 'while true; do php artisan firefly-iii:sync-bill-mailbox --limit=100 || true; php artisan firefly-iii:process-bill-tasks --limit=100 || true; sleep ${BILL_WORKER_INTERVAL:-300}; done'
+    command: sh -lc 'while true; do php artisan firefly-iii:process-bill-tasks --limit=100 || true; sleep ${BILL_WORKER_INTERVAL:-300}; done'
     volumes:
       - ./firefly-iii/storage:/var/www/html/storage
+
+  # 邮箱收取与 feedback 后端。没有宿主端口，也不和 agent 共享网络；
+  # 只有 abei-api 能把已验证的 Firefly 身份递进来。
+  abei-server:
+    build:
+      context: ./abei
+      target: runtime
+    entrypoint: ["abei-server"]
+    environment:
+      ABEI_SERVER_ADDR: 0.0.0.0:18005
+      ABEI_DB_POOL_SIZE: ${ABEI_DB_POOL_SIZE:-5}
+      ABEI_MAIL_STORAGE: /var/www/html/storage/app
+      ABEI_MAIL_SYNC_INTERVAL: ${ABEI_MAIL_SYNC_INTERVAL:-300}
+      ABEI_MAIL_TIMEOUT_SECONDS: ${ABEI_MAIL_TIMEOUT_SECONDS:-60}
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      GOOGLE_OAUTH_REDIRECT_URL: ${GOOGLE_OAUTH_REDIRECT_URL:-http://127.0.0.1:18004/oauth/google/callback}
+      APP_KEY: ${APP_KEY:-SomeRandomStringOf32CharsExactly}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-firefly}
+      POSTGRES_USER: ${POSTGRES_USER:-firefly}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-firefly-local-only}
+      ABEI_GITHUB_REPO: ${ABEI_GITHUB_REPO:-}
+      ABEI_GITHUB_TOKEN: ${ABEI_GITHUB_TOKEN:-}
+      ABEI_LOG: ${ABEI_LOG:-info}
+    depends_on:
+      app:
+        condition: service_healthy
+      mail:
+        condition: service_healthy
+    expose:
+      - "18005"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18005/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - ./firefly-iii/storage:/var/www/html/storage
+    networks:
+      - abei-feedback
+      - abei-server-egress
 
   # 账本数据的统一 API 面。命令行、AI agent 和前端都只对着它说话。
   #
@@ -110,9 +159,13 @@ services:
       # 容器内固定 18002；宿主侧映射端口才由 .env 的 ABEI_API_PORT 决定。
       ABEI_API_HOST: 0.0.0.0
       ABEI_API_PORT: 18002
+      ABEI_WEB_URL: ${ABEI_WEB_URL:-http://127.0.0.1:${ABEI_WEB_PORT:-18004}}
+      ABEI_SERVER_URL: http://abei-server:18005
       FIREFLY_URL: http://app
     depends_on:
       app:
+        condition: service_healthy
+      abei-server:
         condition: service_healthy
     ports:
       - "127.0.0.1:${ABEI_API_PORT:-18002}:18002"
@@ -123,6 +176,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    networks:
+      - default
+      - abei-feedback
 
   abei-agent:
     build:
@@ -270,3 +326,8 @@ volumes:
   agent-node-modules:
   dev-postgres:
   web-node-modules:
+
+networks:
+  abei-feedback:
+    internal: true
+  abei-server-egress:

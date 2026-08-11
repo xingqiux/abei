@@ -9,12 +9,14 @@ mod catalog;
 mod params;
 
 pub use capability::{
-    Backend, Capability, CapabilityBuilder, CapabilityView, Example, Method, Risk, Target, Verb,
-    VerbParseError,
+    Backend, Capability, CapabilityBuilder, CapabilityView, Example, FixedParam, Method, Risk,
+    Target, Verb, VerbParseError,
 };
 pub use catalog::{Catalog, CatalogView, ResourceDef, ResourceView, catalog};
 pub use params::{
     AccountsListParams, BillsBatchParams, BillsImportParams, BillsListParams, BillsUnlockParams,
-    IdParams, RowSplit, RowsSplitParams, RowsUpdateParams, TransactionsListParams,
-    TransactionsSearchParams, TransactionsShowParams, TransactionsSummaryParams,
+    FeedbackCreateParams, FeedbackDeleteParams, FeedbackListParams, FeedbackStatus,
+    FeedbackUpdateParams, IdParams, RowSplit, RowsSplitParams, RowsUpdateParams,
+    TransactionsListParams, TransactionsSearchParams, TransactionsShowParams,
+    TransactionsSummaryParams,
 };

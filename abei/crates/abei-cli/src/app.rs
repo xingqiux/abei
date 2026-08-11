@@ -9,7 +9,7 @@ use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 use clap_complete::Shell;
 
 use crate::client::Client;
-use crate::commands::{self, ApiArgs, auth::AuthCommand, docs};
+use crate::commands::{self, auth::AuthCommand, docs};
 use crate::config::Settings;
 use crate::error::CliError;
 use crate::exit::Exit;
@@ -17,7 +17,7 @@ use crate::hooks::{Format, Hooks};
 use crate::io::Io;
 use crate::tree;
 
-/// 手写命令。用 derive 定义，再嫁接到生成的命令树上。
+// 手写命令。用 derive 定义，再嫁接到生成的命令树上。
 #[derive(Debug, Subcommand)]
 enum Handwritten {
     /// 配对与令牌
@@ -25,8 +25,6 @@ enum Handwritten {
         #[command(subcommand)]
         command: AuthCommand,
     },
-    /// 直接打接口，目录里没建模的也能打
-    Api(ApiArgs),
     /// 讲清楚一个资源有哪些动词和参数
     Explain {
         /// 资源名或别名
@@ -40,8 +38,6 @@ enum Handwritten {
         #[arg(value_name = "SHELL")]
         shell: Shell,
     },
-    /// 生成 man 页
-    Man,
 }
 
 /// 只为拿到 `--help` 里的全局说明，实际解析走 builder。
@@ -72,7 +68,7 @@ pub fn root_command() -> Command {
                 .long("token")
                 .global(true)
                 .value_name("TOKEN")
-                .help("令牌，盖过钥匙串与 ABEI_TOKEN；auth login 存的也是它，写 - 从标准输入读"),
+                .help("令牌，盖过令牌文件与 ABEI_TOKEN；auth login 存的也是它，写 - 从标准输入读"),
         )
         .arg(
             Arg::new("__json")
@@ -153,7 +149,8 @@ pub async fn run(io: &mut Io, settings: Settings, argv: Vec<String>) -> Exit {
         Err(error) => return report_clap_error(io, error),
     };
 
-    match dispatch(io, settings, &matches, &argv).await {
+    let settings = effective_settings(settings, &matches);
+    match dispatch(io, settings.clone(), &matches, &argv).await {
         Ok(()) => Exit::Ok,
         Err(error) => {
             // 管道被下游关掉是正常收工，不该报错也不该 panic。
@@ -161,19 +158,27 @@ pub async fn run(io: &mut Io, settings: Settings, argv: Vec<String>) -> Exit {
                 return Exit::Ok;
             }
             let hooks = hooks_from(&matches);
+            if matches!(error, CliError::Auth(_))
+                && settings.token.is_none()
+                && !hooks.machine()
+                && io.tty
+                && crate::pairing::can_open()
+                && let Some(url) = crate::pairing::open_pairing(&settings).await
+            {
+                io.note(&format!(
+                    "还没配对。已经在浏览器打开配对页：{url}\n\
+                     复制完整的配对命令，粘回终端就行。（agent 与 CI 设 ABEI_TOKEN 更省事）"
+                ));
+                return error.exit();
+            }
             hooks.emit_error(io, &error);
             error.exit()
         }
     }
 }
 
-async fn dispatch(
-    io: &mut Io,
-    settings: Settings,
-    matches: &ArgMatches,
-    argv: &[String],
-) -> Result<(), CliError> {
-    let settings = Settings::new(
+fn effective_settings(settings: Settings, matches: &ArgMatches) -> Settings {
+    Settings::new(
         matches
             .get_one::<String>("__url")
             .cloned()
@@ -182,8 +187,15 @@ async fn dispatch(
             .get_one::<String>("__token")
             .cloned()
             .or(settings.token),
-    );
+    )
+}
 
+async fn dispatch(
+    io: &mut Io,
+    settings: Settings,
+    matches: &ArgMatches,
+    argv: &[String],
+) -> Result<(), CliError> {
     let Some((name, sub)) = matches.subcommand() else {
         // 裸 abei：本月概览。
         let client = Client::new(
@@ -198,13 +210,10 @@ async fn dispatch(
     };
 
     // 手写命令：不碰目录，也不都需要令牌。
-    if matches!(
-        name,
-        "auth" | "api" | "explain" | "guide" | "completion" | "man"
-    ) {
+    if matches!(name, "auth" | "explain" | "guide" | "completion") {
         let command = Handwritten::from_arg_matches(matches)
             .map_err(|error| CliError::Usage(error.to_string()))?;
-        return run_handwritten(io, &settings, matches, command).await;
+        return run_handwritten(io, &settings, command).await;
     }
 
     // 其余走目录。
@@ -214,31 +223,15 @@ async fn dispatch(
 async fn run_handwritten(
     io: &mut Io,
     settings: &Settings,
-    matches: &ArgMatches,
     command: Handwritten,
 ) -> Result<(), CliError> {
     match command {
         Handwritten::Auth { command } => commands::auth::run(io, settings, &command).await,
-        Handwritten::Api(args) => {
-            let client = Client::new(
-                &settings.api_url,
-                Some(settings.require_token()?.to_owned()),
-            )?;
-            commands::api(io, &client, &hooks_from(matches), &args).await
-        }
         Handwritten::Explain { resource } => docs::explain(io, &resource),
         Handwritten::Guide => docs::guide(io),
         Handwritten::Completion { shell } => {
             let mut buffer = Vec::new();
             clap_complete::generate(shell, &mut root_command(), "abei", &mut buffer);
-            io.line(&String::from_utf8_lossy(&buffer))
-                .map_err(|error| CliError::Other(error.to_string()))
-        }
-        Handwritten::Man => {
-            let mut buffer = Vec::new();
-            clap_mangen::Man::new(root_command())
-                .render(&mut buffer)
-                .map_err(|error| CliError::Other(error.to_string()))?;
             io.line(&String::from_utf8_lossy(&buffer))
                 .map_err(|error| CliError::Other(error.to_string()))
         }
@@ -440,12 +433,21 @@ mod tests {
     fn root_carries_generated_and_handwritten_commands() {
         let root = root_command();
         let names: Vec<&str> = root.get_subcommands().map(|c| c.get_name()).collect();
-        for handwritten in ["auth", "api", "explain", "guide", "completion", "man"] {
+        for handwritten in ["auth", "explain", "guide", "completion"] {
             assert!(names.contains(&handwritten), "少了手写命令 {handwritten}");
         }
+        assert!(!names.contains(&"api"));
+        assert!(!names.contains(&"man"));
         for resource in catalog().resources() {
             assert!(names.contains(&resource.name), "少了资源 {}", resource.name);
         }
+    }
+
+    #[test]
+    fn root_help_does_not_leak_internal_command_docs() {
+        let help = root_command().render_long_help().to_string();
+        assert!(help.contains("阿贝（abei）——记账工具的命令行。"));
+        assert!(!help.contains("手写命令"));
     }
 
     #[test]

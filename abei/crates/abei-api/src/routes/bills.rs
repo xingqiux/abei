@@ -3,12 +3,13 @@
 //! 写闸门在这里统一执行：CLI、web、agent 三条路都打到这几个函数，绕不过去。
 
 use abei_core::{BillsBatchParams, BillsImportParams, BillsListParams, BillsUnlockParams, Risk};
-use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::Method;
+use axum::http::{Method, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::{Extension, Json};
 use serde_json::{Value, json};
 
-use crate::auth::AuthToken;
+use crate::auth::{AuthIdentity, AuthToken};
 use crate::extract::{Gate, ValidJson, ValidQuery, check_id, check_limit, check_page, optional};
 use crate::problem::Problem;
 use crate::state::AppState;
@@ -204,11 +205,32 @@ async fn act(
 
 pub async fn sync(
     State(state): State<AppState>,
-    AuthToken(token): AuthToken,
+    Extension(AuthIdentity(identity)): Extension<AuthIdentity>,
     gate: Gate,
     ValidJson(params): ValidJson<BillsBatchParams>,
-) -> Result<Json<Value>, Problem> {
-    batch(state, token, gate, params, "sync").await
+) -> Result<Response, Problem> {
+    let at = |problem: Problem| problem.at("bills", "sync");
+    gate.check(Risk::Draft, "bills.sync").map_err(at)?;
+    check_limit(params.limit).map_err(at)?;
+
+    if gate.previewing() {
+        return Ok((
+            StatusCode::OK,
+            Json(json!({
+                "dry_run": true,
+                "would": { "capability": "bills.sync", "limit": params.limit },
+            })),
+        )
+            .into_response());
+    }
+
+    let body = match params.limit {
+        Some(limit) => json!({ "limit": limit }),
+        None => json!({}),
+    };
+    crate::routes::server::send_json(&state, &identity, Method::POST, "/v1/bills/sync", &body)
+        .await
+        .map_err(at)
 }
 
 pub async fn process(
@@ -216,28 +238,19 @@ pub async fn process(
     AuthToken(token): AuthToken,
     gate: Gate,
     ValidJson(params): ValidJson<BillsBatchParams>,
-) -> Result<Json<Value>, Problem> {
-    batch(state, token, gate, params, "process").await
-}
-
-/// sync / process 都是「跑一轮」，只认一个 limit。
-async fn batch(
-    state: AppState,
-    token: String,
-    gate: Gate,
-    params: BillsBatchParams,
-    verb: &'static str,
-) -> Result<Json<Value>, Problem> {
-    let at = |problem: Problem| problem.at("bills", verb);
-    gate.check(Risk::Draft, &format!("bills.{verb}"))
-        .map_err(at)?;
+) -> Result<(StatusCode, Json<Value>), Problem> {
+    let at = |problem: Problem| problem.at("bills", "process");
+    gate.check(Risk::Draft, "bills.process").map_err(at)?;
     check_limit(params.limit).map_err(at)?;
 
     if gate.previewing() {
-        return Ok(Json(json!({
-            "dry_run": true,
-            "would": { "capability": format!("bills.{verb}"), "limit": params.limit },
-        })));
+        return Ok((
+            StatusCode::OK,
+            Json(json!({
+                "dry_run": true,
+                "would": { "capability": "bills.process", "limit": params.limit },
+            })),
+        ));
     }
 
     let body = match params.limit {
@@ -247,9 +260,9 @@ async fn batch(
 
     state
         .firefly
-        .send_json(&token, Method::POST, &format!("{INBOX}/{verb}"), &body)
+        .send_json_with_status(&token, Method::POST, &format!("{INBOX}/process"), &body)
         .await
-        .map(Json)
+        .map(|(status, value)| (status, Json(value)))
         .map_err(at)
 }
 

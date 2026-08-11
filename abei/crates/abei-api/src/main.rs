@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let address = SocketAddr::new(config.host, config.port);
     let listener = TcpListener::bind(address).await?;
-    tracing::info!(%address, firefly = %config.firefly_url, "abei-api 已启动");
+    tracing::info!(%address, firefly = %config.firefly_url, server = %config.server_url, "abei-api 已启动");
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown())

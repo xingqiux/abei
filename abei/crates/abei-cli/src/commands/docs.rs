@@ -209,7 +209,7 @@ pub fn guide(io: &mut Io) -> Result<(), CliError> {
     out.push_str(
         "## 退出码\n\n\
          0 成功　1 失败　2 中断　3 参数不对　4 没配对/令牌失效　5 上游连不上　6 写操作缺 --yes\n\n\
-         写操作（风险 draft/confirm）必须显式 `--yes`；想先看会改什么就用 `--dry-run`。\n\n",
+         draft 会直接写草稿；confirm 必须显式 `--yes`，想先看会改什么就用 `--dry-run`。\n\n",
     );
 
     // 目录里标了 human_only 的参数在这里点名，模型看到这一段就不该再去编密码。
@@ -244,10 +244,7 @@ pub fn guide(io: &mut Io) -> Result<(), CliError> {
             out.push_str(&format!("# {}\n{}\n", example.title, example.command));
         }
     }
-    out.push_str(
-        "# 只要金额和分类，交给脚本\nabei tx list date:2026-08 --json=amount,category\n\
-         # 直接打没建模的接口\nabei api get /v1/firefly/api/v1/about\n",
-    );
+    out.push_str("# 只要金额和分类，交给脚本\nabei tx list date:2026-08 --json=amount,category\n");
 
     line(io, &out)
 }

@@ -30,13 +30,24 @@ pub async fn run(io: &mut Io, settings: &Settings, command: &AuthCommand) -> Res
 }
 
 async fn login(io: &mut Io, settings: &Settings) -> Result<(), CliError> {
-    let raw = settings.token.as_deref().ok_or_else(|| {
-        CliError::Usage(
-            "配对要有令牌：abei auth login --token <Firefly 个人访问令牌>\n\
-             不想让令牌进 shell 历史就写 --token - 从标准输入读。"
-                .to_owned(),
-        )
-    })?;
+    let raw = match settings.token.as_deref() {
+        Some(raw) => raw,
+        None => {
+            if io.tty
+                && crate::pairing::can_open()
+                && let Some(url) = crate::pairing::open_pairing(settings).await
+            {
+                return Err(CliError::Usage(format!(
+                    "已经在浏览器打开配对页：{url}\n复制那条完整命令粘回来。"
+                )));
+            }
+            return Err(CliError::Usage(
+                "配对要有令牌：abei auth login --token <Firefly 个人访问令牌>\n\
+                 不想让令牌进 shell 历史就写 --token - 从标准输入读。"
+                    .to_owned(),
+            ));
+        }
+    };
     let token = read_token(raw)?;
     let url = settings.api_url.trim_end_matches('/').to_owned();
 
@@ -65,8 +76,11 @@ async fn login(io: &mut Io, settings: &Settings) -> Result<(), CliError> {
 
     io.line(&format!("配对成功：{url}"))
         .map_err(|error| CliError::Other(error.to_string()))?;
-    io.line(&format!("令牌进了系统钥匙串，地址写在 {}", path.display()))
-        .map_err(|error| CliError::Other(error.to_string()))?;
+    io.line(&format!(
+        "令牌存在本机配置目录（文件权限 0600），地址写在 {}",
+        path.display()
+    ))
+    .map_err(|error| CliError::Other(error.to_string()))?;
     Ok(())
 }
 
@@ -95,7 +109,7 @@ fn status(io: &mut Io) -> Result<(), CliError> {
             let source = if std::env::var("ABEI_TOKEN").is_ok() {
                 "环境变量 ABEI_TOKEN"
             } else {
-                "系统钥匙串"
+                "本机令牌文件"
             };
             line(
                 io,
@@ -112,9 +126,9 @@ fn status(io: &mut Io) -> Result<(), CliError> {
 fn logout(io: &mut Io) -> Result<(), CliError> {
     let removed = config::delete_token()?;
     let text = if removed {
-        "已删掉钥匙串里的令牌。"
+        "已删掉本机存的令牌。"
     } else {
-        "钥匙串里本来就没有令牌。"
+        "本机本来就没有存令牌。"
     };
     io.line(text)
         .map_err(|error| CliError::Other(error.to_string()))?;

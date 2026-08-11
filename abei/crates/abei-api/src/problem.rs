@@ -137,6 +137,15 @@ impl Problem {
         .upstream(serde_json::json!({ "status": status.as_u16() }))
     }
 
+    pub fn server_unavailable(detail: impl Into<String>) -> Self {
+        Self::new(
+            StatusCode::BAD_GATEWAY,
+            "ServerUnavailable",
+            "连不上反馈服务",
+        )
+        .detail(detail)
+    }
+
     pub fn internal(detail: impl Into<String>) -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
