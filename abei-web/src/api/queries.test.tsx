@@ -3,6 +3,7 @@ import { act, renderHook } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  mailboxSyncPollInterval,
   useCreateAccount,
   useCreateTransaction,
   useDeleteTransaction,
@@ -191,21 +192,21 @@ describe('financial mutation cache invalidation', () => {
     expect(invalidate).not.toHaveBeenCalled()
   })
 
-  it('refreshes all task evidence after mailbox sync processes tasks', async () => {
+  it('starts summary polling after queueing mailbox sync', async () => {
     const queryClient = new QueryClient()
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
     const { result } = renderHook(() => useSyncBillInbox(), { wrapper: wrapper(queryClient) })
 
     await act(() => result.current.mutateAsync({ limit: 25 }))
 
-    expect(invalidatedRoots(invalidate.mock.calls as unknown[][])).toEqual(expect.arrayContaining([
-      'bill-inbox-summary',
-      'bill-tasks',
-      'bill-task-rows',
-      'bill-task-review',
-      'bill-task-events',
-      'bill-task-artifacts',
-    ]))
+    expect(invalidatedRoots(invalidate.mock.calls as unknown[][])).toEqual(['bill-inbox-summary'])
+  })
+
+  it('polls summary only while mailbox sync is active', () => {
+    expect(mailboxSyncPollInterval('queued')).toBe(1500)
+    expect(mailboxSyncPollInterval('running')).toBe(1500)
+    expect(mailboxSyncPollInterval('succeeded')).toBe(false)
+    expect(mailboxSyncPollInterval('failed')).toBe(false)
   })
 
   it('refreshes task evidence after ignoring a task', async () => {

@@ -8,11 +8,16 @@ const TodayPage = lazyRouteComponent(() => import('../features/today/TodayPage')
 const AssistantPage = lazyRouteComponent(() => import('../features/assistant/AssistantPage'), 'AssistantPage')
 const TransactionsPage = lazyRouteComponent(() => import('../features/transactions/TransactionsPage'), 'TransactionsPage')
 const BillInboxPage = lazyRouteComponent(() => import('../features/bill-inbox/BillInboxPage'), 'BillInboxPage')
+const GoogleOAuthCallbackPage = lazyRouteComponent(
+  () => import('../features/bill-inbox/GoogleOAuthCallbackPage'),
+  'GoogleOAuthCallbackPage',
+)
 const AccountsPage = lazyRouteComponent(() => import('../features/accounts/AccountsPage'), 'AccountsPage')
 const AccountDetailPage = lazyRouteComponent(() => import('../features/accounts/AccountDetailPage'), 'AccountDetailPage')
 const BudgetsPage = lazyRouteComponent(() => import('../features/budgets/BudgetsPage'), 'BudgetsPage')
 const ReferenceDataPage = lazyRouteComponent(() => import('../features/reference-data/ReferenceDataPage'), 'ReferenceDataPage')
 const AnalysisPage = lazyRouteComponent(() => import('../features/analysis/AnalysisPage'), 'AnalysisPage')
+const FeedbackPage = lazyRouteComponent(() => import('../features/feedback/FeedbackPage'), 'FeedbackPage')
 const SettingsPage = lazyRouteComponent(() => import('../features/settings/SettingsPage'), 'SettingsPage')
 
 const rootRoute = createRootRoute({
@@ -61,6 +66,25 @@ const billInboxRoute = createRoute({
   component: BillInboxPage,
 })
 
+const googleOAuthCallbackRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/oauth/google/callback',
+  validateSearch: (search: Record<string, unknown>): {
+    code?: string
+    state?: string
+    error?: string
+    errorDescription?: string
+  } => ({
+    code: typeof search.code === 'string' ? search.code : undefined,
+    state: typeof search.state === 'string' ? search.state : undefined,
+    error: typeof search.error === 'string' ? search.error : undefined,
+    errorDescription: typeof search.error_description === 'string'
+      ? search.error_description
+      : undefined,
+  }),
+  component: GoogleOAuthCallbackPage,
+})
+
 const accountsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/accounts',
@@ -94,6 +118,12 @@ const referenceDataRoute = createRoute({
   component: ReferenceDataPage,
 })
 
+const feedbackRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/feedback',
+  component: FeedbackPage,
+})
+
 const legacyReportsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/reports',
@@ -105,6 +135,13 @@ const legacyReportsRoute = createRoute({
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
+  // CLI 未配对时把浏览器开到 /settings?pair=1。注意路由默认用 JSON.parse 解查询值，
+  // `?pair=1` 到手是数字 1 而不是字符串 '1'——只认字符串会让整个深链静默失效。
+  validateSearch: (search: Record<string, unknown>): { pair?: boolean } => ({
+    pair: search.pair === 1 || search.pair === '1' || search.pair === true || search.pair === 'true'
+      ? true
+      : undefined,
+  }),
   component: SettingsPage,
 })
 
@@ -140,12 +177,14 @@ const routeTree = rootRoute.addChildren([
   assistantRoute,
   transactionsRoute,
   billInboxRoute,
+  googleOAuthCallbackRoute,
   accountsRoute,
   accountDetailRoute,
   budgetsRoute,
   referenceDataRoute,
   analysisRoute,
   legacyReportsRoute,
+  feedbackRoute,
   settingsRoute,
   catchAllRoute,
 ])

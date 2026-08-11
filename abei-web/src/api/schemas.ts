@@ -250,6 +250,33 @@ export const EMPTY_BILL_INBOX_TODO: BillInboxTodo = {
   total: 0,
 }
 
+export const billMailboxSyncResultSchema = z
+  .object({
+    scanned: z.number(),
+    created: z.number(),
+    ignored: z.number(),
+    duplicates: z.number(),
+    failed: z.number(),
+    processed: z.number(),
+    process_failed: z.number(),
+    errors: z.array(z.string()).optional(),
+  })
+  .passthrough()
+
+export const billMailboxSyncStateSchema = z
+  .object({
+    status: z.enum(['idle', 'queued', 'running', 'succeeded', 'failed']),
+    requested_at: z.string().nullable(),
+    started_at: z.string().nullable(),
+    finished_at: z.string().nullable(),
+    result: billMailboxSyncResultSchema.nullable(),
+    error_message: z.string().nullable(),
+  })
+  .passthrough()
+
+export type BillMailboxSyncResult = z.infer<typeof billMailboxSyncResultSchema>
+export type BillMailboxSyncState = z.infer<typeof billMailboxSyncStateSchema>
+
 export const billInboxSummarySchema = z
   .object({
     pending_total: z.number(),
@@ -258,6 +285,7 @@ export const billInboxSummarySchema = z
     failed: z.number(),
     channels: z.array(billInboxChannelSchema),
     todo: billInboxTodoSchema.optional(),
+    mailbox_sync: billMailboxSyncStateSchema.optional(),
   })
   .passthrough()
 
@@ -269,6 +297,7 @@ export const billInboxSettingsSchema = z.object({
     attributes: z.object({
       enabled: z.boolean(),
       provider: z.enum(['gmail', 'imap']),
+      auth_method: z.enum(['google_oauth', 'password']),
       email: z.string(),
       host: z.string(),
       port: z.number(),
@@ -276,6 +305,8 @@ export const billInboxSettingsSchema = z.object({
       username: z.string(),
       folder: z.string(),
       has_password: z.boolean(),
+      google_connected: z.boolean(),
+      google_oauth_available: z.boolean(),
       built_in_channels: z.array(z.unknown()).optional(),
     }),
   }),
@@ -292,6 +323,15 @@ export const billInboxCleanupResultSchema = z.object({
 })
 
 export type BillInboxSettings = z.infer<typeof billInboxSettingsSchema>
+
+export const googleOAuthStartSchema = z.object({
+  data: z.object({
+    type: z.literal('google-oauth'),
+    attributes: z.object({ authorization_url: z.url() }),
+  }),
+})
+
+export type GoogleOAuthStart = z.infer<typeof googleOAuthStartSchema>
 export type BillInboxProcessResult = z.infer<typeof billInboxProcessResultSchema>
 export type BillInboxCleanupResult = z.infer<typeof billInboxCleanupResultSchema>
 
@@ -507,27 +547,13 @@ export const billImportResponseSchema = z
 export type BillImportRowResult = z.infer<typeof billImportRowResultSchema>
 export type BillImportResponse = z.infer<typeof billImportResponseSchema>
 
-/**
- * POST /api/v1/bill-inbox/sync 响应（对照 BillInboxController@sync）。
- * 可选 limit；会真实扫邮箱，前端验证时只点一次。
- */
+/** POST /api/v1/bill-inbox/sync：只排队，结果由 summary 里的 mailbox_sync 返回。 */
 export const billInboxSyncResultSchema = z
   .object({
     data: z
       .object({
         type: z.string().optional(),
-        attributes: z
-          .object({
-            scanned: z.number(),
-            created: z.number(),
-            ignored: z.number(),
-            duplicates: z.number(),
-            failed: z.number(),
-            processed: z.number(),
-            process_failed: z.number(),
-            errors: z.array(z.unknown()).optional(),
-          })
-          .passthrough(),
+        attributes: billMailboxSyncStateSchema,
       })
       .passthrough(),
   })

@@ -44,7 +44,7 @@ export function Sidebar() {
               key={item.to}
               to={item.to}
               aria-current={active ? 'page' : undefined}
-              className={`group relative flex items-center justify-between gap-x-3 rounded-md py-2 pr-2 pl-3 text-sm font-medium transition-colors ${
+              className={`group relative flex items-center justify-between gap-x-3 rounded-md py-2 pr-2 pl-3 text-sm font-medium transition-colors ${item.to === '/feedback' ? 'mt-3 border-t border-[var(--border-subtle)] pt-3' : ''} ${
                 active
                   ? 'bg-[var(--surface-selected)] font-semibold text-[var(--text-primary)]'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]'

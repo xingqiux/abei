@@ -320,7 +320,7 @@ export async function apiGet<T = unknown>(path: string, params?: QueryParams): P
 }
 
 async function sendJson<T>(
-  method: 'POST' | 'PUT' | 'PATCH',
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   path: string,
   body: unknown,
   params?: QueryParams,
@@ -358,6 +358,10 @@ export function apiPut<T = unknown>(path: string, body: unknown, params?: QueryP
 
 export function apiPatch<T = unknown>(path: string, body: unknown, params?: QueryParams): Promise<T> {
   return sendJson<T>('PATCH', path, body, params)
+}
+
+export function apiDeleteJson<T = unknown>(path: string, body: unknown, params?: QueryParams): Promise<T> {
+  return sendJson<T>('DELETE', path, body, params)
 }
 
 export async function apiDelete(path: string): Promise<void> {

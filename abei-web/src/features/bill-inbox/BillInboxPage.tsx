@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { ArrowsClockwise, Gear, Sparkle } from '@phosphor-icons/react'
 import {
+  invalidateBillInbox,
   useBillInboxSummary,
   useBillRows,
   useBillRowsCount,
@@ -65,14 +67,14 @@ export function BillInboxPage() {
   const view: InboxView = search.view ?? DEFAULT_INBOX_VIEW
   const taskFilter = search.task ?? null
 
+  const queryClient = useQueryClient()
   const summaryQuery = useBillInboxSummary()
   const syncMutation = useSyncBillInbox()
   const dismissMutation = useDismissBillRows()
   const restoreMutation = useRestoreBillRows()
   const importMutation = useImportBillRows()
   const deleteTransaction = useDeleteTransaction()
-  /** 防止用户连点触发多次真实邮箱同步（红线） */
-  const syncOnceGuard = useRef(false)
+  const requestedSync = useRef<string | null>(null)
 
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -181,6 +183,9 @@ export function BillInboxPage() {
   const someSelected = selectableIds.some((id) => selected.has(id))
   const aiSuggestedCount = useMemo(() => rows.filter(isAiSuggested).length, [rows])
   const autofillPending = useMemo(() => rows.some(needsAutofill), [rows])
+  const mailboxSync = summaryQuery.data?.mailbox_sync
+  const mailboxSyncActive = mailboxSync?.status === 'queued' || mailboxSync?.status === 'running'
+  const syncBusy = syncMutation.isPending || mailboxSyncActive
 
   // 换 tab / 换渠道 / 换邮件后，之前选中的行已经不在屏幕上了，留着选中状态只会误伤
   useEffect(() => {
@@ -278,24 +283,46 @@ export function BillInboxPage() {
     setAnchorIndex(null)
   }
 
+  useEffect(() => {
+    if (
+      requestedSync.current === null
+      || mailboxSync?.requested_at !== requestedSync.current
+      || mailboxSync.status === 'queued'
+      || mailboxSync.status === 'running'
+    ) return
+
+    requestedSync.current = null
+    invalidateBillInbox(queryClient)
+
+    if (mailboxSync.status === 'succeeded' && mailboxSync.result) {
+      const feedback = syncResultFeedback(mailboxSync.result)
+      showToast({ ...feedback, duration: feedback.kind === 'error' ? 8000 : undefined })
+      return
+    }
+
+    const feedback = mailboxSync.result ? syncResultFeedback(mailboxSync.result) : null
+    showToast({
+      kind: 'error',
+      message: feedback?.kind === 'error'
+        ? feedback.message
+        : mailboxSync.error_message || '邮箱同步失败，请检查邮箱设置后重试',
+      duration: 8000,
+    })
+  }, [mailboxSync, queryClient])
+
   async function handleSync() {
-    if (syncMutation.isPending || syncOnceGuard.current) return
-    syncOnceGuard.current = true
+    if (syncBusy) return
     try {
       const res = await syncMutation.mutateAsync({})
-      const feedback = syncResultFeedback(res.data.attributes)
-      showToast({ ...feedback, duration: feedback.kind === 'error' ? 8000 : undefined })
+      requestedSync.current = res.data.attributes.requested_at
+      void summaryQuery.refetch()
+      showToast({ kind: 'success', message: '邮箱同步已加入队列' })
     } catch (err) {
       showToast({
         kind: 'error',
         message: err instanceof AbeiApiError ? err.message : '同步邮件失败，请稍后重试',
         duration: 6000,
       })
-    } finally {
-      // 成功后仍允许手动再点（会话内不永久锁死），只挡连点
-      window.setTimeout(() => {
-        syncOnceGuard.current = false
-      }, 2000)
     }
   }
 
@@ -546,9 +573,15 @@ export function BillInboxPage() {
               {autofillRunning ? '正在出建议…' : '让 AI 出建议'}
             </Button>
           )}
-          <Button variant="secondary" size="sm" disabled={syncMutation.isPending} onClick={() => void handleSync()}>
-            <ArrowsClockwise aria-hidden className={`size-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
-            {syncMutation.isPending ? '正在同步邮件…' : '同步邮件'}
+          <Button variant="secondary" size="sm" disabled={syncBusy} onClick={() => void handleSync()}>
+            <ArrowsClockwise aria-hidden className={`size-4 ${syncBusy ? 'animate-spin' : ''}`} />
+            {syncMutation.isPending
+              ? '正在提交…'
+              : mailboxSync?.status === 'queued'
+                ? '等待同步…'
+                : mailboxSync?.status === 'running'
+                  ? '正在同步邮件…'
+                  : '同步邮件'}
           </Button>
           <IconButton label="邮箱设置" onClick={() => setSettingsOpen(true)}>
             <Gear aria-hidden className="size-4" />

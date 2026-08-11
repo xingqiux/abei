@@ -23,6 +23,7 @@ import {
   createTransaction,
   createTransactionSplits,
   cleanupBillInbox,
+  disconnectGoogleMailbox,
   countTransactions,
   deleteTransaction,
   deleteBillTask,
@@ -80,6 +81,7 @@ import {
   searchAccounts,
   submitBillTaskSecret,
   syncBillInbox,
+  startGoogleMailboxOAuth,
   splitBillStatementRow,
   updateBillInboxSettings,
   markBillRowUnique,
@@ -343,7 +345,12 @@ export function useBillInboxSummary() {
     queryKey: ['bill-inbox-summary'],
     queryFn: () => getBillInboxSummary(),
     staleTime: 60_000,
+    refetchInterval: (query) => mailboxSyncPollInterval(query.state.data?.mailbox_sync?.status),
   })
+}
+
+export function mailboxSyncPollInterval(status: string | undefined): number | false {
+  return status === 'queued' || status === 'running' ? 1500 : false
 }
 
 export function useBillInboxSettings(opts: { enabled?: boolean } = {}) {
@@ -354,7 +361,7 @@ export function useBillInboxSettings(opts: { enabled?: boolean } = {}) {
   })
 }
 
-function invalidateBillInbox(queryClient: ReturnType<typeof useQueryClient>) {
+export function invalidateBillInbox(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] })
   queryClient.invalidateQueries({ queryKey: ['bill-rows'] })
   queryClient.invalidateQueries({ queryKey: ['bill-tasks'] })
@@ -368,6 +375,18 @@ export function useUpdateBillInboxSettings() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (input: BillInboxSettingsInput) => updateBillInboxSettings(input),
+    onSuccess: (data) => queryClient.setQueryData(['bill-inbox-settings'], data),
+  })
+}
+
+export function useStartGoogleMailboxOAuth() {
+  return useMutation({ mutationFn: () => startGoogleMailboxOAuth() })
+}
+
+export function useDisconnectGoogleMailbox() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => disconnectGoogleMailbox(),
     onSuccess: (data) => queryClient.setQueryData(['bill-inbox-settings'], data),
   })
 }
@@ -642,12 +661,12 @@ export function useDeleteBillTask() {
   })
 }
 
-/** 邮箱同步：成功后刷新徽标与任务列表（红线：勿在 UI 上自动轮询触发） */
+/** 邮箱同步：这里只投递任务，summary 轮询到完成后再刷新任务数据。 */
 export function useSyncBillInbox() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (opts?: { limit?: number }) => syncBillInbox(opts ?? {}),
-    onSuccess: () => invalidateBillInbox(queryClient),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] }),
   })
 }
 

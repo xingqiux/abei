@@ -397,9 +397,15 @@ export type BillsSyncError = BillsSyncErrors[keyof BillsSyncErrors];
 
 export type BillsSyncResponses = {
     /**
-     * 立刻收一次邮箱，把新账单邮件拉进收件箱。后台每隔几分钟自己也会收。
+     * 提交一次邮箱同步任务；任务在后台拉取并解析新账单邮件。
      */
     200: {
+        [key: string]: unknown;
+    };
+    /**
+     * 提交一次邮箱同步任务；任务在后台拉取并解析新账单邮件。
+     */
+    202: {
         [key: string]: unknown;
     };
 };
@@ -1043,19 +1049,51 @@ export type CatalogResponses = {
 
 export type CatalogResponse = CatalogResponses[keyof CatalogResponses];
 
-export type ProxyDeleteData = {
+export type FeedbackListData = {
     body?: never;
-    path: {
+    path?: never;
+    query?: {
         /**
-         * Firefly 的完整路径，例如 api/v1/about。
+         * 按反馈类型筛选：bug、friction 或 idea。
          */
-        path: string;
+        kind?: string | null;
+        /**
+         * 返回条数，1 到 100，默认 50。
+         */
+        limit?: number | null;
+        /**
+         * 跳过条数，默认 0。
+         */
+        offset?: number | null;
+        /**
+         * 按业务状态筛选。
+         */
+        status?: 'open' | 'planned' | 'started' | 'completed' | 'declined' | 'duplicate' | null;
+        /**
+         * 按同步状态筛选：local、synced 或 failed。
+         */
+        sync_status?: string | null;
     };
-    query?: never;
-    url: '/v1/firefly/{path}';
+    url: '/v1/feedback';
 };
 
-export type ProxyDeleteErrors = {
+export type FeedbackListErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
     /**
      * RFC 9457 problem+json。reason 是机读驼峰码。
      */
@@ -1072,34 +1110,100 @@ export type ProxyDeleteErrors = {
         upstream?: unknown;
         verb?: string;
     };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
 };
 
-export type ProxyDeleteError = ProxyDeleteErrors[keyof ProxyDeleteErrors];
+export type FeedbackListError = FeedbackListErrors[keyof FeedbackListErrors];
 
-export type ProxyDeleteResponses = {
+export type FeedbackListResponses = {
     /**
-     * Firefly 的原始响应。
+     * 倒序列出反馈，可按类型、业务状态和同步状态筛选。
      */
     200: {
         [key: string]: unknown;
     };
 };
 
-export type ProxyDeleteResponse = ProxyDeleteResponses[keyof ProxyDeleteResponses];
+export type FeedbackListResponse = FeedbackListResponses[keyof FeedbackListResponses];
 
-export type ProxyGetData = {
-    body?: never;
-    path: {
+export type FeedbackCreateData = {
+    /**
+     * FeedbackCreateParams
+     *
+     * `feedback create` 的参数。CLI 会把 source 固定成 cli。
+     */
+    body: {
         /**
-         * Firefly 的完整路径，例如 api/v1/about。
+         * Markdown 正文，分为现象、期望、复现、环境。
          */
-        path: string;
+        body: string;
+        /**
+         * 反馈类型：bug、friction 或 idea。
+         */
+        kind: string;
+        /**
+         * 标签，可重复；优先参考 bug、friction、idea。
+         */
+        labels?: Array<string> | null;
+        /**
+         * 来源：cli 或 web。CLI 固定填 cli。
+         */
+        source: string;
+        /**
+         * 提交者的 AI 名字或人名。
+         */
+        submitted_by: string;
+        /**
+         * 一句话说清问题，最多 120 字。
+         */
+        title: string;
     };
-    query?: never;
-    url: '/v1/firefly/{path}';
+    path?: never;
+    query?: {
+        /**
+         * 只跑校验和预览，不落库。响应会带 dry_run: true。
+         */
+        dry_run?: boolean;
+        /**
+         * 显式确认。这条能力是 confirm 档，不带它也不带 dry_run 就是 409。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/feedback';
 };
 
-export type ProxyGetErrors = {
+export type FeedbackCreateErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
     /**
      * RFC 9457 problem+json。reason 是机读驼峰码。
      */
@@ -1116,34 +1220,107 @@ export type ProxyGetErrors = {
         upstream?: unknown;
         verb?: string;
     };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
 };
 
-export type ProxyGetError = ProxyGetErrors[keyof ProxyGetErrors];
+export type FeedbackCreateError = FeedbackCreateErrors[keyof FeedbackCreateErrors];
 
-export type ProxyGetResponses = {
+export type FeedbackCreateResponses = {
     /**
-     * Firefly 的原始响应。
+     * 标题一句话说清问题；正文分 现象/期望/复现/环境。确认后写入本地，并按配置同步 GitHub issue。
      */
     200: {
         [key: string]: unknown;
     };
+    /**
+     * 标题一句话说清问题；正文分 现象/期望/复现/环境。确认后写入本地，并按配置同步 GitHub issue。
+     */
+    201: {
+        [key: string]: unknown;
+    };
 };
 
-export type ProxyGetResponse = ProxyGetResponses[keyof ProxyGetResponses];
+export type FeedbackCreateResponse = FeedbackCreateResponses[keyof FeedbackCreateResponses];
 
-export type ProxyPatchData = {
-    body?: never;
+export type FeedbackDeleteData = {
+    /**
+     * FeedbackDeleteParams
+     *
+     * `feedback delete` 的参数。服务端采用可审计的软删除。
+     */
+    body: {
+        /**
+         * 删除原因，供审计与误删排查。
+         */
+        reason: string;
+    };
     path: {
         /**
-         * Firefly 的完整路径，例如 api/v1/about。
+         * 对象 id，正整数。
          */
-        path: string;
+        id: string;
     };
-    query?: never;
-    url: '/v1/firefly/{path}';
+    query?: {
+        /**
+         * 只跑校验和预览，不落库。响应会带 dry_run: true。
+         */
+        dry_run?: boolean;
+        /**
+         * 显式确认。这条能力是 confirm 档，不带它也不带 dry_run 就是 409。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/feedback/{id}';
 };
 
-export type ProxyPatchErrors = {
+export type FeedbackDeleteErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
     /**
      * RFC 9457 problem+json。reason 是机读驼峰码。
      */
@@ -1160,34 +1337,82 @@ export type ProxyPatchErrors = {
         upstream?: unknown;
         verb?: string;
     };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
 };
 
-export type ProxyPatchError = ProxyPatchErrors[keyof ProxyPatchErrors];
+export type FeedbackDeleteError = FeedbackDeleteErrors[keyof FeedbackDeleteErrors];
 
-export type ProxyPatchResponses = {
+export type FeedbackDeleteResponses = {
     /**
-     * Firefly 的原始响应。
+     * 从反馈列表中删除一条反馈；必须说明原因，服务端保留审计记录。
      */
     200: {
         [key: string]: unknown;
     };
 };
 
-export type ProxyPatchResponse = ProxyPatchResponses[keyof ProxyPatchResponses];
+export type FeedbackDeleteResponse = FeedbackDeleteResponses[keyof FeedbackDeleteResponses];
 
-export type ProxyPostData = {
+export type FeedbackGetData = {
     body?: never;
     path: {
         /**
-         * Firefly 的完整路径，例如 api/v1/about。
+         * 对象 id，正整数。
          */
-        path: string;
+        id: string;
     };
     query?: never;
-    url: '/v1/firefly/{path}';
+    url: '/v1/feedback/{id}';
 };
 
-export type ProxyPostErrors = {
+export type FeedbackGetErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
     /**
      * RFC 9457 problem+json。reason 是机读驼峰码。
      */
@@ -1204,20 +1429,263 @@ export type ProxyPostErrors = {
         upstream?: unknown;
         verb?: string;
     };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
 };
 
-export type ProxyPostError = ProxyPostErrors[keyof ProxyPostErrors];
+export type FeedbackGetError = FeedbackGetErrors[keyof FeedbackGetErrors];
 
-export type ProxyPostResponses = {
+export type FeedbackGetResponses = {
     /**
-     * Firefly 的原始响应。
+     * 按 id 查看一条反馈及其 GitHub 同步结果。
      */
     200: {
         [key: string]: unknown;
     };
 };
 
-export type ProxyPostResponse = ProxyPostResponses[keyof ProxyPostResponses];
+export type FeedbackGetResponse = FeedbackGetResponses[keyof FeedbackGetResponses];
+
+export type FeedbackUpdateData = {
+    /**
+     * FeedbackUpdateParams
+     *
+     * `feedback update` 的参数。把状态改回 open 就是重开。
+     */
+    body: {
+        /**
+         * 原反馈 id；status=duplicate 时必填，其余状态不能填写。
+         */
+        duplicate_of?: number | null;
+        /**
+         * 给提交者看的处理说明。completed 与 declined 必填。
+         */
+        response?: string | null;
+        /**
+         * 新状态：open、planned、started、completed、declined 或 duplicate。
+         */
+        status: 'open' | 'planned' | 'started' | 'completed' | 'declined' | 'duplicate';
+    };
+    path: {
+        /**
+         * 对象 id，正整数。
+         */
+        id: string;
+    };
+    query?: {
+        /**
+         * 只跑校验和预览，不落库。响应会带 dry_run: true。
+         */
+        dry_run?: boolean;
+        /**
+         * 显式确认。这条能力是 confirm 档，不带它也不带 dry_run 就是 409。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/feedback/{id}';
+};
+
+export type FeedbackUpdateErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type FeedbackUpdateError = FeedbackUpdateErrors[keyof FeedbackUpdateErrors];
+
+export type FeedbackUpdateResponses = {
+    /**
+     * 更新业务状态并留下处理说明；改回 open 表示重开，duplicate 必须指定原反馈。
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type FeedbackUpdateResponse = FeedbackUpdateResponses[keyof FeedbackUpdateResponses];
+
+export type FeedbackRetryData = {
+    /**
+     * IdParams
+     *
+     * 只按 id 取一个对象的能力共用这一个参数类型。
+     */
+    body?: {
+        [key: string]: never;
+    };
+    path: {
+        /**
+         * 对象 id，正整数。
+         */
+        id: string;
+    };
+    query?: {
+        /**
+         * 只跑校验和预览，不落库。响应会带 dry_run: true。
+         */
+        dry_run?: boolean;
+        /**
+         * 显式确认。这条能力是 confirm 档，不带它也不带 dry_run 就是 409。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/feedback/{id}/retry';
+};
+
+export type FeedbackRetryErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type FeedbackRetryError = FeedbackRetryErrors[keyof FeedbackRetryErrors];
+
+export type FeedbackRetryResponses = {
+    /**
+     * 重新把当前反馈内容和状态同步到 GitHub。
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type FeedbackRetryResponse = FeedbackRetryResponses[keyof FeedbackRetryResponses];
 
 export type OpenapiData = {
     body?: never;

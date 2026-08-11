@@ -1,4 +1,4 @@
-import type { BillInboxSyncResult, BillQueueRow, BillTask, BillTaskStatus } from '../../api/schemas'
+import type { BillMailboxSyncResult, BillQueueRow, BillTask, BillTaskStatus } from '../../api/schemas'
 import type { ChipKind } from '../../components/abei/StatusChip'
 import { isPositiveDecimal } from '../../lib/decimal'
 import { BRAND_MARKS, type BrandKey, type PlatformKey } from './brandMarks'
@@ -98,7 +98,7 @@ export function dismissReasonLabel(reason: string | null | undefined): string {
 }
 
 export function syncResultFeedback(
-  attributes: BillInboxSyncResult['data']['attributes'],
+  attributes: BillMailboxSyncResult,
 ): { kind: 'success' | 'error'; message: string } {
   const error = attributes.errors?.find((value): value is string => typeof value === 'string' && value.trim() !== '')
   if (error) return { kind: 'error', message: error }

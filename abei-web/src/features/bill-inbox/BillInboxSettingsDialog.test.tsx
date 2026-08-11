@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   refetch: vi.fn(),
   toast: vi.fn(),
   update: vi.fn(),
+  googleStart: vi.fn(),
+  googleDisconnect: vi.fn(),
 }))
 
 vi.mock('../../components/abei/Modal', () => ({
@@ -16,6 +18,8 @@ vi.mock('../../components/abei/Modal', () => ({
 vi.mock('../../api/queries', () => ({
   useBillInboxSettings: () => mocks.query(),
   useUpdateBillInboxSettings: () => ({ mutateAsync: mocks.update, isPending: false }),
+  useStartGoogleMailboxOAuth: () => ({ mutateAsync: mocks.googleStart, isPending: false }),
+  useDisconnectGoogleMailbox: () => ({ mutateAsync: mocks.googleDisconnect, isPending: false }),
 }))
 vi.mock('../../store/toastStore', () => ({ showToast: mocks.toast }))
 
@@ -26,6 +30,7 @@ function settings(email: string, host = 'imap.example.com') {
       attributes: {
         enabled: true,
         provider: 'imap',
+        auth_method: 'password',
         email,
         host,
         port: 993,
@@ -33,6 +38,8 @@ function settings(email: string, host = 'imap.example.com') {
         username: email,
         folder: 'INBOX',
         has_password: true,
+        google_connected: false,
+        google_oauth_available: true,
       },
     },
   }
@@ -54,6 +61,8 @@ describe('BillInboxSettingsDialog', () => {
     mocks.refetch.mockReset()
     mocks.toast.mockReset()
     mocks.update.mockReset().mockResolvedValue(undefined)
+    mocks.googleStart.mockReset()
+    mocks.googleDisconnect.mockReset()
     mocks.query.mockReset().mockReturnValue({
       data: undefined,
       isError: true,
@@ -127,5 +136,26 @@ describe('BillInboxSettingsDialog', () => {
 
     await waitFor(() => expect(screen.getByLabelText('邮箱地址')).toHaveValue('latest@example.com'))
     expect(screen.getByLabelText('主机')).toHaveValue('imap.latest.example.com')
+  })
+
+  it('shows only Google connection state for Gmail', async () => {
+    const gmail = settings('owner@gmail.com')
+    gmail.data.attributes.provider = 'gmail'
+    gmail.data.attributes.auth_method = 'google_oauth'
+    gmail.data.attributes.google_connected = true
+    gmail.data.attributes.has_password = false
+    mocks.query.mockReturnValue({
+      ...loadedQuery(),
+      data: gmail,
+    })
+
+    render(<BillInboxSettingsDialog open onClose={mocks.close} />)
+
+    expect(await screen.findByText('已连接')).toBeInTheDocument()
+    expect(screen.getByText('owner@gmail.com')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '断开连接' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('主机')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('密码')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '保存' })).not.toBeInTheDocument()
   })
 })

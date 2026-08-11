@@ -8,7 +8,7 @@ import type { NavPath } from '../../routes/navItems'
 import { NavCountBadge } from './NavCountBadge'
 
 /** 「我的」sheet 覆盖的剩余导航路径，用于判断底部 tab「我的」的高亮态。 */
-const MORE_PATHS: NavPath[] = ['/assistant', '/accounts', '/budgets', '/reference-data', '/analysis', '/settings']
+const MORE_PATHS: NavPath[] = ['/assistant', '/accounts', '/budgets', '/reference-data', '/analysis', '/feedback', '/settings']
 
 /** 当前 tab 用品牌色 + 顶上一条 3px 指示条，跟侧栏那根竖条是同一套说法 */
 const TAB_BASE = 'relative flex flex-1 flex-col items-center justify-center gap-1 text-[10px] font-medium transition-colors'

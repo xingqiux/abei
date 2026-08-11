@@ -1,4 +1,5 @@
 import { useEffect, useState, type ComponentType } from 'react'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import {
   DownloadSimple,
   Info,
@@ -48,6 +49,8 @@ const SECTIONS: Array<{
 ]
 
 export function SettingsPage() {
+  const { pair } = useSearch({ from: '/settings' })
+  const navigate = useNavigate()
   const aboutQuery = useAbout()
   const [section, setSection] = useState<SettingsSection>('connections')
   const [theme, setTheme] = useState<'system' | 'light' | 'dark'>(() => {
@@ -59,6 +62,10 @@ export function SettingsPage() {
       ? 'comfortable'
       : 'compact'
   })
+
+  useEffect(() => {
+    if (pair) void navigate({ to: '/settings', search: {}, replace: true })
+  }, [navigate, pair])
 
   useEffect(() => {
     const root = document.documentElement
@@ -133,7 +140,7 @@ export function SettingsPage() {
               className="mb-5"
             />
             <ModelConnectionPanel />
-            <TokensPanel />
+            <TokensPanel autoPair={pair} />
           </Card>
         )}
 

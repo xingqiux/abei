@@ -63,10 +63,10 @@ export const zBillsSyncQuery = z.object({
     confirm: z.boolean().optional()
 });
 
-/**
- * 立刻收一次邮箱，把新账单邮件拉进收件箱。后台每隔几分钟自己也会收。
- */
-export const zBillsSyncResponse = z.record(z.string(), z.unknown());
+export const zBillsSyncResponse = z.union([
+    z.record(z.string(), z.unknown()),
+    z.record(z.string(), z.unknown())
+]);
 
 export const zBillsShowPath = z.object({
     id: z.string()
@@ -181,41 +181,134 @@ export const zBillsUnlockResponse = z.record(z.string(), z.unknown());
  */
 export const zCatalogResponse = z.record(z.string(), z.unknown());
 
-export const zProxyDeletePath = z.object({
-    path: z.string()
+export const zFeedbackListQuery = z.object({
+    kind: z.string().nullish(),
+    limit: z.int().gte(0).max(4294967295, { error: 'Invalid value: Expected uint32 to be <= 4294967295' }).nullish(),
+    offset: z.int().gte(0).max(4294967295, { error: 'Invalid value: Expected uint32 to be <= 4294967295' }).nullish(),
+    status: z.enum([
+        'open',
+        'planned',
+        'started',
+        'completed',
+        'declined',
+        'duplicate'
+    ]).nullish(),
+    sync_status: z.string().nullish()
 });
 
 /**
- * Firefly 的原始响应。
+ * 倒序列出反馈，可按类型、业务状态和同步状态筛选。
  */
-export const zProxyDeleteResponse = z.record(z.string(), z.unknown());
+export const zFeedbackListResponse = z.record(z.string(), z.unknown());
 
-export const zProxyGetPath = z.object({
-    path: z.string()
+/**
+ * FeedbackCreateParams
+ *
+ * `feedback create` 的参数。CLI 会把 source 固定成 cli。
+ */
+export const zFeedbackCreateBody = z.object({
+    body: z.string(),
+    kind: z.string(),
+    labels: z.array(z.string()).nullish(),
+    source: z.string(),
+    submitted_by: z.string(),
+    title: z.string()
+});
+
+export const zFeedbackCreateQuery = z.object({
+    dry_run: z.boolean().optional(),
+    confirm: z.boolean().optional()
+});
+
+export const zFeedbackCreateResponse = z.union([
+    z.record(z.string(), z.unknown()),
+    z.record(z.string(), z.unknown())
+]);
+
+/**
+ * FeedbackDeleteParams
+ *
+ * `feedback delete` 的参数。服务端采用可审计的软删除。
+ */
+export const zFeedbackDeleteBody = z.object({
+    reason: z.string()
+});
+
+export const zFeedbackDeletePath = z.object({
+    id: z.string()
+});
+
+export const zFeedbackDeleteQuery = z.object({
+    dry_run: z.boolean().optional(),
+    confirm: z.boolean().optional()
 });
 
 /**
- * Firefly 的原始响应。
+ * 从反馈列表中删除一条反馈；必须说明原因，服务端保留审计记录。
  */
-export const zProxyGetResponse = z.record(z.string(), z.unknown());
+export const zFeedbackDeleteResponse = z.record(z.string(), z.unknown());
 
-export const zProxyPatchPath = z.object({
-    path: z.string()
+export const zFeedbackGetPath = z.object({
+    id: z.string()
 });
 
 /**
- * Firefly 的原始响应。
+ * 按 id 查看一条反馈及其 GitHub 同步结果。
  */
-export const zProxyPatchResponse = z.record(z.string(), z.unknown());
+export const zFeedbackGetResponse = z.record(z.string(), z.unknown());
 
-export const zProxyPostPath = z.object({
-    path: z.string()
+/**
+ * FeedbackUpdateParams
+ *
+ * `feedback update` 的参数。把状态改回 open 就是重开。
+ */
+export const zFeedbackUpdateBody = z.object({
+    duplicate_of: z.coerce.bigint().gte(BigInt(0)).max(BigInt('18446744073709551615'), { error: 'Invalid value: Expected uint64 to be <= 18446744073709551615' }).nullish(),
+    response: z.string().nullish(),
+    status: z.enum([
+        'open',
+        'planned',
+        'started',
+        'completed',
+        'declined',
+        'duplicate'
+    ])
+});
+
+export const zFeedbackUpdatePath = z.object({
+    id: z.string()
+});
+
+export const zFeedbackUpdateQuery = z.object({
+    dry_run: z.boolean().optional(),
+    confirm: z.boolean().optional()
 });
 
 /**
- * Firefly 的原始响应。
+ * 更新业务状态并留下处理说明；改回 open 表示重开，duplicate 必须指定原反馈。
  */
-export const zProxyPostResponse = z.record(z.string(), z.unknown());
+export const zFeedbackUpdateResponse = z.record(z.string(), z.unknown());
+
+/**
+ * IdParams
+ *
+ * 只按 id 取一个对象的能力共用这一个参数类型。
+ */
+export const zFeedbackRetryBody = z.record(z.string(), z.never());
+
+export const zFeedbackRetryPath = z.object({
+    id: z.string()
+});
+
+export const zFeedbackRetryQuery = z.object({
+    dry_run: z.boolean().optional(),
+    confirm: z.boolean().optional()
+});
+
+/**
+ * 重新把当前反馈内容和状态同步到 GitHub。
+ */
+export const zFeedbackRetryResponse = z.record(z.string(), z.unknown());
 
 /**
  * OpenAPI 文档。

@@ -27,6 +27,7 @@ import {
   billImportResponseSchema,
   billInboxSummarySchema,
   billInboxSettingsSchema,
+  googleOAuthStartSchema,
   billInboxProcessResultSchema,
   billInboxCleanupResultSchema,
   billInboxSyncResultSchema,
@@ -65,6 +66,7 @@ import {
   type BillImportResponse,
   type BillInboxSummary,
   type BillInboxSettings,
+  type GoogleOAuthStart,
   type BillInboxProcessResult,
   type BillInboxCleanupResult,
   type BillInboxSyncResult,
@@ -377,15 +379,33 @@ export type BillInboxSettingsInput = Partial<
 > & { password?: string }
 
 export async function getBillInboxSettings(): Promise<BillInboxSettings> {
-  const raw = await proxyGet('/api/v1/bill-inbox/settings')
+  const raw = await apiGet('/v1/bills/mailbox')
   return billInboxSettingsSchema.parse(raw)
 }
 
 export async function updateBillInboxSettings(
   input: BillInboxSettingsInput,
 ): Promise<BillInboxSettings> {
-  const raw = await proxyPut('/api/v1/bill-inbox/settings', input)
+  const raw = await apiPut('/v1/bills/mailbox', input)
   return billInboxSettingsSchema.parse(raw)
+}
+
+export async function startGoogleMailboxOAuth(): Promise<GoogleOAuthStart> {
+  const raw = await apiPost('/v1/bills/mailbox/google/connect', {})
+  return googleOAuthStartSchema.parse(raw)
+}
+
+export async function completeGoogleMailboxOAuth(input: {
+  code: string
+  state: string
+}): Promise<BillInboxSettings> {
+  const raw = await apiPost('/v1/bills/mailbox/google/callback', input)
+  return billInboxSettingsSchema.parse(raw)
+}
+
+export async function disconnectGoogleMailbox(): Promise<BillInboxSettings> {
+  await apiDelete('/v1/bills/mailbox/google')
+  return getBillInboxSettings()
 }
 
 export async function processBillInbox(limit = 25): Promise<BillInboxProcessResult> {
@@ -655,10 +675,7 @@ export async function deleteBillTask(taskId: string): Promise<void> {
   return proxyDelete(`/api/v1/bill-tasks/${taskId}`)
 }
 
-/**
- * POST /v1/bills/sync —— 触发真实邮箱同步（红线：验证时点一次即可，勿轮点）。
- * draft 档，服务端直接放行。body 可选 {limit?:1-100}，默认后端 25。
- */
+/** POST /v1/bills/sync：投递邮箱同步任务，进度从 bill-inbox summary 读取。 */
 export async function syncBillInbox(opts: { limit?: number } = {}): Promise<BillInboxSyncResult> {
   const body = opts.limit !== undefined ? { limit: opts.limit } : {}
   const raw = await apiPost('/v1/bills/sync', body)

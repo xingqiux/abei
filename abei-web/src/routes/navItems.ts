@@ -2,6 +2,7 @@ import type { ComponentType } from 'react'
 import {
   ArrowsLeftRight,
   ChartBar,
+  ChatTeardropText,
   Gear,
   Money,
   Sparkle,
@@ -22,6 +23,7 @@ export type NavPath =
   | '/budgets'
   | '/reference-data'
   | '/analysis'
+  | '/feedback'
   | '/settings'
   | '/bill-inbox'
 
@@ -41,6 +43,7 @@ export const NAV_ITEMS: NavItemDef[] = [
   { label: '预算', to: '/budgets', icon: Money },
   { label: '分类与标签', to: '/reference-data', icon: Tag },
   { label: '分析', to: '/analysis', icon: ChartBar },
+  { label: '反馈', to: '/feedback', icon: ChatTeardropText },
   { label: '设置', to: '/settings', icon: Gear },
 ]
 

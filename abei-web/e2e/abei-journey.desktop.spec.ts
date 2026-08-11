@@ -29,8 +29,8 @@ const FIXTURE = {
 
 let token = ''
 
-test.beforeAll(() => {
-  token = seedFireflyE2EUser()
+test.beforeAll(async () => {
+  token = await seedFireflyE2EUser()
 })
 
 /**

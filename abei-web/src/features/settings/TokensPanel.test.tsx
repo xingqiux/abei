@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { StrictMode, type ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -42,12 +42,15 @@ const token = (over: Partial<{ id: string; name: string; created_at: string | nu
 
 const SESSION_TOKEN = token({ id: '9', name: '当前浏览器', current: true })
 
-function renderPanel() {
+function renderPanel(autoPair = false, strict = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  return render(
+  const panel = (
     <QueryClientProvider client={queryClient}>
-      <TokensPanel />
-    </QueryClientProvider>,
+      <TokensPanel autoPair={autoPair} />
+    </QueryClientProvider>
+  )
+  return render(
+    strict ? <StrictMode>{panel}</StrictMode> : panel,
   )
 }
 
@@ -165,6 +168,22 @@ describe('TokensPanel 保护当前会话', () => {
 })
 
 describe('TokensPanel 生成', () => {
+  it('深链自动生成一次，并直接打开配对弹窗', async () => {
+    mocks.apiPost.mockResolvedValue({ data: { access_token: 'pat-auto' } })
+    renderPanel(true, true)
+
+    const dialog = await screen.findByRole('dialog', { name: '连接 abei CLI' })
+    expect(within(dialog).getByText(/--token 'pat-auto'/)).toBeInTheDocument()
+    expect(mocks.apiPost).toHaveBeenCalledTimes(1)
+  })
+
+  it('普通打开不会自动生成令牌', async () => {
+    renderPanel()
+    await screen.findByText('CLI 脚本')
+
+    expect(mocks.apiPost).not.toHaveBeenCalled()
+  })
+
   it('生成走 POST /v1/firefly/api/v1/tokens，并给出完整的 abei 配对命令', async () => {
     mocks.apiPost.mockResolvedValue({ data: { access_token: 'pat-abc-123' } })
     renderPanel()

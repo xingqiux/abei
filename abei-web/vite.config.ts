@@ -15,6 +15,8 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     port: 5173,
+    // 5173 是 ABEI_WEB_URL 与 CLI 配对深链的约定端口；漂移会让配对静默失效，宁可启动失败。
+    strictPort: true,
     proxy: {
       // AI 面还在 abei-agent 上，没走 abei-api。
       '/api/ai': {

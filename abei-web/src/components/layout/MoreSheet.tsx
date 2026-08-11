@@ -12,7 +12,7 @@ import { requestTokenReset } from '../tokenEvents'
 import { NavCountBadge } from './NavCountBadge'
 
 /** 「我的」sheet 里列出的剩余导航项（概况/交易/收件箱已在底部 tab 常驻，此处不重复）。 */
-const MORE_PATHS: NavPath[] = ['/assistant', '/accounts', '/budgets', '/reference-data', '/analysis', '/settings']
+const MORE_PATHS: NavPath[] = ['/assistant', '/accounts', '/budgets', '/reference-data', '/analysis', '/feedback', '/settings']
 
 /**
  * 移动端底部弹出 sheet：列出侧栏剩余导航项，240ms 上滑入场。

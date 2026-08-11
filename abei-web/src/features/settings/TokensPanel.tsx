@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Check,
   Copy,
@@ -37,15 +37,16 @@ function shellQuote(value: string): string {
 }
 
 /** abei CLI 连接：签发一次性配对命令，并管理当前用户的 PAT。 */
-export function TokensPanel() {
+export function TokensPanel({ autoPair = false }: { autoPair?: boolean }) {
   const tokens = useApiTokens()
   const revokeMutation = useRevokeApiToken()
+  const autoPairStarted = useRef(false)
   const [creating, setCreating] = useState(false)
   const [newToken, setNewToken] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [revoking, setRevoking] = useState<ApiToken | null>(null)
 
-  async function create() {
+  const create = useCallback(async () => {
     setCreating(true)
     try {
       const token = await createApiToken('abei CLI')
@@ -57,7 +58,14 @@ export function TokensPanel() {
     } finally {
       setCreating(false)
     }
-  }
+  }, [tokens])
+
+  useEffect(() => {
+    if (autoPair && !autoPairStarted.current) {
+      autoPairStarted.current = true
+      void create()
+    }
+  }, [autoPair, create])
 
   async function copyPairingCommand() {
     if (!newToken) return
