@@ -7,6 +7,8 @@ import { FeedbackPage } from './FeedbackPage'
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   apiPost: vi.fn(),
+  apiPatch: vi.fn(),
+  apiDeleteJson: vi.fn(),
   toast: vi.fn(),
 }))
 
@@ -14,6 +16,8 @@ vi.mock('../../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../api/client')>()),
   apiGet: mocks.apiGet,
   apiPost: mocks.apiPost,
+  apiPatch: mocks.apiPatch,
+  apiDeleteJson: mocks.apiDeleteJson,
 }))
 vi.mock('../../store/toastStore', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../store/toastStore')>()),
@@ -97,8 +101,11 @@ beforeEach(() => {
   mocks.apiGet.mockReset().mockResolvedValue({
     data: feedback,
     pagination: { count: feedback.length, limit: 20, offset: 0 },
+    permissions: { manage: true },
   })
   mocks.apiPost.mockReset().mockResolvedValue({ data: feedback[0] })
+  mocks.apiPatch.mockReset().mockResolvedValue({ data: feedback[0] })
+  mocks.apiDeleteJson.mockReset().mockResolvedValue({ data: { id: 3, deleted: true } })
   mocks.toast.mockReset()
 })
 
@@ -152,5 +159,36 @@ describe('FeedbackPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '提交反馈' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('title 最多 120 字。')
+  })
+
+  it('owner 可以处理、重试同步并删除反馈', async () => {
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /GitHub 同步失败/ }))
+
+    fireEvent.click(screen.getByRole('button', { name: '重试同步' }))
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith(
+      '/v1/feedback/3/retry',
+      {},
+      { confirm: true },
+    ))
+
+    fireEvent.click(screen.getByRole('button', { name: '处理' }))
+    fireEvent.change(screen.getByLabelText('处理状态'), { target: { value: 'completed' } })
+    fireEvent.change(screen.getByLabelText('处理说明'), { target: { value: '已修复' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存处理结果' }))
+    await waitFor(() => expect(mocks.apiPatch).toHaveBeenCalledWith(
+      '/v1/feedback/3',
+      { status: 'completed', response: '已修复', duplicate_of: null },
+      { confirm: true },
+    ))
+
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    fireEvent.change(screen.getByLabelText('删除原因'), { target: { value: '包含隐私' } })
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+    await waitFor(() => expect(mocks.apiDeleteJson).toHaveBeenCalledWith(
+      '/v1/feedback/3',
+      { reason: '包含隐私' },
+      { confirm: true },
+    ))
   })
 })
