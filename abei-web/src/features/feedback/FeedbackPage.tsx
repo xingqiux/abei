@@ -260,39 +260,247 @@ function FeedbackForm({ onCreated }: { onCreated: () => Promise<unknown> }) {
   )
 }
 
-function FeedbackDetail({ feedback }: { feedback: Feedback }) {
+function FeedbackDetail({
+  feedback,
+  canManage,
+  onChanged,
+}: {
+  feedback: Feedback
+  canManage: boolean
+  onChanged: () => Promise<unknown>
+}) {
+  const [updateOpen, setUpdateOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const retryMutation = useMutation({
+    mutationFn: () => apiPost(`/v1/feedback/${feedback.id}/retry`, {}, { confirm: true }),
+  })
+
+  async function retrySync() {
+    setActionError(null)
+    try {
+      await retryMutation.mutateAsync()
+      void onChanged()
+      showToast({ kind: 'success', message: '反馈已同步' })
+    } catch (caught) {
+      setActionError(errorMessage(caught, '反馈同步失败'))
+    }
+  }
+
   return (
-    <div className="border-t border-[var(--border-subtle)] bg-[var(--surface-hover)] px-4 py-4">
-      <div className="text-sm leading-6 text-[var(--text-primary)]">
-        <Markdown skipHtml remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
-          {feedback.body}
-        </Markdown>
-      </div>
-      <div className="mt-4 border-t border-[var(--border-subtle)] pt-3 text-xs text-[var(--text-secondary)]">
-        {feedback.response && (
-          <div className="mb-3">
-            <p className="font-semibold text-[var(--text-primary)]">处理说明</p>
-            <p className="mt-1 whitespace-pre-wrap">{feedback.response}</p>
+    <>
+      <div className="border-t border-[var(--border-subtle)] bg-[var(--surface-hover)] px-4 py-4">
+        <div className="text-sm leading-6 text-[var(--text-primary)]">
+          <Markdown skipHtml remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+            {feedback.body}
+          </Markdown>
+        </div>
+        <div className="mt-4 border-t border-[var(--border-subtle)] pt-3 text-xs text-[var(--text-secondary)]">
+          {feedback.response && (
+            <div className="mb-3">
+              <p className="font-semibold text-[var(--text-primary)]">处理说明</p>
+              <p className="mt-1 whitespace-pre-wrap">{feedback.response}</p>
+            </div>
+          )}
+          {feedback.duplicate_of && <p className="mb-3">原反馈：#{feedback.duplicate_of}</p>}
+          {feedback.sync_status === 'synced' && feedback.github_issue_url ? (
+            <a
+              href={feedback.github_issue_url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 font-medium text-[var(--brand-text)] underline underline-offset-2"
+            >
+              <GithubLogo aria-hidden className="size-4" />
+              查看 GitHub issue{feedback.github_issue_number ? ` #${feedback.github_issue_number}` : ''}
+            </a>
+          ) : feedback.sync_status === 'failed' ? (
+            <p><span className="font-semibold text-[var(--danger)]">同步失败：</span>{feedback.sync_error ?? '未提供错误信息'}</p>
+          ) : (
+            <span>仅本地</span>
+          )}
+        </div>
+        {canManage && (
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] pt-3">
+            <Button size="xs" onClick={() => setUpdateOpen(true)}>
+              <PencilSimple aria-hidden className="size-3.5" />
+              处理
+            </Button>
+            {feedback.sync_status !== 'synced' && (
+              <Button size="xs" disabled={retryMutation.isPending} onClick={() => void retrySync()}>
+                <ArrowsClockwise aria-hidden className="size-3.5" />
+                {retryMutation.isPending ? '同步中…' : feedback.sync_status === 'failed' ? '重试同步' : '同步 GitHub'}
+              </Button>
+            )}
+            <Button size="xs" variant="ghost-danger" onClick={() => setDeleteOpen(true)}>
+              <Trash aria-hidden className="size-3.5" />
+              删除
+            </Button>
           </div>
         )}
-        {feedback.sync_status === 'synced' && feedback.github_issue_url ? (
-          <a
-            href={feedback.github_issue_url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 font-medium text-[var(--brand-text)] underline underline-offset-2"
-          >
-            <GithubLogo aria-hidden className="size-4" />
-            查看 GitHub issue{feedback.github_issue_number ? ` #${feedback.github_issue_number}` : ''}
-          </a>
-        ) : feedback.sync_status === 'failed' ? (
-          <p><span className="font-semibold text-[var(--danger)]">同步失败：</span>{feedback.sync_error ?? '未提供错误信息'}</p>
-        ) : (
-          <span>仅本地</span>
-        )}
+        {actionError && <p role="alert" className="mt-3 text-xs text-[var(--danger)]">{actionError}</p>}
       </div>
-    </div>
+      {updateOpen && (
+        <UpdateFeedbackDialog
+          feedback={feedback}
+          onClose={() => setUpdateOpen(false)}
+          onChanged={onChanged}
+        />
+      )}
+      {deleteOpen && (
+        <DeleteFeedbackDialog
+          feedback={feedback}
+          onClose={() => setDeleteOpen(false)}
+          onChanged={onChanged}
+        />
+      )}
+    </>
   )
+}
+
+function UpdateFeedbackDialog({
+  feedback,
+  onClose,
+  onChanged,
+}: {
+  feedback: Feedback
+  onClose: () => void
+  onChanged: () => Promise<unknown>
+}) {
+  const [status, setStatus] = useState<FeedbackStatus>(feedback.status)
+  const [response, setResponse] = useState(feedback.response ?? '')
+  const [duplicateOf, setDuplicateOf] = useState(feedback.duplicate_of?.toString() ?? '')
+  const [error, setError] = useState<string | null>(null)
+  const mutation = useMutation({
+    mutationFn: (input: { status: FeedbackStatus; response: string | null; duplicate_of: number | null }) =>
+      apiPatch(`/v1/feedback/${feedback.id}`, input, { confirm: true }),
+  })
+
+  async function save() {
+    const cleanResponse = response.trim()
+    if ((status === 'completed' || status === 'declined') && cleanResponse === '') {
+      setError('已解决或不处理时必须填写处理说明。')
+      return
+    }
+    const original = Number(duplicateOf)
+    if (status === 'duplicate' && (!Number.isSafeInteger(original) || original <= 0 || original === feedback.id)) {
+      setError('重复反馈必须填写另一条反馈的正整数 ID。')
+      return
+    }
+    setError(null)
+    try {
+      await mutation.mutateAsync({
+        status,
+        response: cleanResponse || null,
+        duplicate_of: status === 'duplicate' ? original : null,
+      })
+      void onChanged()
+      showToast({ kind: 'success', message: '反馈状态已更新' })
+      onClose()
+    } catch (caught) {
+      setError(errorMessage(caught, '反馈更新失败'))
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`处理反馈 #${feedback.id}`}
+      footer={(
+        <>
+          <Button size="md" disabled={mutation.isPending} onClick={onClose}>取消</Button>
+          <Button size="md" variant="primary" disabled={mutation.isPending} onClick={() => void save()}>
+            {mutation.isPending ? '保存中…' : '保存处理结果'}
+          </Button>
+        </>
+      )}
+    >
+      <div className="flex flex-col gap-4">
+        <p className="font-medium text-[var(--text-primary)]">{feedback.title}</p>
+        <Field label="处理状态">
+          <Select value={status} onChange={(event) => setStatus(event.target.value as FeedbackStatus)}>
+            {STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="处理说明" hint="已解决或不处理时必填">
+          <Textarea rows={5} maxLength={5000} value={response} onChange={(event) => setResponse(event.target.value)} />
+        </Field>
+        {status === 'duplicate' && (
+          <Field label="原反馈 ID">
+            <Input type="number" min={1} inputMode="numeric" value={duplicateOf} onChange={(event) => setDuplicateOf(event.target.value)} />
+          </Field>
+        )}
+        {error && <p role="alert" className="text-sm text-[var(--danger)]">{error}</p>}
+      </div>
+    </Modal>
+  )
+}
+
+function DeleteFeedbackDialog({
+  feedback,
+  onClose,
+  onChanged,
+}: {
+  feedback: Feedback
+  onClose: () => void
+  onChanged: () => Promise<unknown>
+}) {
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const mutation = useMutation({
+    mutationFn: (cleanReason: string) => apiDeleteJson(
+      `/v1/feedback/${feedback.id}`,
+      { reason: cleanReason },
+      { confirm: true },
+    ),
+  })
+
+  async function remove() {
+    const cleanReason = reason.trim()
+    if (cleanReason === '') {
+      setError('请填写删除原因。')
+      return
+    }
+    setError(null)
+    try {
+      await mutation.mutateAsync(cleanReason)
+      void onChanged()
+      showToast({ kind: 'success', message: '反馈已删除' })
+      onClose()
+    } catch (caught) {
+      setError(errorMessage(caught, '反馈删除失败'))
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`删除反馈 #${feedback.id}`}
+      footer={(
+        <>
+          <Button size="md" disabled={mutation.isPending} onClick={onClose}>取消</Button>
+          <Button size="md" variant="danger" disabled={mutation.isPending} onClick={() => void remove()}>
+            {mutation.isPending ? '删除中…' : '确认删除'}
+          </Button>
+        </>
+      )}
+    >
+      <div className="flex flex-col gap-4">
+        <p>“{feedback.title}”会从反馈列表中移除并保留审计记录。</p>
+        {feedback.github_issue_number && <p>关联的 GitHub issue #{feedback.github_issue_number} 也会删除。</p>}
+        <Field label="删除原因" error={error ?? undefined}>
+          <Textarea required rows={4} maxLength={1000} value={reason} onChange={(event) => setReason(event.target.value)} />
+        </Field>
+      </div>
+    </Modal>
+  )
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof AbeiApiError ? (error.detail ?? error.message) : fallback
 }
 
 function SyncLabel({ status }: { status: Feedback['sync_status'] }) {
