@@ -1159,10 +1159,10 @@ impl Github {
             .get("node_id")
             .and_then(Value::as_str)
             .ok_or_else(|| "GitHub issue 响应缺少 node_id。".to_owned())?;
-        let graphql_url = self
-            .base
-            .strip_suffix("/api/v3")
-            .map_or_else(|| format!("{}/graphql", self.base), |base| format!("{base}/api/graphql"));
+        let graphql_url = self.base.strip_suffix("/api/v3").map_or_else(
+            || format!("{}/graphql", self.base),
+            |base| format!("{base}/api/graphql"),
+        );
         let response = self
             .client
             .post(graphql_url)
@@ -1491,7 +1491,10 @@ mod tests {
     fn feedback_ids_are_strictly_positive() {
         assert_eq!(feedback_id(Ok(Path("42".to_owned()))).unwrap(), 42);
         for invalid in ["0", "01", "-1", "+1", "abc"] {
-            assert!(feedback_id(Ok(Path(invalid.to_owned()))).is_err(), "{invalid}");
+            assert!(
+                feedback_id(Ok(Path(invalid.to_owned()))).is_err(),
+                "{invalid}"
+            );
         }
     }
 
