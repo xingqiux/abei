@@ -19,6 +19,7 @@ RUN apt-get update \
   && docker-php-ext-install -j"$(nproc)" \
     bcmath \
     intl \
+    pcntl \
     pdo_pgsql \
     pgsql \
     zip \

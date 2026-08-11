@@ -7,11 +7,9 @@ namespace FireflyIII\Services\BillIngestion\Channels;
 use Carbon\Carbon;
 use FireflyIII\Models\BillMailMessage;
 use FireflyIII\Models\BillTask;
-use FireflyIII\Services\BillIngestion\BillMailAttachment;
 use FireflyIII\Services\BillIngestion\BillSourceChannel;
 use FireflyIII\Services\BillIngestion\RemoteBillFileDownloader;
 use FireflyIII\Services\BillIngestion\WechatPayStatementArchiveExtractor;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 
@@ -35,85 +33,12 @@ class WechatPayBillSourceChannel implements BillSourceChannel
         return '微信支付账单流水';
     }
 
-    public function settingsDescription(): string
-    {
-        return '会自动识别 wechatpay@tencent.com 发来的微信支付账单流水邮件，并自动下载加密账单文件。';
-    }
-
     /**
      * @return array<int, string>
      */
     public function profileIds(): array
     {
         return ['wechat-pay-statement'];
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    public function mailboxSearchCriteria(): array
-    {
-        return ['FROM "wechatpay@tencent.com"'];
-    }
-
-    /**
-     * @param array<int, BillMailAttachment> $attachments
-     */
-    public function matches(BillMailMessage $mail, array $attachments): bool
-    {
-        $from    = strtolower((string) $mail->from_address);
-        $subject = (string) $mail->subject;
-        $body    = $this->mailBody($mail);
-
-        return str_contains($from, 'wechatpay@tencent.com')
-            && (str_contains($subject, '微信支付账单流水文件') || str_contains($body, '微信支付账单流水文件'))
-            && (str_contains($subject, '账单流水文件') || str_contains($body, '点击下载'));
-    }
-
-    /**
-     * @param array<int, BillMailAttachment> $attachments
-     */
-    public function ingest(BillMailMessage $mail, array $attachments): BillTask
-    {
-        return DB::transaction(function () use ($mail): BillTask {
-            $body        = $this->mailBody($mail);
-            $period      = $this->statementPeriod((string) $mail->subject.' '.$body);
-            $this->downloadUrl($body);
-
-            /** @var BillTask $task */
-            $task = BillTask::query()->create([
-                'user_id'              => $mail->user_id,
-                'bill_mail_message_id' => $mail->id,
-                'source'               => $this->source(),
-                'profile_id'           => 'wechat-pay-statement',
-                'status'               => 'received',
-                'received_at'          => $mail->received_at,
-                'summary'              => '微信支付账单流水',
-                'metadata'             => [
-                    'mail_subject'      => $mail->subject,
-                    'password_source'   => 'wechat_pay_official_account',
-                    'sender'            => $mail->from_address,
-                    'statement_period'  => [
-                        'start' => $period[0],
-                        'end'   => $period[1],
-                    ],
-                    'remote_file'       => [
-                        'source' => 'tenpay_download',
-                        'status' => 'pending',
-                        'host'   => self::DOWNLOAD_HOST,
-                        'path'   => self::DOWNLOAD_PATH,
-                    ],
-                ],
-            ]);
-
-            $task->events()->create([
-                'event_type' => 'task.created',
-                'message'    => '已识别微信支付账单流水邮件，等待自动下载账单文件',
-                'metadata'   => ['source' => 'mailbox'],
-            ]);
-
-            return $task;
-        });
     }
 
     public function prepare(BillTask $task): bool
@@ -229,24 +154,6 @@ class WechatPayBillSourceChannel implements BillSourceChannel
         return true;
     }
 
-    /**
-     * @return array<string, mixed>
-     */
-    public function processingRule(): array
-    {
-        return [
-            'enabled'               => true,
-            'name'                  => $this->displayName(),
-            'source'                => $this->source(),
-            'from_contains'         => 'wechatpay@tencent.com',
-            'subject_contains'      => '微信支付账单流水文件',
-            'attachment_extensions' => ['zip'],
-            'gmail_label'           => '',
-            'keywords'              => ['微信支付', '账单流水'],
-            'built_in'              => true,
-        ];
-    }
-
     private function assertAllowedDownloadUrl(string $url): void
     {
         if ('' === trim($url)) {
@@ -327,21 +234,6 @@ class WechatPayBillSourceChannel implements BillSourceChannel
         }
 
         return '' === pathinfo($filename, PATHINFO_EXTENSION) ? $filename.'.zip' : $filename;
-    }
-
-    /**
-     * @return array{0:null|string,1:null|string}
-     */
-    private function statementPeriod(string $content): array
-    {
-        if (1 === preg_match('/账单流水文件\((\d{8})-(\d{8})\)/u', $content, $matches)) {
-            return [
-                Carbon::createFromFormat('Ymd', $matches[1], 'Asia/Shanghai')?->toDateString(),
-                Carbon::createFromFormat('Ymd', $matches[2], 'Asia/Shanghai')?->toDateString(),
-            ];
-        }
-
-        return [null, null];
     }
 
     private function appendEvent(BillTask $task, string $eventType, string $message): void

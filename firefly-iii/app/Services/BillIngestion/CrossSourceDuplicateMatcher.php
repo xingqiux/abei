@@ -314,7 +314,7 @@ final class CrossSourceDuplicateMatcher
         return $terms;
     }
 
-    private function amountKey(mixed $value): string
+    public function amountKey(mixed $value): string
     {
         if (null === $value || '' === trim((string) $value)) {
             return '';

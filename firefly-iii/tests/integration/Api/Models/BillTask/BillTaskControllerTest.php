@@ -21,7 +21,7 @@ use FireflyIII\Models\UserGroup;
 use FireflyIII\Models\UserRole;
 use FireflyIII\Repositories\TransactionGroup\TransactionGroupRepository;
 use FireflyIII\Repositories\TransactionGroup\TransactionGroupRepositoryInterface;
-use FireflyIII\Support\Facades\Preferences;
+use FireflyIII\Services\BillIngestion\BillStatementRowSummaryService;
 use FireflyIII\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
@@ -104,6 +104,8 @@ final class BillTaskControllerTest extends TestCase
         $duplicate = $this->createStatementRow([
             'row_number'        => 2,
             'status'            => 'pending',
+            'review_state'      => 'excluded',
+            'excluded_reason'   => 'merged_duplicate',
             'duplicate_state'   => 'duplicate',
             'platform_order_no' => 'row-counts-duplicate-0001',
             'merchant_order_no' => 'row-counts-duplicate-merchant-0001',
@@ -113,6 +115,7 @@ final class BillTaskControllerTest extends TestCase
         $imported  = $this->createStatementRow([
             'row_number'        => 3,
             'status'            => 'imported',
+            'review_state'      => 'booked',
             'transaction_group_id' => $transactionGroup->id,
             'platform_order_no' => 'row-counts-imported-0001',
             'merchant_order_no' => 'row-counts-imported-merchant-0001',
@@ -125,7 +128,7 @@ final class BillTaskControllerTest extends TestCase
         $index = $this->getJson(route('api.v1.bill-tasks.index'));
         $index->assertStatus(200);
         $index->assertJsonPath('data.0.attributes.row_counts.total', 3);
-        $index->assertJsonPath('data.0.attributes.row_counts.pending', 2);
+        $index->assertJsonPath('data.0.attributes.row_counts.pending', 1);
         $index->assertJsonPath('data.0.attributes.row_counts.imported', 1);
         $index->assertJsonPath('data.0.attributes.row_counts.duplicate', 1);
         $index->assertJsonPath('data.0.attributes.row_counts.conflict', 0);
@@ -133,7 +136,7 @@ final class BillTaskControllerTest extends TestCase
         $show = $this->getJson(route('api.v1.bill-tasks.show', ['billTask' => $this->task->id]));
         $show->assertStatus(200);
         $show->assertJsonPath('data.attributes.row_counts.total', 3);
-        $show->assertJsonPath('data.attributes.row_counts.pending', 2);
+        $show->assertJsonPath('data.attributes.row_counts.pending', 1);
         $show->assertJsonPath('data.attributes.row_counts.imported', 1);
         $show->assertJsonPath('data.attributes.row_counts.duplicate', 1);
 
@@ -655,89 +658,6 @@ final class BillTaskControllerTest extends TestCase
         $this->assertSame('zip bytes', $response->streamedContent());
     }
 
-    public function testShowsBillInboxSettings(): void
-    {
-        Preferences::set('bill_inbox_mailbox_enabled', true);
-        Preferences::set('bill_inbox_mailbox_provider', 'gmail');
-        Preferences::set('bill_inbox_mailbox_email', 'money@example.com');
-        Preferences::set('bill_inbox_mailbox_host', 'imap.gmail.com');
-        Preferences::set('bill_inbox_mailbox_port', 993);
-        Preferences::set('bill_inbox_mailbox_encryption', 'ssl');
-        Preferences::set('bill_inbox_mailbox_username', 'money@example.com');
-        Preferences::setEncrypted('bill_inbox_mailbox_password', 'gmail-app-password');
-        Preferences::set('bill_inbox_mailbox_folder', 'INBOX');
-
-        $this->actingAs($this->user, 'api');
-        $response = $this->getJson(route('api.v1.bill-inbox.settings'));
-
-        $response->assertStatus(200);
-        $response->assertJsonPath('data.type', 'bill-inbox-settings');
-        $response->assertJsonPath('data.attributes.enabled', true);
-        $response->assertJsonPath('data.attributes.provider', 'gmail');
-        $response->assertJsonPath('data.attributes.email', 'money@example.com');
-        $response->assertJsonPath('data.attributes.has_password', true);
-        $response->assertJsonPath('data.attributes.built_in_channels.0.source', 'alipay');
-        $response->assertJsonPath('data.attributes.built_in_channels.1.source', 'wechat');
-        $response->assertJsonPath('data.attributes.built_in_channels.2.source', 'cmb');
-        $response->assertJsonPath('data.attributes.built_in_channels.3.source', 'cmb');
-        $response->assertJsonPath('data.attributes.built_in_channels.4.source', 'boc');
-    }
-
-    public function testUpdatesBillInboxSettings(): void
-    {
-        $this->actingAs($this->user, 'api');
-        $response = $this->putJson(route('api.v1.bill-inbox.settings.update'), [
-            'enabled'  => true,
-            'provider' => 'gmail',
-            'email'    => 'money@example.com',
-            'password' => 'app-password',
-        ]);
-
-        $response->assertStatus(200);
-        $response->assertJsonPath('data.attributes.enabled', true);
-        $response->assertJsonPath('data.attributes.provider', 'gmail');
-        $response->assertJsonPath('data.attributes.email', 'money@example.com');
-        $response->assertJsonPath('data.attributes.host', 'imap.gmail.com');
-        $response->assertJsonPath('data.attributes.port', 993);
-        $response->assertJsonPath('data.attributes.encryption', 'ssl');
-        $response->assertJsonPath('data.attributes.username', 'money@example.com');
-        $response->assertJsonPath('data.attributes.folder', 'INBOX');
-        $response->assertJsonPath('data.attributes.has_password', true);
-
-        $this->assertSame('money@example.com', Preferences::get('bill_inbox_mailbox_email')->data);
-        $this->assertSame('app-password', Preferences::getEncrypted('bill_inbox_mailbox_password')->data);
-        $this->assertSame('', Preferences::get('bill_inbox_quick_gmail_label')->data);
-        $this->assertSame('', Preferences::get('bill_inbox_quick_keywords')->data);
-        $this->assertCount(5, Preferences::get('bill_inbox_processing_rules')->data);
-    }
-
-    public function testSyncBillInboxReturnsMailboxAndProcessingCounts(): void
-    {
-        Preferences::set('bill_inbox_mailbox_enabled', false);
-
-        $task = BillTask::query()->create([
-            'user_id'     => $this->user->id,
-            'source'      => 'unknown',
-            'profile_id'  => null,
-            'status'      => 'received',
-            'received_at' => Carbon::parse('2026-06-12 18:26:00', 'Asia/Shanghai'),
-            'summary'     => '未知账单',
-        ]);
-
-        $this->actingAs($this->user, 'api');
-        $response = $this->postJson(route('api.v1.bill-inbox.sync'), ['limit' => 25]);
-
-        $response->assertStatus(200);
-        $response->assertJsonPath('data.type', 'bill-inbox-sync-result');
-        $response->assertJsonPath('data.attributes.scanned', 0);
-        $response->assertJsonPath('data.attributes.created', 0);
-        $response->assertJsonPath('data.attributes.processed', 1);
-        $response->assertJsonPath('data.attributes.process_failed', 0);
-
-        $task->refresh();
-        $this->assertSame('unknown', $task->status);
-    }
-
     public function testProcessesQueuedBillTasks(): void
     {
         $otherUser = $this->createUser('other-process@example.com');
@@ -813,6 +733,7 @@ final class BillTaskControllerTest extends TestCase
 
         $row->refresh();
         $this->assertSame('imported', $row->status);
+        $this->assertSame('booked', $row->review_state);
         $this->assertSame('imported', $this->task->refresh()->status);
         $this->assertNotNull($row->transaction_group_id);
         $this->assertDatabaseHas('transaction_journals', [
@@ -1171,22 +1092,25 @@ final class BillTaskControllerTest extends TestCase
             'fingerprint'            => 'fp-normal-expense-row',
         ]);
 
+        $summaryService = app(BillStatementRowSummaryService::class);
+        foreach ([$duplicate, $preserved, $conflict, $transfer, $needsNote, $refundExpense, $refundIncome, $normalExpense] as $row) {
+            $summaryService->classifyRow($row);
+        }
+
         $response = $this->getJson(route('api.v1.bill-tasks.review', ['billTask' => $this->task->id]));
 
         $response->assertStatus(200);
         $response->assertJsonPath('summary.total', 9);
         $response->assertJsonPath('summary.imported', 1);
         $response->assertJsonPath('summary.pending', 8);
-        $response->assertJsonPath('summary.duplicate_candidates', 2);
+        $response->assertJsonPath('summary.duplicate_candidates', 1);
         $response->assertJsonPath('summary.conflict_candidates', 1);
-        $response->assertJsonPath('summary.preserved_user_edits', 1);
-        $response->assertJsonPath('summary.importable', 1);
-        $response->assertJsonPath('existing_candidates.0.row_id', (string) $duplicate->id);
-        $response->assertJsonPath('existing_candidates.0.reason', '同订单号已存在 Firefly 交易');
-        $response->assertJsonPath('duplicate_candidates.0.row_id', (string) $duplicate->id);
+        $response->assertJsonPath('summary.preserved_user_edits', 0);
+        $response->assertJsonPath('summary.importable', 4);
+        $response->assertJsonPath('existing_candidates', []);
+        $response->assertJsonPath('duplicate_candidates.0.row_id', (string) $conflict->id);
         $response->assertJsonPath('duplicate_candidates.0.reason', '已存在相同账单流水');
-        $response->assertJsonPath('preserved_user_edits.0.row_id', (string) $preserved->id);
-        $response->assertJsonPath('preserved_user_edits.0.reason', '重复流水已保留你的手动修改');
+        $response->assertJsonPath('preserved_user_edits', []);
         $response->assertJsonPath('conflict_candidates.0.row_id', (string) $conflict->id);
         $response->assertJsonPath('conflict_candidates.0.reason', '疑似重复但核心字段冲突');
         $response->assertJsonPath('refund_pairs.0.expense_row_id', (string) $refundExpense->id);

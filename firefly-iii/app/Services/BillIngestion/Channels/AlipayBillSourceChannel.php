@@ -5,11 +5,8 @@ declare(strict_types=1);
 namespace FireflyIII\Services\BillIngestion\Channels;
 
 use FireflyIII\Models\BillTask;
-use FireflyIII\Models\BillMailMessage;
 use FireflyIII\Services\BillIngestion\AlipayStatementArchiveExtractor;
-use FireflyIII\Services\BillIngestion\BillMailAttachment;
 use FireflyIII\Services\BillIngestion\BillSourceChannel;
-use Illuminate\Support\Facades\DB;
 
 class AlipayBillSourceChannel implements BillSourceChannel
 {
@@ -25,86 +22,12 @@ class AlipayBillSourceChannel implements BillSourceChannel
         return '支付宝交易流水';
     }
 
-    public function settingsDescription(): string
-    {
-        return '会自动识别 service@mail.alipay.com 发来的“支付宝交易流水明细”邮件；不需要配置 Gmail 标签或自定义规则。';
-    }
-
     /**
      * @return array<int, string>
      */
     public function profileIds(): array
     {
         return ['alipay-statement'];
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    public function mailboxSearchCriteria(): array
-    {
-        return ['FROM "service@mail.alipay.com"'];
-    }
-
-    /**
-     * @param array<int, BillMailAttachment> $attachments
-     */
-    public function matches(BillMailMessage $mail, array $attachments): bool
-    {
-        $from    = strtolower((string) $mail->from_address);
-        $subject = (string) $mail->subject;
-
-        return str_contains($from, 'service@mail.alipay.com')
-            && str_contains($subject, '支付宝交易流水明细');
-    }
-
-    /**
-     * @param array<int, BillMailAttachment> $attachments
-     */
-    public function ingest(BillMailMessage $mail, array $attachments): BillTask
-    {
-        return DB::transaction(function () use ($mail, $attachments): BillTask {
-            /** @var BillTask $task */
-            $task = BillTask::query()->create([
-                'user_id'              => $mail->user_id,
-                'bill_mail_message_id' => $mail->id,
-                'source'               => $this->source(),
-                'profile_id'           => 'alipay-statement',
-                'status'               => 'received',
-                'received_at'          => $mail->received_at,
-                'summary'              => '支付宝交易流水明细',
-                'metadata'             => [
-                    'mail_subject'     => $mail->subject,
-                    'password_source'  => 'alipay_service_message',
-                    'sender'           => $mail->from_address,
-                ],
-            ]);
-
-            foreach ($attachments as $attachment) {
-                $task->artifacts()->create([
-                    'kind'      => $this->artifactKind($attachment->filename),
-                    'filename'  => $attachment->filename,
-                    'path'      => $attachment->path,
-                    'checksum'  => $attachment->checksum,
-                    'encrypted' => true,
-                    'metadata'  => [
-                        'source'          => 'mail_attachment',
-                        'password_source' => 'alipay_service_message',
-                        'size'            => $attachment->size,
-                    ],
-                ]);
-            }
-
-            $task->events()->create([
-                'event_type' => 'task.created',
-                'message'    => '已识别支付宝交易流水邮件，等待解压密码',
-                'metadata'   => [
-                    'source' => 'mailbox',
-                ],
-            ]);
-
-            return $task;
-        });
     }
 
     public function needsSecret(BillTask $task): bool
@@ -157,31 +80,6 @@ class AlipayBillSourceChannel implements BillSourceChannel
     public function shouldProcessAfterSecret(BillTask $task): bool
     {
         return true;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function processingRule(): array
-    {
-        return [
-            'enabled'               => true,
-            'name'                  => $this->displayName(),
-            'source'                => $this->source(),
-            'from_contains'         => 'service@mail.alipay.com',
-            'subject_contains'      => '支付宝交易流水明细',
-            'attachment_extensions' => ['zip'],
-            'gmail_label'           => '',
-            'keywords'              => ['支付宝', '交易流水'],
-            'built_in'              => true,
-        ];
-    }
-
-    private function artifactKind(string $filename): string
-    {
-        $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-
-        return '' === $extension ? 'attachment' : $extension;
     }
 
     private function openSecretChallenge(BillTask $task): void

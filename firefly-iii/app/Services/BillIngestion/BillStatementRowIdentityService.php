@@ -40,7 +40,8 @@ class BillStatementRowIdentityService
     ];
 
     public function __construct(
-        private readonly BillStatementRowDismissalService $dismissalService = new BillStatementRowDismissalService(),
+        private readonly BillStatementRowDismissalService $dismissalService,
+        private readonly BillStatementRowSummaryService $summaryService,
     ) {}
 
     /**
@@ -60,6 +61,7 @@ class BillStatementRowIdentityService
 
             if (!$existing instanceof BillStatementRow) {
                 $row = BillStatementRow::query()->create($this->attributesForNewRow($import, $attributes, $weakFingerprint));
+                $this->summaryService->classifyRow($row);
                 $this->recordImportOutcome($import, 'created', $row);
 
                 return $row;
@@ -67,6 +69,7 @@ class BillStatementRowIdentityService
 
             if (!$this->coreFieldsMatch($existing, $attributes)) {
                 $this->markConflict($existing, $import, $attributes, $weakFingerprint);
+                $this->summaryService->classifyRow($existing);
                 $this->recordImportOutcome($import, 'conflict', $existing);
 
                 return $existing;
@@ -74,6 +77,7 @@ class BillStatementRowIdentityService
 
             $preservedUserEdits = null !== $existing->user_modified_at;
             $this->mergeExistingRow($existing, $import, $attributes, $weakFingerprint, $preservedUserEdits);
+            $this->summaryService->classifyRow($existing);
             $this->recordImportOutcome($import, $preservedUserEdits ? 'preserved_user_edit' : 'duplicate', $existing);
 
             return $existing;

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace FireflyIII\Services\BillIngestion;
 
 use FireflyIII\Models\BillStatementRow;
-use FireflyIII\Models\TransactionJournalMeta;
 use FireflyIII\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -25,7 +24,6 @@ class BillStatementRowSummaryService
 
     public function __construct(
         private readonly BillStatementCurrencyResolver $currencyResolver,
-        private readonly CrossSourceDuplicateMatcher $crossSourceMatcher = new CrossSourceDuplicateMatcher(),
         private readonly BalanceChainVerifier $balanceChainVerifier = new BalanceChainVerifier(),
     ) {}
 
@@ -72,32 +70,28 @@ class BillStatementRowSummaryService
             return $counts;
         }
 
-        $statusCounts = BillStatementRow::query()
+        $stateCounts = BillStatementRow::query()
             ->where('user_id', $user->id)
             ->whereIn('bill_task_id', $taskIds)
-            ->selectRaw('bill_task_id, status, count(*) as total')
-            ->groupBy('bill_task_id', 'status')
+            ->selectRaw('bill_task_id, review_state, confirm_reason, excluded_reason, duplicate_state, count(*) as total')
+            ->groupBy('bill_task_id', 'review_state', 'confirm_reason', 'excluded_reason', 'duplicate_state')
             ->get()
         ;
-        foreach ($statusCounts as $row) {
+        foreach ($stateCounts as $row) {
             $taskId = (int) $row->bill_task_id;
             $counts[$taskId]['total'] += (int) $row->total;
-            if (in_array($row->status, ['pending', 'imported'], true)) {
-                $counts[$taskId][$row->status] = (int) $row->total;
+            if (in_array($row->review_state, ['pending_book', 'pending_confirm'], true)) {
+                $counts[$taskId]['pending'] += (int) $row->total;
             }
-        }
-
-        $duplicateCounts = BillStatementRow::query()
-            ->where('user_id', $user->id)
-            ->whereIn('bill_task_id', $taskIds)
-            ->whereIn('duplicate_state', ['duplicate', 'conflict'])
-            ->selectRaw('bill_task_id, duplicate_state, count(*) as total')
-            ->groupBy('bill_task_id', 'duplicate_state')
-            ->get()
-        ;
-        foreach ($duplicateCounts as $row) {
-            $taskId = (int) $row->bill_task_id;
-            $counts[$taskId][$row->duplicate_state] = (int) $row->total;
+            if ('booked' === $row->review_state) {
+                $counts[$taskId]['imported'] += (int) $row->total;
+            }
+            if ('duplicate' === $row->confirm_reason || 'merged_duplicate' === $row->excluded_reason) {
+                $counts[$taskId]['duplicate'] += (int) $row->total;
+            }
+            if ('conflict' === $row->duplicate_state) {
+                $counts[$taskId]['conflict'] += (int) $row->total;
+            }
         }
 
         return $counts;
@@ -112,22 +106,52 @@ class BillStatementRowSummaryService
      * pending / needs_split 的行必落 importable 或 attention 之一，不留第三种去处——
      * 有一条不属于任何一组，它就从待办里消失了，谁也不会再回头找它。
      *
-     * @param list<array<string,mixed>> $crossSourceMatches CrossSourceDuplicateMatcher 给这一行的命中
-     *
      * @return array{group:string,reasons:array<int,string>}
      */
-    public function classifyRow(BillStatementRow $row, array $crossSourceMatches = []): array
+    public function classifyRow(BillStatementRow $row): array
     {
-        if (!in_array($row->status, ['pending', 'needs_split'], true)) {
-            // dismissed / imported / split / failed 都已经有了归宿，按 status 报。
-            return ['group' => (string) $row->status, 'reasons' => []];
+        $hints = array_values(array_diff(is_array($row->hint_flags) ? $row->hint_flags : [], [
+            'transfer_keyword',
+            'vague_description',
+            'book_failed',
+        ]));
+        if ($this->looksLikeTransfer($row) && 'transfer' !== $row->firefly_type) {
+            $hints[] = 'transfer_keyword';
+        }
+        if ($this->needsUserNote($row)) {
+            $hints[] = 'vague_description';
         }
 
-        $reasons = $this->attentionReasons($row, $crossSourceMatches);
+        [$state, $confirmReason, $excludedReason] = match (true) {
+            null !== $row->event_group_id && in_array($row->review_state, ['pending_book', 'pending_confirm', 'booked', 'excluded'], true) => [$row->review_state, $row->confirm_reason, $row->excluded_reason],
+            'imported' === $row->status => ['booked', null, null],
+            'dismissed' === $row->status => ['excluded', null, match ($row->dismissed_reason) {
+                BillStatementRowDismissalService::REASON_DUPLICATE_AUTO => 'merged_duplicate',
+                BillStatementRowDismissalService::REASON_ZERO_AMOUNT => 'zero_amount',
+                BillStatementRowDismissalService::REASON_TASK_ARCHIVED => 'mail_archived',
+                default => 'user',
+            }],
+            'split' === $row->status => ['excluded', null, 'split_parent'],
+            'needs_split' === $row->status => ['pending_confirm', 'split', null],
+            'failed' === $row->status => ['pending_book', null, null],
+            'duplicate' === $row->duplicate_state => ['excluded', null, 'merged_duplicate'],
+            'conflict' === $row->duplicate_state => ['pending_confirm', 'duplicate', null],
+            'transfer' === $row->firefly_type && '' !== trim((string) $row->source_name) && '' !== trim((string) $row->destination_name) => ['pending_confirm', 'transfer', null],
+            default => ['pending_book', null, null],
+        };
+        if ('failed' === $row->status) {
+            $hints[] = 'book_failed';
+        }
+
+        $row->review_state = $state;
+        $row->confirm_reason = $confirmReason;
+        $row->excluded_reason = $excludedReason;
+        $row->hint_flags = [] === $hints ? null : array_values(array_unique($hints));
+        $row->save();
 
         return [
-            'group'   => [] === $reasons ? 'importable' : 'attention',
-            'reasons' => $reasons,
+            'group'   => $this->groupForRow($row),
+            'reasons' => $this->attentionReasons($row),
         ];
     }
 
@@ -137,55 +161,44 @@ class BillStatementRowSummaryService
     public function reviewTaskRows(User $user, int $taskId): array
     {
         /** @var Collection<int, BillStatementRow> $rows */
-        $rows               = $this->taskRowsQuery($user, $taskId, [])->orderBy('row_number')->get();
-        $existingReferences = $this->existingReferences($user, $rows);
-        $pendingRows        = $rows->filter(fn (BillStatementRow $row): bool => 'pending' === $row->status)->values();
-        $crossSourceMatches = $this->crossSourceMatcher->matchRows($user, $pendingRows);
-        $existingCandidates = [];
-        $transferCandidates = [];
-        $skipCandidates     = [];
-        $needsUserNote      = [];
-        $newCandidates      = [];
+        $rows                 = $this->taskRowsQuery($user, $taskId, [])->orderBy('row_number')->get();
+        $pendingRows          = $rows->filter(fn (BillStatementRow $row): bool => in_array($row->review_state, ['pending_book', 'pending_confirm'], true))->values();
+        $existingCandidates   = [];
+        $transferCandidates   = [];
+        $skipCandidates       = [];
+        $needsUserNote        = [];
+        $newCandidates        = [];
         $duplicateCandidates = [];
-        $conflictCandidates  = [];
-        $preservedUserEdits  = [];
+        $conflictCandidates   = [];
+        $preservedUserEdits   = [];
         $crossSourceCandidates = [];
 
         foreach ($pendingRows as $row) {
             $preview = $this->rowPreview($row, $user);
-            $rowMatches = $crossSourceMatches[$row->id] ?? [];
-            $preview['cross_source_matches'] = $rowMatches;
-            if ([] !== $rowMatches) {
+            $preview['cross_source_matches'] = [];
+            if (null !== $row->event_group_id) {
                 $crossSourceCandidates[] = $preview + ['reason' => self::REASON_CROSS_SOURCE];
-                if ('high' === ($rowMatches[0]['confidence'] ?? '')) {
-                    $skipCandidates[] = $preview + ['reason' => self::REASON_CROSS_SOURCE_HIGH];
-                }
             }
             if ('conflict' === $row->duplicate_state) {
                 $conflictCandidates[] = $preview + ['reason' => self::REASON_CONFLICT];
-                $skipCandidates[]     = $preview + ['reason' => '重复识别冲突，需要人工确认'];
             }
-            if ('duplicate' === $row->duplicate_state) {
+            if ('duplicate' === $row->confirm_reason || 'duplicate' === $row->duplicate_state) {
                 $duplicateCandidates[] = $preview + ['reason' => self::REASON_DUPLICATE];
                 if (null !== $row->user_modified_at) {
                     $preservedUserEdits[] = $preview + ['reason' => '重复流水已保留你的手动修改'];
                 }
             }
-            if (null !== $row->firefly_type && '' !== $row->firefly_type && !$this->looksSpecialCase($row) && !in_array($row->duplicate_state, ['duplicate', 'conflict'], true)) {
+            if ('pending_book' === $row->review_state) {
                 $newCandidates[] = $preview;
             }
-            if ($this->hasExistingReference($row, $existingReferences)) {
-                $existingCandidates[] = $preview + ['reason' => '同订单号已存在 Firefly 交易'];
-                $skipCandidates[]     = $preview + ['reason' => '疑似重复交易'];
-            }
-            if ($this->looksLikeTransfer($row)) {
+            if ('transfer' === $row->confirm_reason) {
                 $transferCandidates[] = $preview + ['reason' => self::REASON_TRANSFER];
             }
-            if ($this->needsUserNote($row)) {
+            if (in_array('vague_description', $row->hint_flags ?? [], true)) {
                 $needsUserNote[] = $preview + ['reason' => self::REASON_NEEDS_NOTE];
             }
-            if (null === $row->firefly_type || '' === $row->firefly_type || in_array($row->direction, ['不计收支', '其他'], true)) {
-                $skipCandidates[] = $preview + ['reason' => self::REASON_NOT_IMPORTABLE];
+            if ('pending_confirm' === $row->review_state) {
+                $skipCandidates[] = $preview + ['reason' => $this->attentionReasons($row)[0] ?? self::REASON_NOT_IMPORTABLE];
             }
         }
 
@@ -229,6 +242,7 @@ class BillStatementRowSummaryService
         return [
             'total'           => $rows->count(),
             'by_status'          => $this->countBy($rows, 'status'),
+            'by_review_state'    => $this->countBy($rows, 'review_state'),
             'by_direction'       => $this->countBy($rows, 'direction'),
             'by_firefly_type'    => $this->countBy($rows, 'firefly_type'),
             'by_duplicate_state' => $this->countBy($rows, 'duplicate_state'),
@@ -251,6 +265,11 @@ class BillStatementRowSummaryService
             'row_id'              => (string) $row->id,
             'row_number'          => $row->row_number,
             'status'              => $row->status,
+            'review_state'        => $row->review_state,
+            'confirm_reason'      => $row->confirm_reason,
+            'excluded_reason'     => $row->excluded_reason,
+            'event_group_id'      => $row->event_group_id,
+            'hint_flags'          => $row->hint_flags,
             'occurred_at'         => optional($row->occurred_at)->toAtomString(),
             'direction'           => $row->direction,
             'amount'              => null === $row->amount ? null : $this->formatAmount((string) $row->amount),
@@ -302,86 +321,31 @@ class BillStatementRowSummaryService
     }
 
     /**
-     * @param Collection<int, BillStatementRow> $rows
-     *
-     * @return array<string,true>
+     * @return array<int,string>
      */
-    private function existingReferences(User $user, Collection $rows): array
+    private function attentionReasons(BillStatementRow $row): array
     {
-        $references = $rows
-            ->flatMap(static fn (BillStatementRow $row): array => array_filter([$row->platform_order_no, $row->merchant_order_no], static fn ($value): bool => is_string($value) && '' !== $value))
-            ->unique()
-            ->values()
-        ;
-        if ($references->isEmpty()) {
+        if ('pending_confirm' !== $row->review_state) {
             return [];
         }
 
-        return TransactionJournalMeta::query()
-            ->whereHas('transactionJournal', static fn (Builder $query) => $query->where('user_id', $user->id))
-            ->whereIn('name', ['internal_reference', 'external_id'])
-            ->whereIn('data', $references->map(static fn (string $reference): string => json_encode($reference, JSON_THROW_ON_ERROR))->all())
-            ->whereNull('deleted_at')
-            ->pluck('data')
-            ->map(static fn (mixed $data): string => (string) $data)
-            ->flip()
-            ->map(static fn (): bool => true)
-            ->all()
-        ;
+        return [match ($row->confirm_reason) {
+            'split' => self::REASON_NEEDS_SPLIT,
+            'duplicate' => 'conflict' === $row->duplicate_state ? self::REASON_CONFLICT : self::REASON_DUPLICATE,
+            'transfer' => self::REASON_TRANSFER,
+            default => self::REASON_NOT_IMPORTABLE,
+        }];
     }
 
-    /**
-     * @param array<string,true> $existingReferences
-     */
-    private function hasExistingReference(BillStatementRow $row, array $existingReferences): bool
+    private function groupForRow(BillStatementRow $row): string
     {
-        foreach ([$row->platform_order_no, $row->merchant_order_no] as $reference) {
-            if (is_string($reference) && '' !== $reference && true === ($existingReferences[$reference] ?? false)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * @param list<array<string,mixed>> $crossSourceMatches
-     *
-     * @return array<int,string>
-     */
-    private function attentionReasons(BillStatementRow $row, array $crossSourceMatches): array
-    {
-        $reasons = [];
-        if ('needs_split' === $row->status) {
-            $reasons[] = self::REASON_NEEDS_SPLIT;
-        }
-        if ('conflict' === $row->duplicate_state) {
-            $reasons[] = self::REASON_CONFLICT;
-        }
-        if ('duplicate' === $row->duplicate_state) {
-            $reasons[] = self::REASON_DUPLICATE;
-        }
-        if ([] !== $crossSourceMatches) {
-            $reasons[] = 'high' === ($crossSourceMatches[0]['confidence'] ?? '')
-                ? self::REASON_CROSS_SOURCE_HIGH
-                : self::REASON_CROSS_SOURCE;
-        }
-        if ($this->looksLikeTransfer($row)) {
-            $reasons[] = self::REASON_TRANSFER;
-        }
-        if ($this->needsUserNote($row)) {
-            $reasons[] = self::REASON_NEEDS_NOTE;
-        }
-        if (null === $row->firefly_type || '' === $row->firefly_type || in_array($row->direction, ['不计收支', '其他'], true)) {
-            $reasons[] = self::REASON_NOT_IMPORTABLE;
-        }
-
-        return $reasons;
-    }
-
-    private function looksSpecialCase(BillStatementRow $row): bool
-    {
-        return $this->looksLikeTransfer($row) || in_array($row->direction, ['不计收支', '其他'], true);
+        return match ($row->review_state) {
+            'pending_book' => 'importable',
+            'pending_confirm' => 'attention',
+            'excluded' => 'dismissed',
+            'booked' => 'imported',
+            default => 'attention',
+        };
     }
 
     private function looksLikeTransfer(BillStatementRow $row): bool

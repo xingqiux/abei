@@ -112,6 +112,7 @@ final class BillInboxSummaryControllerTest extends TestCase
         $response->assertJsonPath('failed', 1);
         $response->assertJsonPath('pending_total', 2);
         $response->assertJsonCount(4, 'channels');
+        $response->assertJsonPath('mailbox_sync.status', 'idle');
 
         $channels = collect($response->json('channels'))->keyBy('key');
         $this->assertSame('支付宝交易流水', $channels['alipay']['name']);

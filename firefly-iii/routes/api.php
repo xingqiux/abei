@@ -432,6 +432,10 @@ Route::group(
     static function (): void {
         Route::get('', ['uses' => 'ShowController@index', 'as' => 'index']);
         Route::post('archive', ['uses' => 'ActionController@archiveMany', 'as' => 'archive-many']);
+        Route::get('inbox-summary', ['uses' => 'BillInboxController@inboxSummary', 'as' => 'inbox-summary']);
+        Route::post('rows/batch-book', ['uses' => 'ActionController@batchBook', 'as' => 'rows.batch-book']);
+        Route::post('rows/{billStatementRow}/resolve-transfer', ['uses' => 'ActionController@resolveTransfer', 'as' => 'rows.resolve-transfer']);
+        Route::post('rows/{billStatementRow}/resolve-duplicate', ['uses' => 'ActionController@resolveDuplicate', 'as' => 'rows.resolve-duplicate']);
         Route::get('{billTask}', ['uses' => 'ShowController@show', 'as' => 'show']);
         Route::get('{billTask}/artifacts', ['uses' => 'ListController@artifacts', 'as' => 'artifacts']);
         Route::get('{billTask}/events', ['uses' => 'ListController@events', 'as' => 'events']);
@@ -454,9 +458,6 @@ Route::group(
     ],
     static function (): void {
         Route::get('summary', ['uses' => 'BillInboxController@summary', 'as' => 'summary']);
-        Route::get('settings', ['uses' => 'BillInboxController@settings', 'as' => 'settings']);
-        Route::put('settings', ['uses' => 'BillInboxController@updateSettings', 'as' => 'settings.update']);
-        Route::post('sync', ['uses' => 'BillInboxController@sync', 'as' => 'sync']);
         Route::post('process', ['uses' => 'BillInboxController@process', 'as' => 'process']);
         Route::post('cleanup-stale', ['uses' => 'BillInboxController@cleanupStale', 'as' => 'cleanup-stale']);
     }

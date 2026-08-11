@@ -7,7 +7,6 @@ namespace Tests\integration\Console\Commands\System;
 use Carbon\Carbon;
 use FireflyIII\Jobs\CreateRecurringTransactions;
 use FireflyIII\Models\Recurrence;
-use FireflyIII\Support\Facades\Preferences;
 use FireflyIII\User;
 use Illuminate\Mail\Transport\ArrayTransport;
 use Illuminate\Support\Collection;
@@ -41,7 +40,7 @@ final class SeedsE2EEnvironmentTest extends TestCase
 
         $this
             ->artisan('system:seed-e2e', $arguments + ['--send-mail' => true])
-            ->expectsOutput('E2E users, tokens and primary mailbox fixture are ready.')
+            ->expectsOutput('E2E users, tokens and browser fixtures are ready.')
             ->assertExitCode(0);
 
         // 浏览器用例会把这个账户归档掉，重播必须还原，否则同一套 e2e 第二次跑就没有「归档」按钮可点。
@@ -65,8 +64,6 @@ final class SeedsE2EEnvironmentTest extends TestCase
         $secondary = User::query()->where('email', 'abei-secondary@example.test')->firstOrFail();
         $this->assertSame(1, $primary->tokens()->where('name', 'abei-e2e')->where('revoked', false)->count());
         $this->assertSame(1, $secondary->tokens()->where('name', 'abei-e2e')->where('revoked', false)->count());
-        $this->assertTrue((bool) Preferences::getForUser($primary, 'bill_inbox_mailbox_enabled')?->data);
-        $this->assertNull(Preferences::getForUser($secondary, 'bill_inbox_mailbox_enabled'));
         $this->assertSame('CNY', $primary->userGroup->currencies()->wherePivot('group_default', true)->firstOrFail()->code);
         $this->assertSame('CNY', $secondary->userGroup->currencies()->wherePivot('group_default', true)->firstOrFail()->code);
 
@@ -180,7 +177,7 @@ final class SeedsE2EEnvironmentTest extends TestCase
 
                 return $message instanceof Email && 0 < count($message->getAttachments());
             });
-        $this->assertCount(1, $messages);
+        $this->assertCount(2, $messages);
         $message = $messages->firstOrFail()->getOriginalMessage();
         $this->assertInstanceOf(Email::class, $message);
         $this->assertCount(1, $message->getAttachments());

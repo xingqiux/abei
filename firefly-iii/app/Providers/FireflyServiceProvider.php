@@ -59,8 +59,6 @@ use FireflyIII\Services\BillIngestion\Channels\BocTransactionBillSourceChannel;
 use FireflyIII\Services\BillIngestion\Channels\CmbCreditDailyBillSourceChannel;
 use FireflyIII\Services\BillIngestion\Channels\CmbTransactionBillSourceChannel;
 use FireflyIII\Services\BillIngestion\Channels\WechatPayBillSourceChannel;
-use FireflyIII\Services\BillIngestion\ImapBillMailboxClient;
-use FireflyIII\Services\BillIngestion\NativeImapBillMailboxClient;
 use FireflyIII\Services\FireflyIIIOrg\Update\GitHubUpdateRequest;
 use FireflyIII\Services\FireflyIIIOrg\Update\UpdateRequestInterface;
 use FireflyIII\Services\Password\PwndVerifierV2;
@@ -128,7 +126,6 @@ class FireflyServiceProvider extends ServiceProvider
         $this->app->bind('piggybankform', static fn (): PiggyBankForm => new PiggyBankForm());
 
         $this->app->bind('ruleform', static fn (): RuleForm => new RuleForm());
-        $this->app->bind(ImapBillMailboxClient::class, NativeImapBillMailboxClient::class);
         $this->app->singleton(
             BillSourceChannelRegistry::class,
             static fn (): BillSourceChannelRegistry => new BillSourceChannelRegistry([

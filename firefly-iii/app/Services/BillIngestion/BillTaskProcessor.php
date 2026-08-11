@@ -13,7 +13,10 @@ class BillTaskProcessor
 {
     private const array PROCESSABLE_STATUSES = ['received', 'ready'];
 
-    public function __construct(private readonly BillSourceChannelRegistry $channelRegistry) {}
+    public function __construct(
+        private readonly BillSourceChannelRegistry $channelRegistry,
+        private readonly ?CrossChannelPairingService $pairingService = null,
+    ) {}
 
     public function processBatch(int $limit = 25, ?User $user = null): BillTaskBatchResult
     {
@@ -122,7 +125,13 @@ class BillTaskProcessor
     {
         $channel = $this->channelRegistry->find($task->source, $task->profile_id);
         if (null !== $channel) {
-            return $channel->process($task, $secret);
+            $processed = $channel->process($task, $secret);
+            $task->refresh();
+            if ($processed && 'parsed' === $task->status) {
+                $this->pairingService?->pairTaskRows($task);
+            }
+
+            return $processed;
         }
 
         return $this->failMissingProcessor($task);

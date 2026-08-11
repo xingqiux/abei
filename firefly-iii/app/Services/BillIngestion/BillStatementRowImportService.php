@@ -200,6 +200,7 @@ class BillStatementRowImportService
                 $row->transaction_group_id = $group->id;
                 $row->error_message        = null;
                 $row->save();
+                $this->rowSummaryService->classifyRow($row);
 
                 return $group;
             });
@@ -210,6 +211,7 @@ class BillStatementRowImportService
             $row->status        = 'failed';
             $row->error_message = $errorMessage;
             $row->save();
+            $this->rowSummaryService->classifyRow($row);
 
             return $this->reportForRow($user, $row, [
                 'status' => 'failed',

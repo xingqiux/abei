@@ -16,6 +16,7 @@ use FireflyIII\Models\UserGroup;
 use FireflyIII\Models\UserRole;
 use FireflyIII\Services\BillIngestion\BillStatementRowImportService;
 use FireflyIII\Services\BillIngestion\BillStatementRowSummaryService;
+use FireflyIII\Services\BillIngestion\CrossChannelPairingService;
 use FireflyIII\Services\BillIngestion\CrossSourceDuplicateMatcher;
 use FireflyIII\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -180,7 +181,7 @@ final class CrossSourceDuplicateMatcherTest extends TestCase
             'destination_name'    => '淘宝闪购',
             'occurred_at'         => Carbon::parse('2026-06-23 13:35:00', 'Asia/Shanghai'),
         ]);
-        $task = $this->makeTask($user, 'manual');
+        $task = $this->makeTask($user, 'cmb');
         $row  = $this->makeRow($user, $task, [
             'status'              => 'pending',
             'firefly_amount'      => '21.00',
@@ -190,14 +191,18 @@ final class CrossSourceDuplicateMatcherTest extends TestCase
             'occurred_at'         => Carbon::parse('2026-06-23 13:35:00', 'Asia/Shanghai'),
         ]);
 
+        app(CrossChannelPairingService::class)->pairOpenRows($user, $task->id);
+        $row->refresh();
         $review = app(BillStatementRowSummaryService::class)->reviewTaskRows($user, $task->id);
 
+        self::assertNotNull($row->event_group_id);
+        self::assertSame('pending_confirm', $row->review_state);
         self::assertArrayHasKey('cross_source_candidates', $review);
         self::assertCount(1, $review['cross_source_candidates']);
         $candidate = $review['cross_source_candidates'][0];
         self::assertSame((string) $row->id, $candidate['row_id']);
-        self::assertNotEmpty($candidate['cross_source_matches']);
-        self::assertSame('high', $candidate['cross_source_matches'][0]['confidence']);
+        self::assertSame([], $candidate['cross_source_matches']);
+        self::assertSame(BillStatementRowSummaryService::REASON_CROSS_SOURCE, $candidate['reason']);
     }
 
     /**

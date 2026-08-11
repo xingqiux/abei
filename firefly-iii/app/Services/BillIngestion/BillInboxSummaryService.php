@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace FireflyIII\Services\BillIngestion;
 
 use FireflyIII\Models\BillStatementRow;
+use FireflyIII\Models\BillMailboxSyncState;
 use FireflyIII\Models\BillTask;
 use FireflyIII\User;
+use Illuminate\Support\Facades\DB;
 
 /**
  * 账单收件箱首页/侧栏用的渠道计数聚合。
@@ -41,8 +43,8 @@ class BillInboxSummaryService
     {
         $channels    = [];
         $seenSources = [];
-        foreach ($this->channelRegistry->settingsChannels() as $channel) {
-            $source = (string) $channel['source'];
+        foreach ($this->channelRegistry->channels() as $channel) {
+            $source = $channel->source();
             if (array_key_exists($source, $seenSources)) {
                 continue;
             }
@@ -66,15 +68,14 @@ class BillInboxSummaryService
             ;
             $pendingRows = BillStatementRow::query()
                 ->where('user_id', $user->id)
-                ->where('status', 'pending')
+                ->where('review_state', 'pending_book')
                 ->whereHas('billTask', static fn ($query) => $query->where('source', $source))
                 ->count()
             ;
 
             $channels[] = [
                 'source'             => $source,
-                'name'               => $channel['name'],
-                'description'        => $channel['description'],
+                'name'               => $channel->displayName(),
                 'needs_secret_count' => (int) ($stats['needs_secret'] ?? 0),
                 'todo_count'         => (int) ($stats['received'] ?? 0) + (int) ($stats['ready'] ?? 0),
                 'failed_count'       => (int) ($stats['failed'] ?? 0) + (int) ($stats['unknown'] ?? 0),
@@ -95,7 +96,7 @@ class BillInboxSummaryService
      * todo 是全站唯一的待办口径：侧栏 badge、页头、渠道卡片都读它，不再各算各的。
      * 之前每个界面自己拼一遍计数，同一时刻三个地方三个数，用户没法判断哪个可信。
      *
-     * @return array{pending_total:int,needs_code:int,unprocessed:int,failed:int,todo:array{importable:int,attention:int,stuck_tasks:int,total:int},channels:array<int,array<string,mixed>>}
+     * @return array{pending_total:int,needs_code:int,unprocessed:int,failed:int,todo:array{importable:int,attention:int,stuck_tasks:int,total:int},channels:array<int,array<string,mixed>>,mailbox_sync:array<string,mixed>}
      */
     public function apiSummary(User $user): array
     {
@@ -139,6 +140,109 @@ class BillInboxSummaryService
                 'total'       => $rowCounts['importable'] + $rowCounts['attention'] + $stuckTasks,
             ],
             'channels'      => $channels,
+            'mailbox_sync'  => $this->mailboxSyncState($user),
+        ];
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    public function inboxSummary(User $user): array
+    {
+        $mailStates = BillTask::query()
+            ->where('user_id', $user->id)
+            ->selectRaw('status, count(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status');
+        $mailChannels = BillTask::query()
+            ->where('user_id', $user->id)
+            ->selectRaw('source, count(*) as total')
+            ->groupBy('source')
+            ->pluck('total', 'source')
+            ->map(static fn (mixed $count): int => (int) $count)
+            ->all();
+        $rowStates = BillStatementRow::query()
+            ->where('user_id', $user->id)
+            ->selectRaw('review_state, confirm_reason, excluded_reason, count(*) as total')
+            ->groupBy('review_state', 'confirm_reason', 'excluded_reason')
+            ->get();
+
+        $rows = [
+            'pending_book' => 0,
+            'pending_confirm' => ['transfer' => 0, 'duplicate' => 0, 'split' => 0],
+            'booked' => 0,
+            'excluded' => [
+                'user' => 0,
+                'merged_duplicate' => 0,
+                'zero_amount' => 0,
+                'mail_archived' => 0,
+                'split_parent' => 0,
+                'superseded_by_booked' => 0,
+            ],
+        ];
+        foreach ($rowStates as $state) {
+            $count = (int) $state->total;
+            if ('pending_confirm' === $state->review_state) {
+                $reason = (string) $state->confirm_reason;
+                $rows['pending_confirm'][$reason] = ($rows['pending_confirm'][$reason] ?? 0) + $count;
+                continue;
+            }
+            if ('excluded' === $state->review_state) {
+                $reason = (string) $state->excluded_reason;
+                $rows['excluded'][$reason] = ($rows['excluded'][$reason] ?? 0) + $count;
+                continue;
+            }
+            if (array_key_exists((string) $state->review_state, $rows)) {
+                $rows[$state->review_state] += $count;
+            }
+        }
+
+        $pendingByChannel = DB::table('bill_statement_rows as rows')
+            ->join('bill_tasks as tasks', 'tasks.id', '=', 'rows.bill_task_id')
+            ->where('rows.user_id', $user->id)
+            ->whereIn('rows.review_state', ['pending_book', 'pending_confirm'])
+            ->selectRaw('tasks.source, count(*) as total')
+            ->groupBy('tasks.source')
+            ->pluck('total', 'source')
+            ->map(static fn (mixed $count): int => (int) $count)
+            ->all();
+
+        return [
+            'mails' => [
+                'total' => array_sum(array_map('intval', $mailStates->all())),
+                'locked' => (int) ($mailStates['needs_secret'] ?? 0),
+                'failed' => (int) ($mailStates['failed'] ?? 0),
+                'by_channel' => $mailChannels,
+            ],
+            'rows' => $rows,
+            'pending_by_channel' => $pendingByChannel,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function mailboxSyncState(User $user): array
+    {
+        $state = BillMailboxSyncState::query()->where('user_id', $user->id)->first();
+        if (!$state instanceof BillMailboxSyncState) {
+            return [
+                'status'        => 'idle',
+                'requested_at'  => null,
+                'started_at'    => null,
+                'finished_at'   => null,
+                'result'        => null,
+                'error_message' => null,
+            ];
+        }
+
+        return [
+            'status'        => $state->status,
+            'requested_at'  => $state->requested_at?->toAtomString(),
+            'started_at'    => $state->started_at?->toAtomString(),
+            'finished_at'   => $state->finished_at?->toAtomString(),
+            'result'        => $state->result,
+            'error_message' => $state->error_message,
         ];
     }
 }

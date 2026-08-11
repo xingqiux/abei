@@ -21,7 +21,6 @@ use FireflyIII\Repositories\Rule\RuleRepositoryInterface;
 use FireflyIII\Repositories\RuleGroup\RuleGroupRepositoryInterface;
 use FireflyIII\Repositories\TransactionGroup\TransactionGroupRepositoryInterface;
 use FireflyIII\Services\Internal\Destroy\TransactionGroupDestroyService;
-use FireflyIII\Support\Facades\Preferences;
 use FireflyIII\User;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -40,7 +39,6 @@ final class SeedsE2EEnvironment extends Command
     private const string BROWSER_CATEGORY_FOOD  = 'E2E 餐饮';
     private const string BROWSER_CATEGORY_RIDE  = 'E2E 交通';
     private const string BROWSER_MERCHANT       = 'E2E 商户';
-    private const string MAIL_PASSWORD          = 'bills-e2e-only';
     private const string RECURRENCE_DESTINATION = 'Abei E2E Recurrence Merchant';
     private const string RECURRENCE_SOURCE      = 'Abei E2E Recurrence Source';
     private const string RECURRENCE_TITLE       = 'Abei E2E Daily Synthetic Subscription';
@@ -114,31 +112,15 @@ final class SeedsE2EEnvironment extends Command
 
         $this->writePersonalAccessToken($user, $tokenPath);
         $this->writePersonalAccessToken($secondaryUser, $secondaryTokenPath);
-        $this->configureMailbox($user);
         DB::transaction(fn() => $this->seedAutomations($user, $currency));
         DB::transaction(fn() => $this->seedBrowserFixtures($user, $currency));
         if ((bool) $this->option('send-mail')) {
             $this->sendSyntheticBill('bills@localhost');
         }
 
-        $this->info('E2E users, tokens and primary mailbox fixture are ready.');
+        $this->info('E2E users, tokens and browser fixtures are ready.');
 
         return CommandAlias::SUCCESS;
-    }
-
-    private function configureMailbox(User $user): void
-    {
-        $mailer = (array) config('mail.mailers.smtp', []);
-
-        Preferences::setForUser($user, 'bill_inbox_mailbox_enabled', true);
-        Preferences::setForUser($user, 'bill_inbox_mailbox_provider', 'imap');
-        Preferences::setForUser($user, 'bill_inbox_mailbox_email', 'bills@localhost');
-        Preferences::setForUser($user, 'bill_inbox_mailbox_host', (string) ($mailer['host'] ?? 'mail'));
-        Preferences::setForUser($user, 'bill_inbox_mailbox_port', 3143);
-        Preferences::setForUser($user, 'bill_inbox_mailbox_encryption', 'none');
-        Preferences::setForUser($user, 'bill_inbox_mailbox_username', (string) ($mailer['username'] ?? 'bills'));
-        Preferences::setForUser($user, 'bill_inbox_mailbox_password', encrypt((string) ($mailer['password'] ?? self::MAIL_PASSWORD)));
-        Preferences::setForUser($user, 'bill_inbox_mailbox_folder', 'INBOX');
     }
 
     private function configurePrimaryCurrency(User $user): TransactionCurrency
@@ -368,6 +350,13 @@ final class SeedsE2EEnvironment extends Command
                     ->to($recipient)
                     ->subject('Abei E2E 的支付宝交易流水明细')
                     ->attachData($archive, '支付宝交易明细(20260701-20260731).zip', ['mime' => 'application/zip']);
+            });
+            Mail::raw('电子版交易流水，请在招商银行App查看。', static function ($message) use ($archive, $recipient): void {
+                $message
+                    ->from('95555@message.cmbchina.com', '招商银行测试提醒')
+                    ->to($recipient)
+                    ->subject('招商银行交易流水')
+                    ->attachData($archive, '招商银行交易流水.zip', ['mime' => 'application/zip']);
             });
         } finally {
             if (is_file($temp)) {
