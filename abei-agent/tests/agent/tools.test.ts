@@ -89,6 +89,16 @@ describe('目录驱动的工具生成', () => {
     expect(params.$schema).toBeUndefined();
   });
 
+  test('固定参数也不进模型看到的参数模式', () => {
+    const item = capability('rows.update');
+    item.fixed_params = { category_name: '系统分类' };
+    const params = modelParameters(item);
+    const properties = params.properties as Record<string, unknown>;
+
+    expect(properties.category_name).toBeUndefined();
+    expect(params.required).toEqual(['id']);
+  });
+
   test('只读能力直接打 abei-api 并把结果原样交回模型', async () => {
     const body = { data: [{ id: '1' }], meta: { pagination: { total: 1 } } };
     const { tools, calls } = agentTools([() => json(body)]);

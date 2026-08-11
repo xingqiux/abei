@@ -23,6 +23,8 @@ export interface AbeiCapability {
   command: string[];
   /** 只能由人在受信界面现填的参数名（密码、验证码这类）。目录标的，agent 不另存。 */
   human_only: string[];
+  /** 模型看不到、调用时由客户端强制注入的固定参数。 */
+  fixed_params?: Record<string, string>;
   /** 每条示例都有等价的命令行写法和参数对象，abei-api 那边有测试保证它们跑得通。 */
   examples: Array<{ title: string; command: string; params: Record<string, unknown> }>;
   params: Record<string, unknown>;
@@ -136,8 +138,9 @@ export class AbeiApi {
     params: Record<string, unknown>;
     gate?: AbeiGate;
   }): Promise<unknown> {
-    const { path, rest } = fillPath(args.capability.path, args.params);
-    const usesBody = args.capability.method !== 'GET' && args.capability.method !== 'DELETE';
+    const params = { ...args.params, ...(args.capability.fixed_params ?? {}) };
+    const { path, rest } = fillPath(args.capability.path, params);
+    const usesBody = args.capability.method !== 'GET';
     const query = new URLSearchParams();
     if (!usesBody) appendQuery(query, rest);
     if (args.gate?.dryRun) query.set('dry_run', 'true');

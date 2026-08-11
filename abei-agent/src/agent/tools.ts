@@ -35,7 +35,7 @@ export function modelParameters(capability: AbeiCapability): Record<string, unkn
   const rest = Object.fromEntries(
     Object.entries(capability.params).filter(([key]) => key !== '$schema' && key !== 'title'),
   );
-  const hidden = humanOnlyParams(capability);
+  const hidden = [...humanOnlyParams(capability), ...Object.keys(capability.fixed_params ?? {})];
   if (hidden.length === 0) return rest;
 
   const properties = { ...schemaProperties(capability.params) };

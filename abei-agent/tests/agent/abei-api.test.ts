@@ -93,6 +93,38 @@ describe('abei-api 客户端', () => {
     expect(JSON.parse(String(init.body))).toEqual({ row_ids: [1, 2] });
   });
 
+  test('固定参数由客户端注入且调用方不能覆盖，DELETE 参数仍走请求体', async () => {
+    const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () =>
+      json({ data: {} }),
+    );
+    const api = apiWith(fetchMock as unknown as typeof fetch);
+    const create = { ...capability('rows.update'), fixed_params: { source: 'cli' } };
+    await api.invoke({
+      token: 'pat',
+      capability: create,
+      params: { id: '7', source: 'model', category_name: '餐饮' },
+    });
+    const remove = {
+      ...capability('bills.import'),
+      id: 'feedback.delete',
+      method: 'DELETE',
+      path: '/v1/feedback/{id}',
+    };
+    await api.invoke({
+      token: 'pat',
+      capability: remove,
+      params: { id: '42', reason: '隐私' },
+      gate: { confirm: true },
+    });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+      source: 'cli',
+      category_name: '餐饮',
+    });
+    expect(fetchMock.mock.calls[1][0]).toBe('http://abei.test/v1/feedback/42?confirm=true');
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({ reason: '隐私' });
+  });
+
   test('problem+json 变成带 reason 的错误，409 认得出是等人确认', async () => {
     const problem = {
       type: 'https://abei.local/problems/confirmation-required',
