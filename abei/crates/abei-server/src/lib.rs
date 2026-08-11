@@ -1354,7 +1354,7 @@ impl IntoResponse for ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::routing::{get, patch, post};
+    use axum::routing::{get, post};
     use tokio::net::TcpListener;
 
     fn offline_state() -> AppState {
