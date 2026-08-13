@@ -10,21 +10,39 @@ async fn schema_bootstrap_is_idempotent_when_test_database_is_configured() {
     initialize(&pool).await.unwrap();
 
     let client = pool.get().await.unwrap();
-    let exists: bool = client
-        .query_one("SELECT to_regclass('abei_ai.feedback') IS NOT NULL", &[])
-        .await
-        .unwrap()
-        .get(0);
-    assert!(exists);
-    let events_exist: bool = client
-        .query_one(
-            "SELECT to_regclass('abei_ai.feedback_events') IS NOT NULL",
-            &[],
-        )
-        .await
-        .unwrap()
-        .get(0);
-    assert!(events_exist);
+    for table in [
+        "feedback",
+        "feedback_events",
+        "feedback_items",
+        "feedback_submissions",
+        "feedback_updates",
+        "feedback_messages",
+        "feedback_audit_events",
+        "mail_rules",
+        "mail_rule_versions",
+        "mail_messages",
+        "mail_samples",
+        "mail_sync_runs",
+        "parser_flows",
+        "parser_flow_versions",
+        "bill_documents",
+        "parse_jobs",
+        "bill_document_revisions",
+        "bill_artifacts",
+        "bill_rows",
+        "bill_import_attempts",
+        "legacy_bill_migration_runs",
+    ] {
+        let exists: bool = client
+            .query_one(
+                "SELECT to_regclass($1) IS NOT NULL",
+                &[&format!("abei_ai.{table}")],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert!(exists, "abei_ai.{table} was not created");
+    }
     let mailboxes_exist: bool = client
         .query_one("SELECT to_regclass('abei_ai.mailboxes') IS NOT NULL", &[])
         .await
@@ -40,6 +58,36 @@ async fn schema_bootstrap_is_idempotent_when_test_database_is_configured() {
         .unwrap()
         .get(0);
     assert!(oauth_states_exist);
+    let legacy_columns: Vec<String> = client
+        .query(
+            "SELECT column_name::text FROM information_schema.columns
+             WHERE table_schema = 'abei_ai' AND table_name = 'mail_messages'
+               AND column_name LIKE 'legacy_bill_%' ORDER BY column_name",
+            &[],
+        )
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| row.get(0))
+        .collect();
+    assert_eq!(
+        legacy_columns,
+        vec![
+            "legacy_bill_mail_message_id".to_owned(),
+            "legacy_bill_task_id".to_owned(),
+        ]
+    );
+    for table in ["profile_docs", "profile_doc_revisions"] {
+        let exists: bool = client
+            .query_one(
+                "SELECT to_regclass($1) IS NOT NULL",
+                &[&format!("abei_ai.{table}")],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert!(exists, "abei_ai.{table} was not created");
+    }
     let columns: Vec<String> = client
         .query(
             "SELECT column_name::text FROM information_schema.columns \
@@ -53,5 +101,81 @@ async fn schema_bootstrap_is_idempotent_when_test_database_is_configured() {
         .collect();
     for expected in ["status", "response", "duplicate_of", "deleted_at"] {
         assert!(columns.iter().any(|column| column == expected));
+    }
+
+    let immutable_trigger_exists: bool = client
+        .query_one(
+            "SELECT EXISTS (
+               SELECT 1 FROM pg_trigger
+               WHERE tgname = 'feedback_audit_events_immutable' AND NOT tgisinternal
+             )",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert!(immutable_trigger_exists);
+}
+
+#[tokio::test]
+async fn legacy_feedback_migration_is_idempotent_and_does_not_invent_an_owner() {
+    let Ok(url) = std::env::var("ABEI_TEST_DATABASE_URL") else {
+        return;
+    };
+    let pool = create_pool(url.parse().unwrap(), 1).unwrap();
+    initialize(&pool).await.unwrap();
+    let client = pool.get().await.unwrap();
+    let suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let legacy_id: i64 = client
+        .query_one(
+            "INSERT INTO abei_ai.feedback
+               (title, body, labels, kind, submitted_by, source, status, response)
+             VALUES ($1, $2, ARRAY['legacy-test']::text[], 'bug', 'legacy-actor', 'cli',
+                     'completed', 'Migrated response')
+             RETURNING id",
+            &[
+                &format!("Legacy feedback migration {suffix}"),
+                &format!("Legacy feedback body {suffix}"),
+            ],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    drop(client);
+
+    initialize(&pool).await.unwrap();
+    initialize(&pool).await.unwrap();
+
+    let client = pool.get().await.unwrap();
+    let submission = client
+        .query_one(
+            "SELECT count(*)::bigint AS count, min(user_id) AS user_id
+             FROM abei_ai.feedback_submissions WHERE legacy_feedback_id = $1",
+            &[&legacy_id],
+        )
+        .await
+        .unwrap();
+    assert_eq!(submission.get::<_, i64>("count"), 1);
+    assert_eq!(submission.get::<_, Option<i64>>("user_id"), None);
+
+    for (table, expected) in [
+        ("feedback_items", 1_i64),
+        ("feedback_updates", 1_i64),
+        ("feedback_audit_events", 1_i64),
+    ] {
+        let count: i64 = client
+            .query_one(
+                &format!(
+                    "SELECT count(*)::bigint FROM abei_ai.{table} WHERE legacy_feedback_id = $1"
+                ),
+                &[&legacy_id],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(count, expected, "{table} must contain one migrated row");
     }
 }

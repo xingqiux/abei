@@ -14,9 +14,10 @@ pub use capability::{
 };
 pub use catalog::{Catalog, CatalogView, ResourceDef, ResourceView, catalog};
 pub use params::{
-    AccountsListParams, BillsBatchParams, BillsImportParams, BillsListParams, BillsUnlockParams,
-    FeedbackCreateParams, FeedbackDeleteParams, FeedbackListParams, FeedbackStatus,
-    FeedbackUpdateParams, IdParams, RowSplit, RowsSplitParams, RowsUpdateParams,
-    TransactionsListParams, TransactionsSearchParams, TransactionsShowParams,
+    AccountsListParams, BillAccountMappingUpdateParams, BillAccountMappingsListParams,
+    BillsBatchParams, BillsImportParams, BillsListParams, BillsUnlockParams, FeedbackConfirmParams,
+    FeedbackCreateParams, FeedbackListParams, FeedbackReplyParams, IdParams,
+    MailSyncRunsListParams, RowSplit, RowsBatchUpdateParams, RowsBulkParams, RowsSplitParams,
+    RowsUpdateParams, TransactionsListParams, TransactionsSearchParams, TransactionsShowParams,
     TransactionsSummaryParams,
 };

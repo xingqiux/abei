@@ -25,6 +25,10 @@ pub fn document() -> Value {
         }
     }
 
+    insert_mail_workbench_paths(&mut paths);
+    insert_parser_platform_paths(&mut paths);
+    insert_feedback_admin_paths(&mut paths);
+
     paths.insert(
         "/health".to_owned(),
         json!({
@@ -61,12 +65,45 @@ pub fn document() -> Value {
         }
     }));
 
+    paths.insert(
+        "/v1/session".to_owned(),
+        json!({
+            "get": {
+                "operationId": "session.get",
+                "summary": "查看当前可信身份",
+                "tags": ["system"],
+                "x-abei-risk": "read",
+                "x-abei-backend": "api",
+                "parameters": [],
+                "responses": {
+                    "200": json_response("当前令牌对应的用户和角色。", json!({
+                        "type": "object",
+                        "required": ["data"],
+                        "properties": {
+                            "data": {
+                                "type": "object",
+                                "required": ["user_id", "actor", "role", "is_owner"],
+                                "properties": {
+                                    "user_id": { "type": "integer", "minimum": 1 },
+                                    "actor": { "type": "string" },
+                                    "role": { "type": "string" },
+                                    "is_owner": { "type": "boolean" }
+                                }
+                            }
+                        }
+                    })),
+                    "401": problem_response()
+                }
+            }
+        }),
+    );
+
     json!({
         "openapi": "3.1.0",
         "info": {
             "title": "阿贝 API",
             "version": env!("CARGO_PKG_VERSION"),
-            "description": "资源接口与能力目录。账本操作在过渡期委托 Firefly III。",
+            "description": "资源接口与能力目录。邮件、解析和账单草稿由 abei-server 持有，最终交易通过 Firefly III 官方 API 入账。",
         },
         "servers": [{ "url": "/", "description": "当前实例" }],
         "security": [{ "fireflyToken": [] }],
@@ -84,6 +121,734 @@ pub fn document() -> Value {
     })
 }
 
+fn insert_mail_workbench_paths(paths: &mut Map<String, Value>) {
+    let definitions = [
+        (
+            "/v1/mailboxes",
+            "get",
+            "mailboxes.list",
+            "查看邮箱连接",
+            false,
+            false,
+        ),
+        (
+            "/v1/mailboxes/{id}",
+            "get",
+            "mailboxes.get",
+            "查看邮箱连接",
+            false,
+            false,
+        ),
+        (
+            "/v1/mailboxes/{id}",
+            "put",
+            "mailboxes.update",
+            "更新邮箱连接",
+            true,
+            false,
+        ),
+        (
+            "/v1/mailboxes/{id}/sync",
+            "post",
+            "mailboxes.sync",
+            "同步新邮件",
+            true,
+            false,
+        ),
+        (
+            "/v1/mailboxes/{id}/rescan",
+            "post",
+            "mailboxes.rescan",
+            "扫描历史邮件",
+            true,
+            true,
+        ),
+        (
+            "/v1/mail-sync-runs",
+            "get",
+            "mail-sync-runs.list",
+            "查看同步记录",
+            false,
+            false,
+        ),
+        (
+            "/v1/mail-sync-runs/{id}",
+            "get",
+            "mail-sync-runs.get",
+            "查看同步进度",
+            false,
+            false,
+        ),
+        (
+            "/v1/mail-sync-runs/{id}/cancel",
+            "post",
+            "mail-sync-runs.cancel",
+            "取消邮箱同步",
+            true,
+            false,
+        ),
+        (
+            "/v1/mail-messages",
+            "get",
+            "mail-messages.list",
+            "查看邮件索引",
+            false,
+            false,
+        ),
+        (
+            "/v1/mail-messages/{id}",
+            "get",
+            "mail-messages.get",
+            "查看邮件详情",
+            false,
+            false,
+        ),
+        (
+            "/v1/mail-messages/{id}/raw",
+            "get",
+            "mail-messages.raw",
+            "下载原始 EML",
+            false,
+            false,
+        ),
+        (
+            "/v1/mail-messages/{id}/cache",
+            "post",
+            "mail-messages.cache",
+            "缓存邮件内容",
+            true,
+            false,
+        ),
+        (
+            "/v1/mail-messages/{id}/reroute",
+            "post",
+            "mail-messages.reroute",
+            "重新归类邮件",
+            true,
+            false,
+        ),
+        (
+            "/v1/mail-rules",
+            "get",
+            "mail-rules.list",
+            "查看邮件规则",
+            false,
+            false,
+        ),
+        (
+            "/v1/mail-rules",
+            "post",
+            "mail-rules.create",
+            "创建邮件规则草稿",
+            true,
+            false,
+        ),
+        (
+            "/v1/mail-rules/test",
+            "post",
+            "mail-rules.test",
+            "测试邮件规则",
+            false,
+            false,
+        ),
+        (
+            "/v1/mail-rules/{id}",
+            "patch",
+            "mail-rules.update",
+            "更新邮件规则草稿",
+            true,
+            false,
+        ),
+        (
+            "/v1/mail-rules/{id}/publish",
+            "post",
+            "mail-rules.publish",
+            "发布邮件规则",
+            true,
+            true,
+        ),
+        (
+            "/v1/mail-rules/{id}/rollback",
+            "post",
+            "mail-rules.rollback",
+            "回滚邮件规则",
+            true,
+            true,
+        ),
+        (
+            "/v1/mail-samples",
+            "get",
+            "mail-samples.list",
+            "查看固定样本",
+            false,
+            false,
+        ),
+        (
+            "/v1/mail-samples",
+            "post",
+            "mail-samples.create",
+            "固定邮件样本",
+            true,
+            false,
+        ),
+        (
+            "/v1/mail-samples/{id}",
+            "delete",
+            "mail-samples.delete",
+            "删除固定样本",
+            true,
+            true,
+        ),
+    ];
+
+    for (path, method, operation_id, summary, write, confirm) in definitions {
+        let entry = paths.entry(path.to_owned()).or_insert_with(|| json!({}));
+        let mut parameters = Vec::new();
+        if path.contains("{id}") {
+            parameters.push(json!({
+                "name": "id",
+                "in": "path",
+                "required": true,
+                "schema": { "type": "string", "pattern": "^[1-9][0-9]*$" }
+            }));
+        }
+        if write && operation_id != "mail-rules.test" {
+            parameters.extend(generic_gate_parameters(confirm));
+        }
+        let mut operation = json!({
+            "operationId": operation_id,
+            "summary": summary,
+            "tags": [operation_id.split('.').next().unwrap_or("mail")],
+            "x-abei-risk": if confirm { "confirm" } else if write { "draft" } else { "read" },
+            "x-abei-backend": "server",
+            "parameters": parameters,
+            "responses": {
+                "200": ok_response(summary),
+                "400": problem_response(),
+                "401": problem_response(),
+                "404": problem_response(),
+                "502": problem_response()
+            }
+        });
+        if write || operation_id == "mail-rules.test" {
+            operation["requestBody"] = json!({
+                "required": false,
+                "content": { "application/json": { "schema": { "type": "object" } } }
+            });
+        }
+        if confirm {
+            operation["responses"]["409"] = problem_response();
+        }
+        if matches!(operation_id, "mailboxes.sync" | "mailboxes.rescan") {
+            operation["responses"]["202"] = ok_response("同步任务已创建。");
+        }
+        if operation_id == "mail-messages.raw" {
+            operation["responses"]["200"] = json!({
+                "description": "原始 RFC 822 邮件。",
+                "content": { "message/rfc822": { "schema": { "type": "string", "format": "binary" } } }
+            });
+        }
+        if let Some(item) = entry.as_object_mut() {
+            item.insert(method.to_owned(), operation);
+        }
+    }
+}
+
+fn generic_gate_parameters(confirm_required: bool) -> Vec<Value> {
+    vec![
+        json!({
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "boolean" },
+            "description": "只校验和预览，不写入。"
+        }),
+        json!({
+            "name": "confirm",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "boolean" },
+            "description": if confirm_required { "必须显式确认。" } else { "可选确认标记。" }
+        }),
+    ]
+}
+
+fn insert_feedback_admin_paths(paths: &mut Map<String, Value>) {
+    let definitions = [
+        (
+            "/v1/admin/feedback/submissions",
+            "get",
+            "admin.feedback.submissions.list",
+            "查看反馈收件箱",
+        ),
+        (
+            "/v1/admin/feedback/submissions/{id}",
+            "get",
+            "admin.feedback.submissions.get",
+            "查看反馈提交详情",
+        ),
+        (
+            "/v1/admin/feedback/submissions/{id}",
+            "patch",
+            "admin.feedback.submissions.update",
+            "驳回或脱敏反馈提交",
+        ),
+        (
+            "/v1/admin/feedback/submissions/{id}/link",
+            "post",
+            "admin.feedback.submissions.link",
+            "关联或重新关联反馈提交",
+        ),
+        (
+            "/v1/admin/feedback/submissions/{id}/messages",
+            "post",
+            "admin.feedback.submissions.message",
+            "向反馈提交者追问",
+        ),
+        (
+            "/v1/admin/feedback/items",
+            "get",
+            "admin.feedback.items.list",
+            "查看反馈事项",
+        ),
+        (
+            "/v1/admin/feedback/items/{id}",
+            "get",
+            "admin.feedback.items.get",
+            "查看反馈事项详情",
+        ),
+        (
+            "/v1/admin/feedback/items/{id}",
+            "patch",
+            "admin.feedback.items.update",
+            "修改反馈事项",
+        ),
+        (
+            "/v1/admin/feedback/items/{id}/updates",
+            "post",
+            "admin.feedback.items.publish-update",
+            "发布反馈处理进展",
+        ),
+        (
+            "/v1/admin/feedback/items/{id}/merge",
+            "post",
+            "admin.feedback.items.merge",
+            "合并重复反馈事项",
+        ),
+        (
+            "/v1/admin/feedback/items/{id}/archive",
+            "post",
+            "admin.feedback.items.archive",
+            "归档反馈事项",
+        ),
+        (
+            "/v1/admin/feedback/items/{id}/restore",
+            "post",
+            "admin.feedback.items.restore",
+            "恢复反馈事项",
+        ),
+    ];
+
+    for (path, method, operation_id, summary) in definitions {
+        let entry = paths.entry(path.to_owned()).or_insert_with(|| json!({}));
+        let mut parameters = feedback_admin_query_parameters(operation_id);
+        if path.contains("{id}") {
+            parameters.insert(
+                0,
+                json!({
+                    "name": "id",
+                    "in": "path",
+                    "required": true,
+                    "schema": { "type": "integer", "minimum": 1 }
+                }),
+            );
+        }
+        let mut operation = json!({
+            "operationId": operation_id,
+            "summary": summary,
+            "description": "仅 owner 可调用；所有状态变化由 abei-server 写入不可变审计事件。",
+            "tags": ["admin-feedback"],
+            "x-abei-risk": if method == "get" { "read" } else { "draft" },
+            "x-abei-backend": "server",
+            "parameters": parameters,
+            "responses": {
+                "200": ok_response(summary),
+                "400": problem_response(),
+                "401": problem_response(),
+                "403": problem_response(),
+                "404": problem_response(),
+                "409": problem_response(),
+                "502": problem_response()
+            }
+        });
+        if let Some(schema) = feedback_admin_body_schema(operation_id) {
+            operation["requestBody"] = json!({
+                "required": true,
+                "content": { "application/json": { "schema": schema } }
+            });
+        }
+        if matches!(
+            operation_id,
+            "admin.feedback.submissions.message" | "admin.feedback.items.publish-update"
+        ) {
+            operation["responses"]["201"] = ok_response(summary);
+        }
+        if let Some(item) = entry.as_object_mut() {
+            item.insert(method.to_owned(), operation);
+        }
+    }
+}
+
+fn feedback_admin_query_parameters(operation_id: &str) -> Vec<Value> {
+    let names: &[(&str, Value)] = match operation_id {
+        "admin.feedback.submissions.list" => &[
+            ("state", json!({ "type": "string" })),
+            (
+                "kind",
+                json!({ "type": "string", "enum": ["bug", "experience", "suggestion"] }),
+            ),
+            (
+                "target",
+                json!({ "type": "string", "enum": ["cli", "app", "web"] }),
+            ),
+            ("item_id", json!({ "type": "integer", "minimum": 1 })),
+            (
+                "limit",
+                json!({ "type": "integer", "minimum": 1, "maximum": 100 }),
+            ),
+            ("offset", json!({ "type": "integer", "minimum": 0 })),
+        ],
+        "admin.feedback.items.list" => &[
+            ("archived", json!({ "type": "boolean" })),
+            (
+                "kind",
+                json!({ "type": "string", "enum": ["bug", "experience", "suggestion"] }),
+            ),
+            (
+                "target",
+                json!({ "type": "string", "enum": ["cli", "app", "web"] }),
+            ),
+            ("status", json!({ "type": "string" })),
+            (
+                "severity",
+                json!({ "type": "string", "enum": ["critical", "high", "normal", "low"] }),
+            ),
+            (
+                "limit",
+                json!({ "type": "integer", "minimum": 1, "maximum": 100 }),
+            ),
+            ("offset", json!({ "type": "integer", "minimum": 0 })),
+        ],
+        _ => &[],
+    };
+    names
+        .iter()
+        .map(|(name, schema)| {
+            json!({
+                "name": name,
+                "in": "query",
+                "required": false,
+                "schema": schema
+            })
+        })
+        .collect()
+}
+
+fn feedback_admin_body_schema(operation_id: &str) -> Option<Value> {
+    let text = || json!({ "type": "string", "minLength": 1, "maxLength": 4000 });
+    Some(match operation_id {
+        "admin.feedback.submissions.update" => json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["state", "reason"],
+            "properties": {
+                "state": { "type": "string", "enum": ["dismissed", "redacted"] },
+                "reason": text()
+            }
+        }),
+        "admin.feedback.submissions.link" => json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["reason"],
+            "properties": {
+                "item_id": { "type": ["integer", "null"], "minimum": 1 },
+                "new": { "type": "boolean" },
+                "title": { "type": ["string", "null"], "minLength": 1, "maxLength": 160 },
+                "reason": text()
+            }
+        }),
+        "admin.feedback.submissions.message" => json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["message"],
+            "properties": { "message": text() }
+        }),
+        "admin.feedback.items.update" => json!({
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "properties": {
+                "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+                "kind": { "type": "string", "enum": ["bug", "experience", "suggestion"] },
+                "target": { "type": "string", "enum": ["cli", "app", "web"] },
+                "status": { "type": "string", "enum": ["open", "reviewing", "planned", "in_progress", "completed", "closed"] },
+                "severity": { "type": ["string", "null"], "enum": ["critical", "high", "normal", "low", null] },
+                "public_summary": { "type": "string", "maxLength": 4000 },
+                "close_reason": { "type": ["string", "null"], "maxLength": 4000 },
+                "update": { "type": ["string", "null"], "maxLength": 4000 }
+            }
+        }),
+        "admin.feedback.items.publish-update" => json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["body"],
+            "properties": { "body": text() }
+        }),
+        "admin.feedback.items.merge" => json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["target_id", "reason"],
+            "properties": {
+                "target_id": { "type": "integer", "minimum": 1 },
+                "reason": text()
+            }
+        }),
+        "admin.feedback.items.archive" | "admin.feedback.items.restore" => json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["reason"],
+            "properties": { "reason": text() }
+        }),
+        _ => return None,
+    })
+}
+
+fn insert_parser_platform_paths(paths: &mut Map<String, Value>) {
+    let definitions = [
+        (
+            "/v1/parser-flows/validate",
+            "post",
+            "parser-flows.validate",
+            "校验解析流程",
+            "read",
+            true,
+        ),
+        (
+            "/v1/parser-flows/test-eml",
+            "post",
+            "parser-flows.test-eml-source",
+            "用本地 EML 测试解析定义",
+            "read",
+            true,
+        ),
+        (
+            "/v1/parser-flows",
+            "get",
+            "parser-flows.list",
+            "查看解析流程",
+            "read",
+            false,
+        ),
+        (
+            "/v1/parser-flows",
+            "post",
+            "parser-flows.create",
+            "创建解析流程草稿",
+            "draft",
+            true,
+        ),
+        (
+            "/v1/parser-flows/{id}",
+            "get",
+            "parser-flows.get",
+            "查看解析流程",
+            "read",
+            false,
+        ),
+        (
+            "/v1/parser-flows/{id}",
+            "patch",
+            "parser-flows.update",
+            "更新解析流程草稿",
+            "draft",
+            true,
+        ),
+        (
+            "/v1/parser-flows/{id}/clone",
+            "post",
+            "parser-flows.clone",
+            "复制解析流程",
+            "draft",
+            true,
+        ),
+        (
+            "/v1/parser-flows/{id}/test",
+            "post",
+            "parser-flows.test",
+            "测试解析流程",
+            "read",
+            true,
+        ),
+        (
+            "/v1/parser-flows/{id}/test-eml",
+            "post",
+            "parser-flows.test-eml",
+            "上传 EML 测试解析流程",
+            "read",
+            true,
+        ),
+        (
+            "/v1/parser-flows/{id}/publish",
+            "post",
+            "parser-flows.publish",
+            "发布解析流程",
+            "confirm",
+            false,
+        ),
+        (
+            "/v1/parser-flows/{id}/rollback",
+            "post",
+            "parser-flows.rollback",
+            "回滚解析流程",
+            "confirm",
+            true,
+        ),
+        (
+            "/v1/parser-flows/{id}/retire",
+            "post",
+            "parser-flows.retire",
+            "停用解析流程",
+            "confirm",
+            false,
+        ),
+        (
+            "/v1/parser-flows/{id}/versions",
+            "get",
+            "parser-flows.versions",
+            "查看解析流程版本",
+            "read",
+            false,
+        ),
+        (
+            "/v1/parser-flows/{id}/versions/{version}",
+            "get",
+            "parser-flows.version",
+            "查看解析流程版本",
+            "read",
+            false,
+        ),
+        (
+            "/v1/parser-flows/{id}/test-cases",
+            "post",
+            "parser-test-cases.create",
+            "创建解析测试用例",
+            "draft",
+            true,
+        ),
+        (
+            "/v1/parser-test-cases/{id}",
+            "patch",
+            "parser-test-cases.update",
+            "更新解析测试用例",
+            "draft",
+            true,
+        ),
+        (
+            "/v1/parser-test-cases/{id}",
+            "delete",
+            "parser-test-cases.delete",
+            "删除解析测试用例",
+            "confirm",
+            false,
+        ),
+        (
+            "/v1/parser-test-runs/{id}",
+            "get",
+            "parser-test-runs.get",
+            "查看解析测试运行",
+            "read",
+            false,
+        ),
+    ];
+
+    for (path, method, operation_id, summary, risk, body) in definitions {
+        let entry = paths.entry(path.to_owned()).or_insert_with(|| json!({}));
+        let mut parameters = Vec::new();
+        if path.contains("{id}") {
+            parameters.push(json!({
+                "name": "id",
+                "in": "path",
+                "required": true,
+                "schema": { "type": "string", "pattern": "^[1-9][0-9]*$" }
+            }));
+        }
+        if path.contains("{version}") {
+            parameters.push(json!({
+                "name": "version",
+                "in": "path",
+                "required": true,
+                "schema": { "type": "integer", "minimum": 1 }
+            }));
+        }
+        if matches!(risk, "draft" | "confirm") {
+            parameters.extend(generic_gate_parameters(risk == "confirm"));
+        }
+        let mut operation = json!({
+            "operationId": operation_id,
+            "summary": summary,
+            "tags": [operation_id.split('.').next().unwrap_or("parser")],
+            "x-abei-risk": risk,
+            "x-abei-backend": "server",
+            "parameters": parameters,
+            "responses": {
+                "200": ok_response(summary),
+                "400": problem_response(),
+                "401": problem_response(),
+                "404": problem_response(),
+                "502": problem_response()
+            }
+        });
+        if path.ends_with("/test-eml") {
+            let mut required = vec!["eml"];
+            if !path.contains("{id}") {
+                required.push("source_yaml");
+            }
+            operation["requestBody"] = json!({
+                "required": true,
+                "content": {
+                    "multipart/form-data": {
+                        "schema": {
+                            "type": "object",
+                            "required": required,
+                            "properties": {
+                                "eml": { "type": "string", "format": "binary" },
+                                "source_yaml": { "type": "string", "maxLength": 262144 },
+                                "version": { "type": "integer", "minimum": 1 },
+                                "timezone": { "type": "string", "maxLength": 120 },
+                                "secrets": { "type": "string", "description": "JSON 字符串映射。" }
+                            }
+                        }
+                    }
+                }
+            });
+        } else if body {
+            operation["requestBody"] = json!({
+                "required": true,
+                "content": { "application/json": { "schema": { "type": "object" } } }
+            });
+        }
+        if risk == "confirm" {
+            operation["responses"]["409"] = problem_response();
+        }
+        if operation_id.ends_with(".create") || operation_id == "parser-flows.clone" {
+            operation["responses"]["201"] = ok_response(summary);
+        }
+        if let Some(item) = entry.as_object_mut() {
+            item.insert(method.to_owned(), operation);
+        }
+    }
+}
+
 /// 文档的磁盘形态：缩进 2 空格、末尾一个换行。
 ///
 /// 键序是确定的——serde_json 没开 `preserve_order`，对象走 `BTreeMap`，
@@ -95,16 +860,20 @@ pub fn document_text() -> String {
 }
 
 fn operation(capability: &Capability, params: &Value) -> Value {
-    let has_id = capability.route_path().contains("{id}");
+    let path_param = capability.path_param();
     let reading = matches!(capability.method(), Method::Get);
     let mut parameters = Vec::new();
 
-    if has_id {
+    if let Some(name) = path_param {
+        let description = params["properties"][name]
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or("对象标识。");
         parameters.push(json!({
-            "name": "id",
+            "name": name,
             "in": "path",
             "required": true,
-            "description": "对象 id，正整数。",
+            "description": description,
             "schema": { "type": "string" }
         }));
     }
@@ -119,7 +888,7 @@ fn operation(capability: &Capability, params: &Value) -> Value {
 
         for (name, schema) in properties {
             // 路径参数已经单独声明过，别在 query 里再来一遍。
-            if has_id && name == "id" {
+            if path_param == Some(name.as_str()) {
                 continue;
             }
             parameters.push(json!({
@@ -149,7 +918,11 @@ fn operation(capability: &Capability, params: &Value) -> Value {
 
     if !reading {
         parameters.extend(gate_parameters(capability));
-        operation["requestBody"] = request_body(params, has_id);
+        operation["requestBody"] = if capability.id() == "feedback.create" {
+            feedback_create_request_body(params)
+        } else {
+            request_body(params, path_param)
+        };
         // confirm 档没带确认参数就是 409，得让生成的客户端知道这不是「失败」。
         operation["responses"]["409"] = problem_response();
     }
@@ -161,7 +934,7 @@ fn operation(capability: &Capability, params: &Value) -> Value {
         responses.insert("201".to_owned(), response);
     }
 
-    if capability.id() == "bills.sync"
+    if matches!(capability.id().as_str(), "bills.sync" | "feedback.create")
         && let Some(responses) = operation["responses"].as_object_mut()
         && let Some(response) = responses.get("200").cloned()
     {
@@ -198,14 +971,16 @@ fn gate_parameters(capability: &Capability) -> Vec<Value> {
 }
 
 /// 写操作的请求体：能力的参数模式去掉 id（id 走路径）。
-fn request_body(params: &Value, has_id: bool) -> Value {
+fn request_body(params: &Value, path_param: Option<&str>) -> Value {
     let mut schema = params.clone();
-    if has_id && let Some(object) = schema.as_object_mut() {
+    if let Some(path_param) = path_param
+        && let Some(object) = schema.as_object_mut()
+    {
         if let Some(Value::Object(properties)) = object.get_mut("properties") {
-            properties.remove("id");
+            properties.remove(path_param);
         }
         if let Some(Value::Array(required)) = object.get_mut("required") {
-            required.retain(|name| name.as_str() != Some("id"));
+            required.retain(|name| name.as_str() != Some(path_param));
         }
     }
 
@@ -218,10 +993,85 @@ fn request_body(params: &Value, has_id: bool) -> Value {
     })
 }
 
+fn feedback_create_request_body(params: &Value) -> Value {
+    let mut schema = params.clone();
+    let object = schema
+        .as_object_mut()
+        .expect("feedback create params are an object schema");
+    let properties = object
+        .entry("properties")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .expect("feedback create properties are an object");
+    properties.insert(
+        "idempotency_key".to_owned(),
+        json!({
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "description": "客户端为一次提交生成并在重试时复用。"
+        }),
+    );
+    properties.insert(
+        "submitted_via".to_owned(),
+        json!({
+            "type": "string",
+            "enum": ["cli", "app", "web"],
+            "description": "实际提交入口。"
+        }),
+    );
+    properties.insert(
+        "context".to_owned(),
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "description": "客户端自动采集的受限运行上下文；不得放入命令参数、令牌、财务正文或工具输出。",
+            "properties": {
+                "cli_version": { "type": "string", "maxLength": 64 },
+                "os": { "type": "string", "maxLength": 64 },
+                "arch": { "type": "string", "maxLength": 64 },
+                "recorded_at": { "type": "string", "maxLength": 64 },
+                "recent": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "capability_id": { "type": "string", "maxLength": 128 },
+                        "request_id": { "type": ["string", "null"], "maxLength": 128 },
+                        "result": { "type": "string", "enum": ["success", "error"] },
+                        "error_reason": { "type": ["string", "null"], "maxLength": 128 },
+                        "error_code": { "type": ["string", "null"], "maxLength": 128 },
+                        "exit_code": { "type": "integer" },
+                        "recorded_at": { "type": "string", "maxLength": 64 }
+                    }
+                }
+            }
+        }),
+    );
+    let required = object
+        .entry("required")
+        .or_insert_with(|| json!([]))
+        .as_array_mut()
+        .expect("feedback create required is an array");
+    for field in ["idempotency_key", "submitted_via"] {
+        if !required.iter().any(|value| value.as_str() == Some(field)) {
+            required.push(Value::String(field.to_owned()));
+        }
+    }
+    request_body(&schema, None)
+}
+
 fn ok_response(description: &str) -> Value {
     json!({
         "description": description,
         "content": { "application/json": { "schema": { "type": "object" } } }
+    })
+}
+
+fn json_response(description: &str, schema: Value) -> Value {
+    json!({
+        "description": description,
+        "content": { "application/json": { "schema": schema } }
     })
 }
 
@@ -300,6 +1150,20 @@ mod tests {
             .unwrap();
         assert_eq!(parameters[0]["name"], "id");
         assert_eq!(parameters[0]["in"], "path");
+
+        let profile = &document["paths"]["/v1/profile-doc/{slug}"]["patch"];
+        assert_eq!(profile["parameters"][0]["name"], "slug");
+        assert!(
+            profile["requestBody"]["content"]["application/json"]["schema"]["properties"]
+                .get("slug")
+                .is_none()
+        );
+
+        let delete = &document["paths"]["/v1/profile-doc/{slug}"]["delete"];
+        let delete_body =
+            &delete["requestBody"]["content"]["application/json"]["schema"]["properties"];
+        assert!(delete_body["expected_version"].is_object());
+        assert!(delete_body.get("slug").is_none());
     }
 
     /// 写操作的参数在请求体里，不在查询串里——服务端就是这么收的。
@@ -357,11 +1221,87 @@ mod tests {
     }
 
     #[test]
+    fn mail_workbench_routes_are_documented() {
+        let document = document();
+        for (path, method) in [
+            ("/v1/mail-messages", "get"),
+            ("/v1/mail-messages/{id}/raw", "get"),
+            ("/v1/mail-rules/test", "post"),
+            ("/v1/mail-rules/{id}/publish", "post"),
+            ("/v1/mail-sync-runs/{id}", "get"),
+            ("/v1/mail-sync-runs/{id}/cancel", "post"),
+        ] {
+            assert!(
+                document["paths"][path][method].is_object(),
+                "{method} {path}"
+            );
+        }
+        assert_eq!(
+            document["paths"]["/v1/mail-rules/{id}/publish"]["post"]["x-abei-risk"],
+            "confirm"
+        );
+        assert_eq!(
+            document["paths"]["/v1/mail-rules/test"]["post"]["x-abei-risk"],
+            "read"
+        );
+        assert!(document["paths"]["/v1/mail-rules/test"]["post"]["requestBody"].is_object());
+        assert_eq!(
+            document["paths"]["/v1/mail-messages/{id}/raw"]["get"]["responses"]["200"]["content"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .next()
+                .unwrap(),
+            "message/rfc822"
+        );
+    }
+
+    #[test]
     fn creates_document_created_and_dry_run_statuses() {
         let document = document();
         let create = &document["paths"]["/v1/feedback"]["post"];
         assert!(create["responses"]["200"].is_object());
         assert!(create["responses"]["201"].is_object());
+        assert!(create["responses"]["202"].is_object());
+        let schema = &create["requestBody"]["content"]["application/json"]["schema"];
+        assert!(schema["properties"]["idempotency_key"].is_object());
+        assert!(schema["properties"]["submitted_via"].is_object());
+        assert!(schema["properties"]["context"].is_object());
+        assert!(
+            schema["properties"]["context"]["properties"]["recent"]["properties"]["error_code"]
+                .is_object()
+        );
+        assert!(
+            schema["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|field| field == "idempotency_key")
+        );
+    }
+
+    #[test]
+    fn session_and_feedback_admin_routes_are_documented() {
+        let document = document();
+        assert_eq!(
+            document["paths"]["/v1/session"]["get"]["operationId"],
+            "session.get"
+        );
+        for (path, method) in [
+            ("/v1/admin/feedback/submissions", "get"),
+            ("/v1/admin/feedback/submissions/{id}", "get"),
+            ("/v1/admin/feedback/submissions/{id}/link", "post"),
+            ("/v1/admin/feedback/items", "get"),
+            ("/v1/admin/feedback/items/{id}", "patch"),
+            ("/v1/admin/feedback/items/{id}/merge", "post"),
+            ("/v1/admin/feedback/items/{id}/archive", "post"),
+            ("/v1/admin/feedback/items/{id}/restore", "post"),
+        ] {
+            assert!(
+                document["paths"][path][method].is_object(),
+                "{method} {path}"
+            );
+        }
     }
 
     #[test]

@@ -3,6 +3,7 @@
 //! CLI 只认 abei-api 一个地址，能力走资源路由。
 //! 服务端的 problem+json 在这里翻成 `CliError`，退出码由 `reason` 决定。
 
+use std::sync::Mutex;
 use std::time::Duration;
 
 use abei_core::{Capability, Method};
@@ -27,6 +28,7 @@ pub struct Client {
     http: reqwest::Client,
     base: String,
     token: Option<String>,
+    last_request_id: Mutex<Option<String>>,
 }
 
 impl Client {
@@ -39,6 +41,7 @@ impl Client {
             http,
             base: base.trim_end_matches('/').to_owned(),
             token,
+            last_request_id: Mutex::new(None),
         })
     }
 
@@ -52,13 +55,13 @@ impl Client {
         let mut path = capability.route_path();
         let mut rest = params.clone();
 
-        // 路径里的 {id} 由同名参数填。
-        if path.contains("{id}") {
-            let id = rest
-                .remove("id")
+        // 路径占位符由同名参数填（多数是 id，资料文档是 slug）。
+        if let Some(name) = capability.path_param() {
+            let value = rest
+                .remove(name)
                 .and_then(|value| scalar(&value))
-                .ok_or_else(|| CliError::Usage("这条命令要一个 id。".to_owned()))?;
-            path = path.replace("{id}", &id);
+                .ok_or_else(|| CliError::Usage(format!("这条命令要一个 {name}。")))?;
+            path = path.replace(&format!("{{{name}}}"), &value);
         }
 
         let method = capability.method();
@@ -81,7 +84,14 @@ impl Client {
             }
         }
 
-        self.request(method, &path, &query, body).await
+        self.request_inner(
+            method,
+            &path,
+            &query,
+            body,
+            capability.id() == "feedback.create",
+        )
+        .await
     }
 
     pub async fn request(
@@ -91,12 +101,24 @@ impl Client {
         query: &[(String, String)],
         body: Option<Value>,
     ) -> Result<Value, CliError> {
+        self.request_inner(method, path, query, body, false).await
+    }
+
+    async fn request_inner(
+        &self,
+        method: Method,
+        path: &str,
+        query: &[(String, String)],
+        body: Option<Value>,
+        retry_connect_once: bool,
+    ) -> Result<Value, CliError> {
         let url = format!("{}{}", self.base, path);
         let verb = match method {
             Method::Get => reqwest::Method::GET,
             Method::Post => reqwest::Method::POST,
             Method::Patch => reqwest::Method::PATCH,
             Method::Delete => reqwest::Method::DELETE,
+            Method::Put => reqwest::Method::PUT,
         };
 
         let mut request = self.http.request(verb, &url).query(query);
@@ -107,27 +129,79 @@ impl Client {
             request = request.json(&body);
         }
 
-        let response = request.send().await?;
-        let status = response.status().as_u16();
-        let text = response.text().await?;
-
-        if (200..300).contains(&status) {
-            if text.trim().is_empty() {
-                return Ok(Value::Null);
+        self.set_last_request_id(None);
+        let retry = retry_connect_once.then(|| request.try_clone()).flatten();
+        let response = match request.send().await {
+            Ok(response) => response,
+            Err(error) if (error.is_connect() || error.is_timeout()) && retry.is_some() => {
+                retry.expect("retry request checked above").send().await?
             }
-            return serde_json::from_str(&text)
-                .map_err(|error| CliError::Other(format!("响应不是 JSON：{error}")));
-        }
-
-        Err(match ServerProblem::parse(status, &text) {
-            Some(problem) => CliError::Server(Box::new(problem)),
-            // 不是 problem+json，多半根本没打到 abei-api（反代、错端口）。
-            None => CliError::Other(format!(
-                "{url} 返回 {status}，而且不是 problem+json：{}",
-                text.chars().take(200).collect::<String>()
-            )),
-        })
+            Err(error) => return Err(error.into()),
+        };
+        self.capture_request_id(&response);
+        parse_response(response, &url).await
     }
+
+    pub async fn post_multipart(
+        &self,
+        path: &str,
+        form: reqwest::multipart::Form,
+    ) -> Result<Value, CliError> {
+        let url = format!("{}{}", self.base, path);
+        let mut request = self.http.post(&url).multipart(form);
+        if let Some(token) = &self.token {
+            request = request.bearer_auth(token);
+        }
+        self.set_last_request_id(None);
+        let response = request.send().await?;
+        self.capture_request_id(&response);
+        parse_response(response, &url).await
+    }
+
+    /// 最近一次 HTTP 响应的关联 ID。没有响应或服务端未返回时为 None。
+    pub fn last_request_id(&self) -> Option<String> {
+        self.last_request_id
+            .lock()
+            .ok()
+            .and_then(|value| value.clone())
+    }
+
+    fn capture_request_id(&self, response: &reqwest::Response) {
+        let request_id = response
+            .headers()
+            .get("x-request-id")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        self.set_last_request_id(request_id);
+    }
+
+    fn set_last_request_id(&self, request_id: Option<String>) {
+        if let Ok(mut value) = self.last_request_id.lock() {
+            *value = request_id;
+        }
+    }
+}
+
+async fn parse_response(response: reqwest::Response, url: &str) -> Result<Value, CliError> {
+    let status = response.status().as_u16();
+    let text = response.text().await?;
+
+    if (200..300).contains(&status) {
+        if text.trim().is_empty() {
+            return Ok(Value::Null);
+        }
+        return serde_json::from_str(&text)
+            .map_err(|error| CliError::Other(format!("响应不是 JSON：{error}")));
+    }
+
+    Err(match ServerProblem::parse(status, &text) {
+        Some(problem) => CliError::Server(Box::new(problem)),
+        // 不是 problem+json，多半根本没打到 abei-api（反代、错端口）。
+        None => CliError::Other(format!(
+            "{url} 返回 {status}，而且不是 problem+json：{}",
+            text.chars().take(200).collect::<String>()
+        )),
+    })
 }
 
 /// 标量转字符串，其它类型返回 None。

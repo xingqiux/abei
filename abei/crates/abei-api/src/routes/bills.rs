@@ -1,8 +1,6 @@
-//! 账单任务。过渡期委托 fork 里的 `/api/v1/bill-tasks`，剥离到阿贝自己时只换这一层。
-//!
-//! 写闸门在这里统一执行：CLI、web、agent 三条路都打到这几个函数，绕不过去。
+//! 账单文档公共能力。参数校验与风险闸门留在 API，数据由 abei-server 持有。
 
-use abei_core::{BillsBatchParams, BillsImportParams, BillsListParams, BillsUnlockParams, Risk};
+use abei_core::{BillsBatchParams, BillsListParams, BillsUnlockParams, Risk};
 use axum::extract::{Path, State};
 use axum::http::{Method, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -10,114 +8,100 @@ use axum::{Extension, Json};
 use serde_json::{Value, json};
 
 use crate::auth::{AuthIdentity, AuthToken};
-use crate::extract::{Gate, ValidJson, ValidQuery, check_id, check_limit, check_page, optional};
+use crate::extract::{Gate, ValidJson, ValidQuery, check_id, check_limit, check_page};
 use crate::problem::Problem;
 use crate::state::AppState;
 
-const TASKS: &str = "/api/v1/bill-tasks";
-const INBOX: &str = "/api/v1/bill-inbox";
-
 pub async fn list(
     State(state): State<AppState>,
-    AuthToken(token): AuthToken,
+    Extension(identity): Extension<AuthIdentity>,
     ValidQuery(params): ValidQuery<BillsListParams>,
 ) -> Result<Json<Value>, Problem> {
     check_page(params.page)?;
     check_limit(params.limit)?;
-
-    let query = [
-        ("source", params.source.unwrap_or_default()),
-        ("status", params.status.unwrap_or_default()),
-        ("page", optional(params.page)),
-        ("limit", optional(params.limit)),
-    ];
-
-    state
-        .firefly
-        .get_json(&token, TASKS, &query)
+    let mut url = reqwest::Url::parse("http://abei.local/v1/bills")
+        .map_err(|error| Problem::internal(error.to_string()))?;
+    {
+        let mut query = url.query_pairs_mut();
+        if let Some(source) = params.source {
+            query.append_pair("source", &source);
+        }
+        if let Some(status) = params.status {
+            query.append_pair("status", &status);
+        }
+        if let Some(page) = params.page {
+            query.append_pair("page", &page.to_string());
+        }
+        if let Some(limit) = params.limit {
+            query.append_pair("limit", &limit.to_string());
+        }
+    }
+    let path = match url.query() {
+        Some(query) => format!("{}?{query}", url.path()),
+        None => url.path().to_owned(),
+    };
+    crate::routes::server::request_json(&state, &identity.0, Method::GET, &path, &Value::Null)
         .await
-        .map(Json)
+        .map(|(_, value)| Json(value))
         .map_err(|problem| problem.at("bills", "list"))
 }
 
 pub async fn show(
     State(state): State<AppState>,
-    AuthToken(token): AuthToken,
+    Extension(identity): Extension<AuthIdentity>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, Problem> {
-    let id = check_id(&id).map_err(|problem| problem.at("bills", "show"))?;
-
-    state
-        .firefly
-        .get_json(&token, &format!("{TASKS}/{id}"), &[])
-        .await
-        .map(Json)
-        .map_err(|problem| problem.at("bills", "show"))
+    get_document(&state, &identity, &id, "", "show").await
 }
 
-/// 审阅视图。服务端已经分好桶、脱过敏，是改流水之前的主入口。
 pub async fn review(
     State(state): State<AppState>,
+    Extension(identity): Extension<AuthIdentity>,
     AuthToken(token): AuthToken,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, Problem> {
-    let id = check_id(&id).map_err(|problem| problem.at("bills", "review"))?;
-
-    state
-        .firefly
-        .get_json(&token, &format!("{TASKS}/{id}/review"), &[])
-        .await
-        .map(Json)
-        .map_err(|problem| problem.at("bills", "review"))
-}
-
-/// 导入。
-///
-/// 上游那个 `confirm` 布尔本来就是「干跑还是真写」的开关，所以闸门直接落在它上面：
-/// dry_run 时发 confirm:false 拿预览，确认后才发 confirm:true。
-pub async fn import(
-    State(state): State<AppState>,
-    AuthToken(token): AuthToken,
-    Path(id): Path<String>,
-    gate: Gate,
-    ValidJson(params): ValidJson<BillsImportParams>,
-) -> Result<Json<Value>, Problem> {
-    let at = |problem: Problem| problem.at("bills", "import");
+    let at = |problem: Problem| problem.at("bills", "review");
     let id = check_id(&id).map_err(at)?;
-    gate.check(Risk::Confirm, "bills.import").map_err(at)?;
-
-    let all = params.all.unwrap_or(false);
-    let rows = params.row_ids.unwrap_or_default();
-    // 两个都给、两个都不给，都说不清要导入什么。
-    let picking_rows = !rows.is_empty();
-    if all == picking_rows {
-        return Err(at(Problem::invalid_params(
-            "要么 all=true 导入整份，要么给 row_ids 挑几行，二选一。",
-        )));
-    }
-
-    let mut body = json!({ "confirm": !gate.previewing() });
-    if all {
-        body["all"] = Value::Bool(true);
-    } else {
-        body["row_ids"] = json!(rows);
-    }
-    if params.include_payload.unwrap_or(false) {
-        body["include_payload"] = Value::Bool(true);
-    }
-
-    state
-        .firefly
-        .send_json(&token, Method::POST, &format!("{TASKS}/{id}/import"), &body)
+    let (_, mut value) = crate::routes::server::request_json(
+        &state,
+        &identity.0,
+        Method::GET,
+        &format!("/v1/bills/{id}/review"),
+        &Value::Null,
+    )
+    .await
+    .map_err(at)?;
+    crate::existing_transactions::enrich_review(&state.firefly, &token, &mut value)
         .await
-        .map(|value| Json(mark_preview(value, gate)))
-        .map_err(at)
+        .map_err(at)?;
+    Ok(Json(value))
 }
 
-/// 提交账单密码。密码只经手不落日志，也不回显在错误里。
+async fn get_document(
+    state: &AppState,
+    identity: &AuthIdentity,
+    raw_id: &str,
+    suffix: &str,
+    verb: &'static str,
+) -> Result<Json<Value>, Problem> {
+    let at = |problem: Problem| problem.at("bills", verb);
+    let id = check_id(raw_id).map_err(at)?;
+    crate::routes::server::request_json(
+        state,
+        &identity.0,
+        Method::GET,
+        &format!("/v1/bills/{id}{suffix}"),
+        &Value::Null,
+    )
+    .await
+    .map(|(_, value)| Json(value))
+    .map_err(at)
+}
+
+/// 提交账单密码。干跑不会把密码传给 Server。
 pub async fn unlock(
     State(state): State<AppState>,
-    AuthToken(token): AuthToken,
+    Extension(identity): Extension<AuthIdentity>,
     Path(id): Path<String>,
     gate: Gate,
     ValidJson(params): ValidJson<BillsUnlockParams>,
@@ -125,12 +109,9 @@ pub async fn unlock(
     let at = |problem: Problem| problem.at("bills", "unlock");
     let id = check_id(&id).map_err(at)?;
     gate.check(Risk::Confirm, "bills.unlock").map_err(at)?;
-
     if params.secret.is_empty() {
         return Err(at(Problem::invalid_params("密码不能是空的。")));
     }
-
-    // 干跑只回「这条命令长什么样」，不把密码递给上游。
     if gate.previewing() {
         return Ok(Json(json!({
             "dry_run": true,
@@ -138,42 +119,39 @@ pub async fn unlock(
             "message": "会把密码提交给这份账单，然后重新解析。确认后再执行一次。",
         })));
     }
-
-    state
-        .firefly
-        .send_json(
-            &token,
-            Method::POST,
-            &format!("{TASKS}/{id}/secret"),
-            &json!({ "value": params.secret }),
-        )
-        .await
-        .map(Json)
-        .map_err(at)
+    crate::routes::server::request_json(
+        &state,
+        &identity.0,
+        Method::POST,
+        &format!("/v1/bills/{id}/unlock"),
+        &json!({ "secret": params.secret }),
+    )
+    .await
+    .map(|(_, value)| Json(value))
+    .map_err(at)
 }
 
 pub async fn ignore(
     State(state): State<AppState>,
-    AuthToken(token): AuthToken,
+    Extension(identity): Extension<AuthIdentity>,
     Path(id): Path<String>,
     gate: Gate,
 ) -> Result<Json<Value>, Problem> {
-    act(state, token, &id, gate, Risk::Confirm, "ignore").await
+    act(state, identity, &id, gate, Risk::Confirm, "ignore").await
 }
 
 pub async fn retry(
     State(state): State<AppState>,
-    AuthToken(token): AuthToken,
+    Extension(identity): Extension<AuthIdentity>,
     Path(id): Path<String>,
     gate: Gate,
 ) -> Result<Json<Value>, Problem> {
-    act(state, token, &id, gate, Risk::Draft, "retry").await
+    act(state, identity, &id, gate, Risk::Draft, "retry").await
 }
 
-/// ignore / retry 形状一样：认一个 id，没有请求体。
 async fn act(
     state: AppState,
-    token: String,
+    identity: AuthIdentity,
     raw_id: &str,
     gate: Gate,
     risk: Risk,
@@ -182,164 +160,112 @@ async fn act(
     let at = |problem: Problem| problem.at("bills", verb);
     let id = check_id(raw_id).map_err(at)?;
     gate.check(risk, &format!("bills.{verb}")).map_err(at)?;
-
     if gate.previewing() {
         return Ok(Json(json!({
             "dry_run": true,
             "would": { "capability": format!("bills.{verb}"), "bill_task_id": id },
         })));
     }
-
-    state
-        .firefly
-        .send_json(
-            &token,
-            Method::POST,
-            &format!("{TASKS}/{id}/{verb}"),
-            &json!({}),
-        )
-        .await
-        .map(Json)
-        .map_err(at)
+    crate::routes::server::request_json(
+        &state,
+        &identity.0,
+        Method::POST,
+        &format!("/v1/bills/{id}/{verb}"),
+        &json!({}),
+    )
+    .await
+    .map(|(_, value)| Json(value))
+    .map_err(at)
 }
 
 pub async fn sync(
     State(state): State<AppState>,
-    Extension(AuthIdentity(identity)): Extension<AuthIdentity>,
+    Extension(identity): Extension<AuthIdentity>,
     gate: Gate,
     ValidJson(params): ValidJson<BillsBatchParams>,
 ) -> Result<Response, Problem> {
     let at = |problem: Problem| problem.at("bills", "sync");
     gate.check(Risk::Draft, "bills.sync").map_err(at)?;
     check_limit(params.limit).map_err(at)?;
-
+    if let Some(timeout) = params.timeout_seconds
+        && !(1..=600).contains(&timeout)
+    {
+        return Err(at(Problem::invalid_params(format!(
+            "timeout_seconds 只能是 1 到 600，收到的是 {timeout}。"
+        ))));
+    }
     if gate.previewing() {
         return Ok((
             StatusCode::OK,
             Json(json!({
                 "dry_run": true,
-                "would": { "capability": "bills.sync", "limit": params.limit },
+                "would": { "capability": "bills.sync", "limit": params.limit,
+                            "wait": params.wait, "timeout_seconds": params.timeout_seconds },
             })),
         )
             .into_response());
     }
-
-    let body = match params.limit {
-        Some(limit) => json!({ "limit": limit }),
-        None => json!({}),
-    };
-    crate::routes::server::send_json(&state, &identity, Method::POST, "/v1/bills/sync", &body)
-        .await
-        .map_err(at)
-}
-
-pub async fn process(
-    State(state): State<AppState>,
-    AuthToken(token): AuthToken,
-    gate: Gate,
-    ValidJson(params): ValidJson<BillsBatchParams>,
-) -> Result<(StatusCode, Json<Value>), Problem> {
-    let at = |problem: Problem| problem.at("bills", "process");
-    gate.check(Risk::Draft, "bills.process").map_err(at)?;
-    check_limit(params.limit).map_err(at)?;
-
-    if gate.previewing() {
-        return Ok((
-            StatusCode::OK,
-            Json(json!({
-                "dry_run": true,
-                "would": { "capability": "bills.process", "limit": params.limit },
-            })),
-        ));
+    let body = params
+        .limit
+        .map_or_else(|| json!({}), |limit| json!({ "limit": limit }));
+    let response = crate::routes::server::request_json(
+        &state,
+        &identity.0,
+        Method::POST,
+        "/v1/bills/sync",
+        &body,
+    )
+    .await
+    .map_err(at)?;
+    if !params.wait.unwrap_or(false) {
+        return Ok((response.0, Json(response.1)).into_response());
     }
-
-    let body = match params.limit {
-        Some(limit) => json!({ "limit": limit }),
-        None => json!({}),
-    };
-
-    state
-        .firefly
-        .send_json_with_status(&token, Method::POST, &format!("{INBOX}/process"), &body)
+    let timeout_seconds = params.timeout_seconds.unwrap_or(120);
+    let initial = response.1;
+    let run_id = initial
+        .pointer("/data/attributes/run_id")
+        .and_then(Value::as_str)
+        .or_else(|| initial.pointer("/data/id").and_then(Value::as_str))
+        .map(str::to_owned)
+        .ok_or_else(|| at(Problem::internal("同步服务没有返回 run_id，无法等待。")))?;
+    let deadline =
+        tokio::time::Instant::now() + std::time::Duration::from_secs(u64::from(timeout_seconds));
+    loop {
+        let (_, latest) = crate::routes::server::request_json(
+            &state,
+            &identity.0,
+            Method::GET,
+            &format!("/v1/mail-sync-runs/{run_id}"),
+            &Value::Null,
+        )
         .await
-        .map(|(status, value)| (status, Json(value)))
-        .map_err(at)
-}
-
-/// 干跑的响应打上记号，免得调用方把预览当成已执行。
-fn mark_preview(mut value: Value, gate: Gate) -> Value {
-    if !gate.previewing() {
-        return value;
-    }
-    match value.as_object_mut() {
-        Some(object) => {
-            object.insert("dry_run".to_owned(), Value::Bool(true));
-            value
+        .map_err(at)?;
+        let status = latest
+            .pointer("/data/attributes/status")
+            .and_then(Value::as_str)
+            .or_else(|| latest.pointer("/data/status").and_then(Value::as_str))
+            .unwrap_or("queued");
+        if matches!(status, "succeeded" | "failed" | "cancelled") {
+            if status != "succeeded" {
+                return Err(at(Problem::new(
+                    StatusCode::BAD_GATEWAY,
+                    "SyncFailed",
+                    "账单同步失败",
+                )
+                .detail("同步运行已结束但没有成功。")
+                .upstream(latest)));
+            }
+            return Ok((StatusCode::OK, Json(latest)).into_response());
         }
-        None => json!({ "dry_run": true, "data": value }),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn preview_is_marked_on_object_responses() {
-        let marked = mark_preview(
-            json!({ "rows": [] }),
-            Gate {
-                dry_run: true,
-                confirm: false,
-            },
-        );
-        assert_eq!(marked["dry_run"], json!(true));
-        assert!(marked["rows"].is_array());
-    }
-
-    #[test]
-    fn real_runs_are_untouched() {
-        let value = mark_preview(
-            json!({ "rows": [] }),
-            Gate {
-                dry_run: false,
-                confirm: true,
-            },
-        );
-        assert!(value.get("dry_run").is_none());
-    }
-
-    /// confirm 档没确认就该退 409，且是 ConfirmationRequired。
-    #[test]
-    fn confirm_capabilities_need_confirmation() {
-        let bare = Gate::default();
-        let problem = bare.check(Risk::Confirm, "bills.import").unwrap_err();
-        assert_eq!(problem.reason, "ConfirmationRequired");
-        assert_eq!(problem.status, axum::http::StatusCode::CONFLICT);
-
-        // 预览和确认都能过闸。
-        assert!(
-            Gate {
-                dry_run: true,
-                confirm: false
-            }
-            .check(Risk::Confirm, "bills.import")
-            .is_ok()
-        );
-        assert!(
-            Gate {
-                dry_run: false,
-                confirm: true
-            }
-            .check(Risk::Confirm, "bills.import")
-            .is_ok()
-        );
-    }
-
-    /// draft 档不需要确认参数，服务端直接放行（CLI 那边仍要 --yes）。
-    #[test]
-    fn draft_capabilities_pass_without_confirmation() {
-        assert!(Gate::default().check(Risk::Draft, "rows.update").is_ok());
-        assert!(Gate::default().check(Risk::Read, "bills.list").is_ok());
+        if tokio::time::Instant::now() >= deadline {
+            return Err(at(Problem::new(
+                StatusCode::GATEWAY_TIMEOUT,
+                "SyncTimeout",
+                "等待账单同步超时",
+            )
+            .detail(format!("已等待 {timeout_seconds} 秒；同步仍在后台运行。"))
+            .upstream(latest)));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
 }

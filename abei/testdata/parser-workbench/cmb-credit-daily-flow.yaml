@@ -1,0 +1,44 @@
+schema_version: 1
+channel_key: cmb
+statement_kind: credit_card_daily
+nodes:
+  - id: select-html
+    type: select_html_body
+  - id: transactions
+    type: html_elements
+    row_selector: '#fixBand3 > table > tbody > tr[style*="height:61.6px"]'
+    fields:
+      time: 'span#fixBand5 font'
+      amount: 'span#fixBand12 font[style*="font-size:16px"]'
+      detail: 'span#fixBand12 font[style*="font-size:12px"]'
+    document_fields:
+      statement_date: '#loopHeader1 font[style*="font-size:19px"]'
+  - id: fields
+    type: transform_script
+    source: |
+      fn transform(row, context) {
+          let date = row["statement_date"].sub_string(0, 10);
+          date.replace("/", "-");
+          let amount_parts = row["amount"].split(" ");
+          let detail = row["detail"];
+          let kind = detail.sub_string(7, 2);
+          let signed = money(amount_parts[1]);
+          if kind == "消费" || kind == "取现" {
+              signed = "-" + signed;
+          }
+          let card = detail.sub_string(2, 4);
+          let counterparty = detail.sub_string(10);
+          emit(#{
+              occurred_at: date + " " + row["time"],
+              signed_amount: signed,
+              currency_code: amount_parts[0],
+              description: counterparty,
+              counterparty: counterparty,
+              account_hint: "招商银行信用卡(" + card + ")",
+              payment_method: "招商银行信用卡(" + card + ")",
+              provider_category: kind
+          });
+      }
+  - id: normalize
+    type: normalize_bill_rows
+    default_currency: CNY

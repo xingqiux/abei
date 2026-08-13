@@ -1,0 +1,30 @@
+From: cmb-notification@example.com
+To: user@example.com
+Subject: CMB daily statement parser sample
+Date: Tue, 11 Aug 2026 08:30:00 +0800
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<!doctype html>
+<html lang="zh-CN">
+  <body>
+    <div id="loopHeader1">
+      <font style="font-size:19px">2026/08/11 每日账单</font>
+    </div>
+    <div id="fixBand3">
+      <table>
+        <tbody>
+          <tr style="height:61.6px">
+            <td>
+              <span id="fixBand5"><font>08:30:00</font></span>
+              <span id="fixBand12">
+                <font style="font-size:16px">CNY 12.34</font>
+                <font style="font-size:12px">卡号1234尾消费于测试商户</font>
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </body>
+</html>

@@ -107,7 +107,7 @@ impl CliError {
             other => serde_json::json!({
                 "title": "命令没执行成功",
                 "status": other.exit().code(),
-                "reason": other.reason(),
+                "reason": other.machine_reason(),
                 "detail": other.human(),
             }),
         };
@@ -117,7 +117,7 @@ impl CliError {
         } else {
             body = serde_json::json!({
                 "title": "命令没执行成功",
-                "reason": self.reason(),
+                "reason": self.machine_reason(),
                 "detail": self.human(),
                 "exit": self.exit().code(),
             });
@@ -125,13 +125,14 @@ impl CliError {
         body
     }
 
-    fn reason(&self) -> &'static str {
+    /// 稳定、无用户输入的错误分类，供诊断快照和机器输出使用。
+    pub fn machine_reason(&self) -> &str {
         match self {
             Self::Usage(_) => "InvalidUsage",
             Self::Auth(_) => "Unauthenticated",
             Self::Unreachable(_) => "Unreachable",
             Self::NeedsConfirmation { .. } => "ConfirmationRequired",
-            Self::Server(_) => "ServerProblem",
+            Self::Server(problem) => &problem.reason,
             Self::Other(_) => "Failure",
         }
     }

@@ -50,6 +50,9 @@ pub fn explain(io: &mut Io, resource: &str) -> Result<(), CliError> {
         line(io, &format!("  {}", capability.description))?;
 
         for (field, schema, required) in fields_of(capability) {
+            if capability.fixed_param_value(&field).is_some() {
+                continue;
+            }
             let kind = type_name(&schema);
             let note = schema
                 .get("description")
@@ -64,7 +67,7 @@ pub fn explain(io: &mut Io, resource: &str) -> Result<(), CliError> {
                 "可选"
             };
             // 位置参数（abei tx show 42、abei tx search 星巴克）别写成 --id / --query 误导人。
-            let positional = (field == "id" && crate::tree::id_is_positional(capability))
+            let positional = capability.path_param() == Some(field.as_str())
                 || capability.positional().as_deref() == Some(field.as_str());
             let name = if positional {
                 format!("<{}>", field.to_uppercase())
@@ -75,6 +78,11 @@ pub fn explain(io: &mut Io, resource: &str) -> Result<(), CliError> {
             let note = match item_keys(&schema) {
                 keys if keys.is_empty() => note.to_owned(),
                 keys => format!("{note}　每项写成 键=值,键=值——{}", keys.join("、")),
+            };
+            let note = if capability.file_inputs().contains(&field) {
+                format!("{note}　支持 @文件、-（标准输入）或正文")
+            } else {
+                note
             };
             line(io, &format!("    {name:<22} {kind}　{mark}　{note}"))?;
         }
@@ -204,6 +212,12 @@ pub fn guide(io: &mut Io) -> Result<(), CliError> {
          - `--json`（不带值）：列出这条命令有哪些字段可选\n\
          - `--jq '<表达式>'`：对原始响应体跑 jq，内置实现不用装 jq\n\n\
          字段名是契约，改名算破坏性变更；表格排版不是。\n\n",
+    );
+
+    out.push_str(
+        "## 长文本输入\n\n\
+         schema 标为文件输入的文本参数支持 `@路径` 读取 UTF-8 文件、`-` 读取标准输入，\
+         也可以直接传字面量；Markdown 原样发送，不会 trim。\n\n",
     );
 
     out.push_str(
@@ -359,5 +373,12 @@ mod tests {
             .to_owned();
         assert!(line.contains("人填"), "{line}");
         assert!(!line.contains("必填"), "{line}");
+    }
+
+    #[test]
+    fn explain_hides_fixed_params_that_are_not_cli_flags() {
+        let (mut io, out) = capture();
+        explain(&mut io, "profile").unwrap();
+        assert!(!out.text().contains("--source"), "{}", out.text());
     }
 }

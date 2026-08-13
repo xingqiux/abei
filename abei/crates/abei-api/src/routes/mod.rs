@@ -1,4 +1,5 @@
 pub mod accounts;
+pub mod bill_imports;
 pub mod bills;
 pub mod catalog;
 pub mod proxy;
@@ -7,10 +8,11 @@ pub mod server;
 pub mod transactions;
 
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use axum::http::Uri;
 use serde_json::{Value, json};
 
+use crate::auth::AuthIdentity;
 use crate::problem::Problem;
 use crate::state::AppState;
 
@@ -27,6 +29,18 @@ pub async fn health(State(state): State<AppState>) -> Json<Value> {
 /// 免鉴权：OpenAPI 是导出产物，给 web 端生成类型用，不该要令牌。
 pub async fn openapi_json() -> Json<Value> {
     Json(crate::openapi::document())
+}
+
+/// 当前令牌对应的可信身份，供 Web 做导航与 owner 路由守卫。
+pub async fn session(Extension(identity): Extension<AuthIdentity>) -> Json<Value> {
+    Json(json!({
+        "data": {
+            "user_id": identity.0.id,
+            "actor": identity.0.actor,
+            "role": identity.0.role,
+            "is_owner": identity.0.role == "owner",
+        }
+    }))
 }
 
 pub async fn not_found(uri: Uri) -> Problem {

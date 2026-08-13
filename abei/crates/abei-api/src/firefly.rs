@@ -39,6 +39,13 @@ pub struct VerifiedUser {
     pub role: String,
 }
 
+#[derive(Debug)]
+pub enum FireflyWriteError {
+    Transport(String),
+    Http { status: StatusCode, body: Value },
+    InvalidResponse(String),
+}
+
 impl Firefly {
     pub fn new(base_url: &str) -> Result<Self, reqwest::Error> {
         let http = reqwest::Client::builder().timeout(TIMEOUT).build()?;
@@ -194,6 +201,44 @@ impl Firefly {
                 Problem::upstream_error(other, format!("Firefly 返回 {other}。")).upstream(upstream)
             }
         })
+    }
+
+    /// 财务导入专用调用。调用方必须区分 HTTP 拒绝与“请求可能已经送达”的网络错误，
+    /// 所以这里不能像普通代理那样把两者都折叠成 Problem。
+    pub async fn send_json_raw(
+        &self,
+        token: &str,
+        method: Method,
+        path: &str,
+        body: &Value,
+    ) -> Result<(StatusCode, Value), FireflyWriteError> {
+        let response = self
+            .http
+            .request(method, self.url(path))
+            .bearer_auth(token)
+            .header("Accept", "application/json")
+            .json(body)
+            .send()
+            .await
+            .map_err(|error| FireflyWriteError::Transport(error.to_string()))?;
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        let value = if text.trim().is_empty() {
+            Value::Null
+        } else if status.is_success() {
+            serde_json::from_str(&text)
+                .map_err(|error| FireflyWriteError::InvalidResponse(error.to_string()))?
+        } else {
+            serde_json::from_str(&text).unwrap_or(Value::String(text))
+        };
+        if status.is_success() {
+            Ok((status, value))
+        } else {
+            Err(FireflyWriteError::Http {
+                status,
+                body: value,
+            })
+        }
     }
 
     /// 透传逃生舱：原样转发给 Firefly，响应流式回传。

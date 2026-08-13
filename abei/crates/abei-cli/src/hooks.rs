@@ -87,7 +87,11 @@ impl Hooks {
             return Ok(());
         }
 
-        let rows = normalize::rows_for(capability_id, body);
+        let rows = if capability_id == "bills.unlock" && matches!(self.format, Format::Human) {
+            normalize::unlock_summary_rows(body)
+        } else {
+            normalize::rows_for(capability_id, body)
+        };
 
         match &self.format {
             Format::FieldList => {
@@ -211,6 +215,43 @@ mod tests {
     }
 
     #[test]
+    fn unlock_is_compact_for_humans_but_keeps_details_for_machine_output() {
+        let body = json!({ "data": { "id": "52", "attributes": {
+            "source": "cmb", "status": "needs_secret", "subject": "招商银行流水",
+            "summary": "等待密码", "current_secret_challenge_id": "91",
+            "error_code": "bad_password", "error_message": "密码不正确",
+            "created_at": "2026-08-11T00:00:00Z",
+            "row_counts": { "pending": 12, "imported": 3 }
+        } } });
+        let (mut io, out, _) = capture();
+        Hooks::default()
+            .emit(&mut io, "bills.unlock", &body)
+            .unwrap();
+        let text = out.text();
+        assert_eq!(
+            text.lines().next().unwrap(),
+            "id\tsource\tstatus\tpending\timported\tmessage"
+        );
+        assert!(!text.contains("current_secret_challenge_id"));
+        assert!(!text.contains("created_at"));
+        assert!(text.contains("密码不正确"));
+
+        let (mut io, out, _) = capture();
+        Hooks {
+            format: Format::Json(vec![
+                "current_secret_challenge_id".to_owned(),
+                "error_code".to_owned(),
+            ]),
+            ..Default::default()
+        }
+        .emit(&mut io, "bills.unlock", &body)
+        .unwrap();
+        let parsed: Value = serde_json::from_str(&out.text()).unwrap();
+        assert_eq!(parsed[0]["current_secret_challenge_id"], "91");
+        assert_eq!(parsed[0]["error_code"], "bad_password");
+    }
+
+    #[test]
     fn unknown_json_fields_are_a_usage_error_that_lists_the_real_ones() {
         let (mut io, _, _) = capture();
         let hooks = Hooks {
@@ -280,7 +321,14 @@ mod tests {
             dry_run: true,
             ..Default::default()
         };
-        let preview = json!({ "dry_run": true, "data": { "would_create": 2 } });
+        let preview = json!({
+            "dry_run": true,
+            "summary": { "would_import": 1 },
+            "rows": [{
+                "row_id": "7", "status": "pending", "action": "would_import",
+                "amount": "45.00", "description": "测试流水"
+            }]
+        });
         hooks.emit(&mut io, "bills.import", &preview).unwrap();
         assert!(err.text().contains("这是预览"), "{}", err.text());
         assert!(!out.text().is_empty(), "数据还是要照常出");
@@ -290,7 +338,12 @@ mod tests {
             .emit(
                 &mut io,
                 "bills.import",
-                &json!({ "data": { "created": 2 } }),
+                &json!({
+                    "summary": { "imported": 1 },
+                    "rows": [{
+                        "row_id": "7", "status": "imported", "action": "imported"
+                    }]
+                }),
             )
             .unwrap();
         assert!(err.text().is_empty(), "真跑不该有预览提示：{}", err.text());

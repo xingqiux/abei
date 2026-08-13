@@ -9,6 +9,7 @@
 use abei_core::{Capability, Verb, catalog};
 use clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
 use serde_json::{Map, Value};
+use std::io::{BufRead, IsTerminal};
 
 use crate::error::CliError;
 
@@ -175,12 +176,6 @@ fn required(capability: &Capability) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// 路径里带 {id} 的能力，把 id 做成位置参数：`abei tx show 42` 比
-/// `abei tx show --id 42` 顺口。
-pub fn id_is_positional(capability: &Capability) -> bool {
-    capability.route_path().contains("{id}")
-}
-
 /// 有 start 和 end 的能力接受 hledger 式查询串。这是看 schema 决定的，
 /// 不是按资源名写死的，将来别的资源有同样字段也自动获得。
 fn takes_query(capability: &Capability) -> bool {
@@ -196,6 +191,8 @@ fn leaf(capability: &Capability) -> Command {
 
     let required_fields = required(capability);
     let human_only = capability.human_only();
+    let file_inputs = capability.file_inputs();
+    let json_inputs = capability.json_inputs();
 
     for (field, schema) in properties(capability) {
         if capability.fixed_param_value(&field).is_some() {
@@ -207,16 +204,16 @@ fn leaf(capability: &Capability) -> Command {
             .unwrap_or("")
             .to_owned();
 
-        if field == "id" && id_is_positional(capability) {
+        if capability.path_param() == Some(field.as_str()) {
             command = command.arg(
-                Arg::new("id")
+                Arg::new(field.clone())
                     .help(if help.is_empty() {
-                        "对象 id".to_owned()
+                        format!("对象 {field}")
                     } else {
                         help
                     })
                     .required(true)
-                    .value_name("ID"),
+                    .value_name(field.to_uppercase()),
             );
             continue;
         }
@@ -248,8 +245,12 @@ fn leaf(capability: &Capability) -> Command {
             )
         };
         // 只能人填的值提醒一句怎么不落进 shell 历史。
-        let help = if human_only.contains(&field) {
+        let help = if json_inputs.contains(&field) {
+            format!("{help}　填写 JSON，支持 @文件 或 -（标准输入）")
+        } else if human_only.contains(&field) {
             format!("{help}　由人现填，写 - 从标准输入读")
+        } else if file_inputs.contains(&field) {
+            format!("{help}　支持 @文件、-（标准输入）或直接写正文")
         } else {
             help
         };
@@ -363,14 +364,16 @@ pub fn params_from(
 ) -> Result<Map<String, Value>, CliError> {
     let mut params = Map::new();
     let human_only = capability.human_only();
+    let file_inputs = capability.file_inputs();
+    let json_inputs = capability.json_inputs();
 
     for (field, schema) in properties(capability) {
         if capability.fixed_param_value(&field).is_some() {
             continue;
         }
-        if field == "id" && id_is_positional(capability) {
-            if let Some(id) = matches.get_one::<String>("id") {
-                params.insert("id".to_owned(), Value::String(id.clone()));
+        if capability.path_param() == Some(field.as_str()) {
+            if let Some(value) = matches.get_one::<String>(&field) {
+                params.insert(field, Value::String(value.clone()));
             }
             continue;
         }
@@ -401,10 +404,22 @@ pub fn params_from(
                     // 只能人填的值（密码、验证码）支持 `-` 从标准输入读，别落进 shell 历史。
                     let value = if human_only.contains(&field) {
                         read_secret(&field, text)?
+                    } else if file_inputs.contains(&field) {
+                        read_text_input(&field, text)?
                     } else {
                         text.clone()
                     };
-                    params.insert(field, Value::String(value));
+                    if json_inputs.contains(&field) {
+                        let parsed = serde_json::from_str(&value).map_err(|error| {
+                            CliError::Usage(format!(
+                                "--{} 不是有效 JSON：{error}",
+                                flag_name(&field)
+                            ))
+                        })?;
+                        params.insert(field, parsed);
+                    } else {
+                        params.insert(field, Value::String(value));
+                    }
                 }
             }
         }
@@ -417,16 +432,42 @@ pub fn params_from(
     Ok(params)
 }
 
+fn read_text_input(field: &str, raw: &str) -> Result<String, CliError> {
+    if raw == "-" {
+        let mut buffer = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut buffer).map_err(|error| {
+            CliError::Usage(format!("从标准输入读 {} 失败：{error}", flag_name(field)))
+        })?;
+        return Ok(buffer);
+    }
+    if let Some(path) = raw.strip_prefix('@') {
+        if path.is_empty() {
+            return Err(CliError::Usage(format!(
+                "{} 的 @ 后面要写文件路径。",
+                flag_name(field)
+            )));
+        }
+        return std::fs::read_to_string(path).map_err(|error| {
+            CliError::Usage(format!(
+                "读取 {} 的文件 {path} 失败：{error}",
+                flag_name(field)
+            ))
+        });
+    }
+    Ok(raw.to_owned())
+}
+
 /// `--secret -` 从标准输入读，跟 `--token -` 一个规矩。
 fn read_secret(field: &str, raw: &str) -> Result<String, CliError> {
     if raw != "-" {
         return Ok(raw.to_owned());
     }
-    let mut buffer = String::new();
-    std::io::Read::read_to_string(&mut std::io::stdin(), &mut buffer).map_err(|error| {
-        CliError::Usage(format!("从标准输入读 {} 失败：{error}", flag_name(field)))
-    })?;
-    let value = buffer.trim().to_owned();
+    let value = if std::io::stdin().is_terminal() {
+        rpassword::prompt_password(format!("请输入 {}（输入不回显）：", flag_name(field)))
+            .map_err(|error| CliError::Usage(format!("读取 {} 失败：{error}", flag_name(field))))?
+    } else {
+        read_secret_line(&mut std::io::BufReader::new(std::io::stdin()), field)?
+    };
     if value.is_empty() {
         return Err(CliError::Usage(format!(
             "标准输入里没有 {}。",
@@ -434,6 +475,20 @@ fn read_secret(field: &str, raw: &str) -> Result<String, CliError> {
         )));
     }
     Ok(value)
+}
+
+fn read_secret_line<R: BufRead>(reader: &mut R, field: &str) -> Result<String, CliError> {
+    let mut buffer = String::new();
+    reader.read_line(&mut buffer).map_err(|error| {
+        CliError::Usage(format!("从标准输入读 {} 失败：{error}", flag_name(field)))
+    })?;
+    if buffer.is_empty() {
+        return Err(CliError::Usage(format!(
+            "标准输入里没有 {}。",
+            flag_name(field)
+        )));
+    }
+    Ok(buffer.trim_end_matches(['\r', '\n']).to_owned())
 }
 
 /// 取出位置参数里的查询串。没有时间范围的能力压根没这个位置参数，所以要容错取。
@@ -464,6 +519,39 @@ mod tests {
         Command::new("abei")
             .no_binary_name(true)
             .subcommands(resource_commands())
+    }
+
+    #[test]
+    fn file_input_preserves_markdown_bytes() {
+        let path = std::env::temp_dir().join(format!(
+            "abei-profile-doc-{}-{}.md",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let markdown = "# 规则\n\n- 原样保留\n";
+        std::fs::write(&path, markdown).unwrap();
+        let value = read_text_input("content_md", &format!("@{}", path.display())).unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(value, markdown);
+        assert_eq!(read_text_input("content_md", "literal").unwrap(), "literal");
+    }
+
+    #[test]
+    fn json_file_inputs_become_structured_request_values() {
+        let matches = root()
+            .try_get_matches_from([
+                "mail-rules",
+                "test",
+                "--conditions",
+                r#"{"type":"text","field":"from","operator":"contains","value":"bank"}"#,
+            ])
+            .unwrap();
+        let (_, sub) = matches.subcommand().unwrap();
+        let (_, leaf) = sub.subcommand().unwrap();
+        let capability = catalog().get("mail-rules", Verb::Test).unwrap();
+        let params = params_from(capability, leaf).unwrap();
+        assert_eq!(params["conditions"]["field"], "from");
+        assert!(params["conditions"].is_object());
     }
 
     #[test]
@@ -625,13 +713,18 @@ mod tests {
     fn fixed_params_are_hidden_and_injected() {
         let matches = root()
             .try_get_matches_from([
-                "feedback", "create", "--title", "标题", "--body", "正文", "--kind", "idea",
-                "--by", "codex",
+                "profile-doc",
+                "create",
+                "personal-rules",
+                "--title",
+                "个人规则",
+                "--content-md",
+                "# 规则",
             ])
             .unwrap();
         let (_, sub) = matches.subcommand().unwrap();
         let (_, leaf) = sub.subcommand().unwrap();
-        let capability = catalog().get("feedback", Verb::Create).unwrap();
+        let capability = catalog().get("profile-doc", Verb::Create).unwrap();
         assert!(leaf.try_get_one::<String>("source").is_err());
         let params = params_from(capability, leaf).unwrap();
         assert_eq!(params["source"], "cli");
@@ -830,6 +923,12 @@ mod tests {
         assert_eq!(read_secret("secret", "hunter2").unwrap(), "hunter2");
         // 空白不当成 `-`，免得把不小心敲的空格当命令用。
         assert_eq!(read_secret("secret", " - ").unwrap(), " - ");
+    }
+
+    #[test]
+    fn secret_stdin_reads_one_line_without_waiting_for_eof() {
+        let mut reader = std::io::Cursor::new(b"code-123\r\ntrailing".to_vec());
+        assert_eq!(read_secret_line(&mut reader, "secret").unwrap(), "code-123");
     }
 
     #[test]

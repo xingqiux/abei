@@ -3,6 +3,7 @@ pub mod client;
 pub mod clock;
 pub mod commands;
 pub mod config;
+pub mod diagnostics;
 pub mod error;
 pub mod exit;
 pub mod hooks;

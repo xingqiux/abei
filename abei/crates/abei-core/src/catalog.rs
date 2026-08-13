@@ -5,10 +5,14 @@ use serde_json::json;
 
 use crate::capability::{Backend, Capability, CapabilityView, Risk, Verb};
 use crate::params::{
-    AccountsListParams, BillsBatchParams, BillsImportParams, BillsListParams, BillsUnlockParams,
-    FeedbackCreateParams, FeedbackDeleteParams, FeedbackListParams, FeedbackUpdateParams, IdParams,
-    RowsSplitParams, RowsUpdateParams, TransactionsListParams, TransactionsSearchParams,
-    TransactionsShowParams, TransactionsSummaryParams,
+    AccountsListParams, BillAccountMappingUpdateParams, BillAccountMappingsListParams,
+    BillsBatchParams, BillsImportParams, BillsListParams, BillsUnlockParams, FeedbackConfirmParams,
+    FeedbackCreateParams, FeedbackListParams, FeedbackReplyParams, IdParams,
+    MailMessagesListParams, MailRuleTestParams, MailSyncRunsListParams, MailboxRescanParams,
+    ProfileDocCreateParams, ProfileDocDeleteParams, ProfileDocGetParams, ProfileDocListParams,
+    ProfileDocUpdateParams, RowsBatchUpdateParams, RowsBulkParams, RowsSplitParams,
+    RowsUpdateParams, TransactionsListParams, TransactionsSearchParams, TransactionsShowParams,
+    TransactionsSummaryParams,
 };
 
 /// 一个资源。别名用于 CLI 的宽容解析和 did-you-mean。
@@ -141,6 +145,42 @@ fn build() -> Catalog {
             description: "把使用中遇到的问题和想法交给产品团队。",
             aliases: &["fb"],
         },
+        ResourceDef {
+            name: "profile-doc",
+            label: "用户资料",
+            description: "当前用户保存的 Markdown 资料与规则文档。",
+            aliases: &["profile"],
+        },
+        ResourceDef {
+            name: "mail-messages",
+            label: "邮件",
+            description: "邮件工作台中的邮件索引、归类和缓存状态。",
+            aliases: &["mail", "mails", "emails"],
+        },
+        ResourceDef {
+            name: "mail-rules",
+            label: "邮件规则",
+            description: "筛选邮件并绑定渠道和解析流程的版本化规则。",
+            aliases: &["mail-rule", "rules"],
+        },
+        ResourceDef {
+            name: "mailboxes",
+            label: "邮箱连接",
+            description: "当前用户的邮箱连接、同步和历史扫描。",
+            aliases: &["mailbox"],
+        },
+        ResourceDef {
+            name: "mail-sync-runs",
+            label: "同步运行",
+            description: "邮箱同步任务的状态、进度和结果。",
+            aliases: &["sync-runs", "sync"],
+        },
+        ResourceDef {
+            name: "bill-account-mappings",
+            label: "账单账户映射",
+            description: "账单来源账户名称到 Firefly 账户的映射。",
+            aliases: &["account-mappings", "mapping", "mappings"],
+        },
     ];
 
     let capabilities = vec![
@@ -216,7 +256,7 @@ fn build() -> Catalog {
             .params::<AccountsListParams>(),
         Capability::define("bills", Verb::List)
             .risk(Risk::Read)
-            .backend(Backend::Firefly)
+            .backend(Backend::Server)
             .label("查看账单任务")
             .description("列出收件箱里的账单任务，可按渠道和状态筛选。")
             .example(
@@ -232,14 +272,14 @@ fn build() -> Catalog {
             .params::<BillsListParams>(),
         Capability::define("bills", Verb::Show)
             .risk(Risk::Read)
-            .backend(Backend::Firefly)
+            .backend(Backend::Server)
             .label("查看单份账单")
             .description("按 id 读一份账单任务的状态、来源和处理进度。")
             .example("看第 42 号账单", "abei bills show 42", json!({ "id": "42" }))
             .params::<IdParams>(),
         Capability::define("bills", Verb::Review)
             .risk(Risk::Read)
-            .backend(Backend::Firefly)
+            .backend(Backend::Server)
             .label("审阅账单")
             .description(
                 "读一份账单已分好桶、脱过敏的审阅视图。改流水之前先看这个，别去逐行拉原始数据。",
@@ -252,7 +292,7 @@ fn build() -> Catalog {
             .params::<IdParams>(),
         Capability::define("bills", Verb::Import)
             .risk(Risk::Confirm)
-            .backend(Backend::Firefly)
+            .backend(Backend::Abei)
             .label("导入账单")
             .description(
                 "把选中的流水写进账本。这一步会真的产生交易，必须人工确认；\
@@ -271,7 +311,7 @@ fn build() -> Catalog {
             .params::<BillsImportParams>(),
         Capability::define("bills", Verb::Unlock)
             .risk(Risk::Confirm)
-            .backend(Backend::Firefly)
+            .backend(Backend::Server)
             .label("提交账单密码")
             .description(
                 "给加密的账单文件提交打开密码或验证码。密码由人在可信界面输入，\
@@ -285,7 +325,7 @@ fn build() -> Catalog {
             .params::<BillsUnlockParams>(),
         Capability::define("bills", Verb::Ignore)
             .risk(Risk::Confirm)
-            .backend(Backend::Firefly)
+            .backend(Backend::Server)
             .label("忽略账单")
             .description("把这份账单移出待办队列，不再提示。")
             .example(
@@ -296,7 +336,7 @@ fn build() -> Catalog {
             .params::<IdParams>(),
         Capability::define("bills", Verb::Retry)
             .risk(Risk::Draft)
-            .backend(Backend::Firefly)
+            .backend(Backend::Server)
             .label("重跑账单")
             .description("重新解析一份处理失败的账单。")
             .example(
@@ -312,16 +352,10 @@ fn build() -> Catalog {
             .description("提交一次邮箱同步任务；任务在后台拉取并解析新账单邮件。")
             .example("现在收一次", "abei bills sync --yes", json!({}))
             .params::<BillsBatchParams>(),
-        Capability::define("bills", Verb::Process)
-            .risk(Risk::Draft)
-            .backend(Backend::Firefly)
-            .label("解析账单")
-            .description("立刻推进一轮账单解析，把待处理的任务往前走一步。")
-            .example("现在解析一轮", "abei bills process --yes", json!({}))
-            .params::<BillsBatchParams>(),
         Capability::define("rows", Verb::Update)
             .risk(Risk::Draft)
-            .backend(Backend::Firefly)
+            .backend(Backend::Server)
+            .route("/v1/bill-rows/{id}")
             .label("填写账单建议")
             .description(
                 "填一条流水该记成什么：类型、日期、金额、摘要、账户、分类、标签。\
@@ -333,9 +367,22 @@ fn build() -> Catalog {
                 json!({ "id": "7", "firefly_type": "withdrawal", "category_name": "餐饮" }),
             )
             .params::<RowsUpdateParams>(),
+        Capability::define("rows", Verb::UpdateMany)
+            .risk(Risk::Draft)
+            .backend(Backend::Server)
+            .route("/v1/bill-rows/update-many")
+            .label("批量填写账单建议")
+            .description("把同一组账本字段作为 AI 建议写入多条待处理流水；已有人工修改不会被覆盖。")
+            .example(
+                "批量填写餐饮分类",
+                "abei rows update-many --row-ids 7 --row-ids 8 --category-name 餐饮 --yes",
+                json!({ "row_ids": [7, 8], "category_name": "餐饮" }),
+            )
+            .params::<RowsBatchUpdateParams>(),
         Capability::define("rows", Verb::Split)
             .risk(Risk::Draft)
-            .backend(Backend::Firefly)
+            .backend(Backend::Server)
+            .route("/v1/bill-rows/{id}/split")
             .label("拆分组合支付")
             .description("把一条组合支付的流水拆成两笔以上的草稿，比如一半余额一半银行卡。")
             .example(
@@ -348,87 +395,260 @@ fn build() -> Catalog {
                 ]}),
             )
             .params::<RowsSplitParams>(),
-        Capability::define("feedback", Verb::Create)
+        Capability::define("rows", Verb::Dismiss)
             .risk(Risk::Confirm)
             .backend(Backend::Server)
+            .route("/v1/bill-rows/dismiss")
+            .label("忽略账单流水")
+            .description("批量把账单流水标记为忽略；可按 id 或自动重复过滤器操作。")
+            .example(
+                "忽略两行流水",
+                "abei rows dismiss --row-ids 7 --row-ids 8 --yes",
+                json!({ "row_ids": [7, 8] }),
+            )
+            .params::<RowsBulkParams>(),
+        Capability::define("rows", Verb::Restore)
+            .risk(Risk::Draft)
+            .backend(Backend::Server)
+            .route("/v1/bill-rows/restore")
+            .label("恢复账单流水")
+            .description("批量把已忽略的账单流水恢复为待处理。")
+            .example(
+                "恢复两行流水",
+                "abei rows restore --row-ids 7 --row-ids 8",
+                json!({ "row_ids": [7, 8] }),
+            )
+            .params::<RowsBulkParams>(),
+        Capability::define("feedback", Verb::Create)
+            .risk(Risk::Draft)
+            .backend(Backend::Server)
             .label("提交反馈")
-            .fixed_param("source", "cli")
             .description(
-                "标题一句话说清问题；正文分 现象/期望/复现/环境。确认后写入本地，并按配置同步 GitHub issue。",
+                "kind 选择：1 bug=已有行为失败、报错或结果不正确；2 experience=可以完成，但流程、速度或提示令人困惑；3 suggestion=希望增加当前不存在的能力。只需填写 kind 和 message。target、CLI 版本、系统和最近运行信息会自动补充。不要在 message 中粘贴 Token、完整命令参数、财务正文或完整工具输出。若响应 state=needs_confirmation，必须向用户展示候选标题和状态并询问是否相同；不得自行 confirm。",
             )
             .example(
-                "记录一处 CLI 摩擦",
-                "abei feedback create --title '错误提示缺少字段名' --body '## 现象\n...\n## 期望\n...\n## 复现\n...\n## 环境\n...' --label friction --kind friction --by codex --yes",
+                "提交一个已有行为错误",
+                "abei feedback create --kind 1 --message 'bills import 返回成功但没有生成账单'",
                 json!({
-                    "title": "错误提示缺少字段名",
-                    "body": "## 现象\n...\n## 期望\n...\n## 复现\n...\n## 环境\n...",
-                    "labels": ["friction"],
-                    "kind": "friction",
-                    "submitted_by": "codex",
-                    "source": "cli"
+                    "kind": "1",
+                    "message": "bills import 返回成功但没有生成账单"
                 }),
             )
             .params::<FeedbackCreateParams>(),
-        Capability::define("feedback", Verb::Update)
-            .risk(Risk::Confirm)
+        Capability::define("feedback", Verb::Confirm)
+            .risk(Risk::Draft)
             .backend(Backend::Server)
-            .label("处理反馈")
-            .description(
-                "更新业务状态并留下处理说明；改回 open 表示重开，duplicate 必须指定原反馈。",
+            .route("/v1/feedback/submissions/{id}/confirm")
+            .label("确认相似反馈")
+            .description("AI 把候选标题和状态告诉用户后调用。same-as 与 new 必须且只能选一个；重复调用不会再次增加出现次数。")
+            .example(
+                "用户确认与候选 42 是同一事项",
+                "abei feedback confirm 91 --same-as 42",
+                json!({ "id": "91", "same_as": 42 }),
             )
             .example(
-                "确认第 42 条反馈已解决",
-                "abei feedback update 42 --status completed --response '已在 0.2.0 修复' --yes",
-                json!({
-                    "id": "42",
-                    "status": "completed",
-                    "response": "已在 0.2.0 修复"
-                }),
+                "用户确认是新事项",
+                "abei feedback confirm 91 --new",
+                json!({ "id": "91", "new": true }),
             )
-            .params::<FeedbackUpdateParams>(),
-        Capability::define("feedback", Verb::Retry)
-            .risk(Risk::Confirm)
+            .params::<FeedbackConfirmParams>(),
+        Capability::define("feedback", Verb::Reply)
+            .risk(Risk::Draft)
             .backend(Backend::Server)
-            .label("重试反馈同步")
-            .description("重新把当前反馈内容和状态同步到 GitHub。")
+            .route("/v1/feedback/submissions/{id}/messages")
+            .label("补充反馈信息")
+            .description("针对一次 Submission 回复管理员追问；内容只对提交者和 owner 可见。")
             .example(
-                "重试第 42 条反馈",
-                "abei feedback retry 42 --yes",
-                json!({ "id": "42" }),
+                "补充受影响版本",
+                "abei feedback reply 91 --message '补充：只在 0.2.0 出现'",
+                json!({ "id": "91", "message": "补充：只在 0.2.0 出现" }),
             )
-            .params::<IdParams>(),
-        Capability::define("feedback", Verb::Delete)
-            .risk(Risk::Confirm)
-            .backend(Backend::Server)
-            .label("删除反馈")
-            .description("从反馈列表中删除一条反馈；必须说明原因，服务端保留审计记录。")
-            .example(
-                "删除一条包含隐私的反馈",
-                "abei feedback delete 42 --reason '包含个人隐私' --yes",
-                json!({ "id": "42", "reason": "包含个人隐私" }),
-            )
-            .params::<FeedbackDeleteParams>(),
+            .params::<FeedbackReplyParams>(),
         Capability::define("feedback", Verb::List)
             .risk(Risk::Read)
             .backend(Backend::Server)
-            .label("查看反馈")
-            .description("倒序列出反馈，可按类型、业务状态和同步状态筛选。")
-            .example(
-                "看同步失败的反馈",
-                "abei feedback list --sync-status failed",
-                json!({ "sync_status": "failed" }),
-            )
+            .label("查看我的反馈")
+            .description("只列出当前用户的待确认 Submission 和已关联 Feedback Item。")
+            .example("查看我的反馈", "abei feedback list", json!({}))
             .params::<FeedbackListParams>(),
         Capability::define("feedback", Verb::Get)
             .risk(Risk::Read)
             .backend(Backend::Server)
             .label("查看单条反馈")
-            .description("按 id 查看一条反馈及其 GitHub 同步结果。")
+            .description("按 feedback_id 查看公开状态、更新和自己这次提交的对话。")
             .example(
                 "看第 42 条反馈",
                 "abei feedback get 42",
                 json!({ "id": "42" }),
             )
+            .params::<IdParams>(),
+        Capability::define("profile-doc", Verb::List)
+            .risk(Risk::Read)
+            .backend(Backend::Server)
+            .label("查看用户资料")
+            .description("列出当前用户的全部资料文档，不返回 Markdown 正文。")
+            .example("列出资料文档", "abei profile list", json!({}))
+            .params::<ProfileDocListParams>(),
+        Capability::define("profile-doc", Verb::Get)
+            .risk(Risk::Read)
+            .backend(Backend::Server)
+            .path_param("slug")
+            .label("读取用户资料")
+            .description("按 slug 读取一份用户资料及其完整 Markdown 正文。")
+            .example(
+                "读取个人记账规则",
+                "abei profile get personal-accounting-rules",
+                json!({ "slug": "personal-accounting-rules" }),
+            )
+            .params::<ProfileDocGetParams>(),
+        Capability::define("profile-doc", Verb::Create)
+            .risk(Risk::Confirm)
+            .backend(Backend::Server)
+            .fixed_param("source", "cli")
+            .label("创建用户资料")
+            .description("创建一份 Markdown 用户资料；先干跑预览，确认后保存版本 1。")
+            .example(
+                "创建个人记账规则",
+                "abei profile create personal-accounting-rules --title '个人记账规则' --content-md '# 个人记账规则\n' --yes",
+                json!({
+                    "slug": "personal-accounting-rules",
+                    "title": "个人记账规则",
+                    "content_md": "# 个人记账规则\n",
+                    "source": "cli"
+                }),
+            )
+            .params::<ProfileDocCreateParams>(),
+        Capability::define("profile-doc", Verb::Update)
+            .risk(Risk::Confirm)
+            .backend(Backend::Server)
+            .path_param("slug")
+            .fixed_param("source", "cli")
+            .label("更新用户资料")
+            .description("基于 expected_version 更新 Markdown 用户资料；版本冲突时不会覆盖。")
+            .example(
+                "更新个人记账规则",
+                "abei profile update personal-accounting-rules --expected-version 1 --content-md '# 个人记账规则\n\n已更新。\n' --yes",
+                json!({
+                    "slug": "personal-accounting-rules",
+                    "expected_version": 1,
+                    "content_md": "# 个人记账规则\n\n已更新。\n",
+                    "source": "cli"
+                }),
+            )
+            .params::<ProfileDocUpdateParams>(),
+        Capability::define("profile-doc", Verb::Delete)
+            .risk(Risk::Confirm)
+            .backend(Backend::Server)
+            .path_param("slug")
+            .label("删除用户资料")
+            .description("基于 expected_version 永久删除一份用户资料及其全部历史版本。")
+            .example(
+                "删除个人记账规则",
+                "abei profile delete personal-accounting-rules --expected-version 2 --yes",
+                json!({
+                    "slug": "personal-accounting-rules",
+                    "expected_version": 2
+                }),
+            )
+            .params::<ProfileDocDeleteParams>(),
+        Capability::define("mail-messages", Verb::List)
+            .risk(Risk::Read)
+            .backend(Backend::Server)
+            .label("查看邮件")
+            .description("列出邮件工作台索引，可按归类状态和关键词筛选。")
+            .example(
+                "查看还没归类的邮件",
+                "abei mail list --classification unclassified --limit 50",
+                json!({ "classification": "unclassified", "limit": 50 }),
+            )
+            .params::<MailMessagesListParams>(),
+        Capability::define("mail-rules", Verb::Test)
+            .risk(Risk::Read)
+            .backend(Backend::Server)
+            .label("测试邮件规则")
+            .description("用本地邮件样本测试结构化条件，不保存规则、不创建账单任务。")
+            .example(
+                "测试发件人域名规则",
+                "abei rules test --conditions '{\"type\":\"text\",\"field\":\"from\",\"operator\":\"domain\",\"value\":\"bank.example\"}' --limit 100",
+                json!({
+                    "conditions": {
+                        "type": "text",
+                        "field": "from",
+                        "operator": "domain",
+                        "value": "bank.example"
+                    },
+                    "limit": 100
+                }),
+            )
+            .params::<MailRuleTestParams>(),
+        Capability::define("mail-rules", Verb::Publish)
+            .risk(Risk::Confirm)
+            .backend(Backend::Server)
+            .label("发布邮件规则")
+            .description("把规则草稿发布为新的不可变版本并用于后续邮件路由。")
+            .example(
+                "发布第 42 条规则",
+                "abei rules publish 42 --yes",
+                json!({ "id": "42" }),
+            )
+            .params::<IdParams>(),
+        Capability::define("mailboxes", Verb::Rescan)
+            .risk(Risk::Confirm)
+            .backend(Backend::Server)
+            .fixed_param("id", "current")
+            .label("扫描历史邮件")
+            .description("按日期范围重新读取历史邮件，只更新邮件工作台索引。")
+            .example(
+                "先估算最近三十天",
+                "abei mailbox rescan --from 2026-07-12 --to 2026-08-11 --limit 500 --dry-run",
+                json!({ "id": "current", "from": "2026-07-12", "to": "2026-08-11", "limit": 500 }),
+            )
+            .example(
+                "确认扫描最近三十天",
+                "abei mailbox rescan --from 2026-07-12 --to 2026-08-11 --limit 500 --yes",
+                json!({ "id": "current", "from": "2026-07-12", "to": "2026-08-11", "limit": 500 }),
+            )
+            .params::<MailboxRescanParams>(),
+        Capability::define("mail-sync-runs", Verb::List)
+            .risk(Risk::Read)
+            .backend(Backend::Server)
+            .label("查看同步运行")
+            .description("列出邮箱同步任务及其进度、结果和错误。")
+            .example("查看最近同步", "abei mail-sync-runs list --limit 10", json!({ "limit": 10 }))
+            .params::<MailSyncRunsListParams>(),
+        Capability::define("mail-sync-runs", Verb::Get)
+            .risk(Risk::Read)
+            .backend(Backend::Server)
+            .label("查看同步详情")
+            .description("按运行 id 查看邮箱同步状态和结果。")
+            .example("查看同步 42", "abei mail-sync-runs get 42", json!({ "id": "42" }))
+            .params::<IdParams>(),
+        Capability::define("bill-account-mappings", Verb::List)
+            .risk(Risk::Read)
+            .backend(Backend::Server)
+            .label("查看账户映射")
+            .description("列出账单来源名称到 Firefly 账户的映射。")
+            .example("查看支付宝映射", "abei bill-account-mappings list --channel alipay", json!({ "channel": "alipay" }))
+            .params::<BillAccountMappingsListParams>(),
+        Capability::define("bill-account-mappings", Verb::Update)
+            .risk(Risk::Draft)
+            .backend(Backend::Abei)
+            .route("/v1/bill-account-mappings")
+            .method(crate::capability::Method::Put)
+            .label("保存账户映射")
+            .description("把账单中的原始账户名或别名映射到已验证的 Firefly 账户。")
+            .example(
+                "映射一个账户别名",
+                "abei bill-account-mappings update --channel-key cmb --account-hint '招商银行尾号1234' --firefly-account-id 7",
+                json!({ "channel_key": "cmb", "account_hint": "招商银行尾号1234", "firefly_account_id": "7" }),
+            )
+            .params::<BillAccountMappingUpdateParams>(),
+        Capability::define("bill-account-mappings", Verb::Delete)
+            .risk(Risk::Confirm)
+            .backend(Backend::Server)
+            .label("删除账户映射")
+            .description("删除一条账户映射并让受影响流水重新进入人工确认。")
+            .example("删除映射 7", "abei bill-account-mappings delete 7 --yes", json!({ "id": "7" }))
             .params::<IdParams>(),
     ];
 
@@ -452,6 +672,10 @@ mod tests {
 
         let show = catalog().get("transactions", Verb::Show).unwrap();
         assert_eq!(show.route_path(), "/v1/transactions/{id}");
+
+        let profile = catalog().get("profile-doc", Verb::Get).unwrap();
+        assert_eq!(profile.route_path(), "/v1/profile-doc/{slug}");
+        assert_eq!(profile.path_param(), Some("slug"));
 
         // 意图动词追加动词段，不占用 {id} 的位置。
         let summary = catalog().get("transactions", Verb::Summary).unwrap();
@@ -573,7 +797,17 @@ mod tests {
             .iter()
             .find(|c| c.id == "feedback.create")
             .unwrap();
-        assert_eq!(feedback.fixed_params["source"], "cli");
+        assert!(feedback.fixed_params.is_empty());
+        assert_eq!(feedback.risk, Risk::Draft);
+        assert!(feedback.description.contains("不得自行 confirm"));
+        assert_eq!(
+            back.capabilities
+                .iter()
+                .find(|c| c.id == "feedback.confirm")
+                .unwrap()
+                .path,
+            "/v1/feedback/submissions/{id}/confirm"
+        );
         assert_eq!(summary.risk, Risk::Read);
         assert_eq!(summary.backend, Backend::Firefly);
         assert_eq!(summary.command, vec!["transactions", "summary"]);
@@ -587,7 +821,26 @@ mod tests {
             vec![Verb::List, Verb::Show, Verb::Summary, Verb::Search]
         );
         assert_eq!(catalog().verbs_for("accounts"), vec![Verb::List]);
-        assert_eq!(catalog().verbs_for("rows"), vec![Verb::Update, Verb::Split]);
+        assert_eq!(
+            catalog().verbs_for("rows"),
+            vec![
+                Verb::Update,
+                Verb::UpdateMany,
+                Verb::Split,
+                Verb::Dismiss,
+                Verb::Restore,
+            ]
+        );
+        assert_eq!(
+            catalog().verbs_for("profile-doc"),
+            vec![
+                Verb::List,
+                Verb::Get,
+                Verb::Create,
+                Verb::Update,
+                Verb::Delete
+            ]
+        );
         assert!(catalog().verbs_for("budgets").is_empty());
     }
 
@@ -613,7 +866,7 @@ mod tests {
         }
     }
 
-    /// 账单能力的路由与现有 fork 接口一一对得上。
+    /// 账单能力只指向 Abei 公共接口，不再暴露 Firefly fork 路由。
     #[test]
     fn bill_routes_are_derived_not_translated() {
         let cases = [
@@ -623,12 +876,37 @@ mod tests {
             ("bills.import", "/v1/bills/{id}/import"),
             ("bills.unlock", "/v1/bills/{id}/unlock"),
             ("bills.sync", "/v1/bills/sync"),
-            ("rows.update", "/v1/rows/{id}"),
-            ("rows.split", "/v1/rows/{id}/split"),
+            ("rows.update", "/v1/bill-rows/{id}"),
+            ("rows.split", "/v1/bill-rows/{id}/split"),
         ];
         for (id, path) in cases {
             assert_eq!(catalog().by_id(id).unwrap().route_path(), path, "{id}");
         }
+    }
+
+    #[test]
+    fn bill_capabilities_report_the_real_execution_owner() {
+        for id in [
+            "bills.list",
+            "bills.show",
+            "bills.review",
+            "bills.unlock",
+            "bills.ignore",
+            "bills.retry",
+            "bills.sync",
+            "rows.update",
+            "rows.split",
+        ] {
+            assert_eq!(
+                catalog().by_id(id).unwrap().backend,
+                Backend::Server,
+                "{id}"
+            );
+        }
+        assert_eq!(
+            catalog().by_id("bills.import").unwrap().backend,
+            Backend::Abei
+        );
     }
 
     /// 银行原文不在可改字段里：那是账单说的话，不该被模型改写。
@@ -675,6 +953,31 @@ mod tests {
                 .unwrap()
                 .human_only()
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn profile_markdown_is_a_cli_file_input() {
+        for id in ["profile-doc.create", "profile-doc.update"] {
+            assert_eq!(
+                catalog().by_id(id).unwrap().file_inputs(),
+                vec!["content_md".to_owned()]
+            );
+        }
+        let version = &catalog()
+            .by_id("profile-doc.update")
+            .unwrap()
+            .params
+            .as_value()["properties"]["expected_version"];
+        assert_eq!(version["minimum"], 1);
+        assert_eq!(version["maximum"], 2_147_483_647_i64);
+        let delete = catalog().by_id("profile-doc.delete").unwrap();
+        assert_eq!(delete.risk, Risk::Confirm);
+        assert_eq!(delete.backend, Backend::Server);
+        assert_eq!(delete.route_path(), "/v1/profile-doc/{slug}");
+        assert_eq!(
+            delete.params.as_value()["properties"]["expected_version"]["minimum"],
+            1
         );
     }
 

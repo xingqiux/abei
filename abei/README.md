@@ -6,7 +6,7 @@
   resource 和 verb 是一等字段，命令路径、agent 工具名、HTTP 路由都由它们直接算出，没有翻译表。
 - `crates/abei-api` — HTTP 服务。资源接口、能力目录、认证、风险闸与后端分派。
 - `crates/abei-cli` — 用户与 agent 共用的 `abei` 命令行，只调用已建模能力。
-- `crates/abei-server` — IMAP/MIME 账单收取，以及 feedback 状态、审计与 GitHub 同步后端。
+- `crates/abei-server` — IMAP/MIME 账单收取，以及 Feedback Submission、Item、对话、状态与审计后端。
 
 ## 跑起来
 
@@ -40,7 +40,8 @@ abei-api 拿它问一次 Firefly，结果缓存 60 秒。自己不存密码也�
 | `GET /v1/transactions/{id}` | 是 | 查单笔 |
 | `GET /v1/transactions/summary` | 是 | 消费汇总 |
 | `GET /v1/accounts` | 是 | 查账户 |
-| `/v1/feedback...` | 是 | 提交、处理、查询、重试和软删除反馈 |
+| `/v1/feedback...` | 是 | 提交、相似确认、查询和回复自己的反馈 |
+| `/v1/admin/feedback...` | owner | 归一、处理、公开更新、合并、归档和恢复反馈 |
 
 错误一律是 RFC 9457 problem+json：`reason` 是机读驼峰码，`title`/`detail` 给人看，
 出错时还会带上 `resource`/`verb` 指明是哪条能力。

@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod docs;
+pub mod parser;
 
 use abei_core::Method;
 

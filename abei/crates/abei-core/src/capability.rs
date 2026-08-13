@@ -57,6 +57,7 @@ pub enum Method {
     Post,
     Patch,
     Delete,
+    Put,
 }
 
 impl Method {
@@ -66,6 +67,7 @@ impl Method {
             Self::Post => "POST",
             Self::Patch => "PATCH",
             Self::Delete => "DELETE",
+            Self::Put => "PUT",
         }
     }
 }
@@ -95,6 +97,8 @@ pub enum Verb {
     Show,
     Create,
     Update,
+    #[serde(rename = "update-many")]
+    UpdateMany,
     Delete,
     Summary,
     Search,
@@ -102,10 +106,16 @@ pub enum Verb {
     Import,
     Ignore,
     Retry,
+    Confirm,
+    Reply,
+    Test,
+    Publish,
+    Rescan,
     Sync,
-    Process,
     Unlock,
     Split,
+    Dismiss,
+    Restore,
 }
 
 impl Verb {
@@ -115,6 +125,7 @@ impl Verb {
         Verb::Show,
         Verb::Create,
         Verb::Update,
+        Verb::UpdateMany,
         Verb::Delete,
         Verb::Summary,
         Verb::Search,
@@ -122,10 +133,16 @@ impl Verb {
         Verb::Import,
         Verb::Ignore,
         Verb::Retry,
+        Verb::Confirm,
+        Verb::Reply,
+        Verb::Test,
+        Verb::Publish,
+        Verb::Rescan,
         Verb::Sync,
-        Verb::Process,
         Verb::Unlock,
         Verb::Split,
+        Verb::Dismiss,
+        Verb::Restore,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -135,6 +152,7 @@ impl Verb {
             Self::Show => "show",
             Self::Create => "create",
             Self::Update => "update",
+            Self::UpdateMany => "update-many",
             Self::Delete => "delete",
             Self::Summary => "summary",
             Self::Search => "search",
@@ -142,10 +160,16 @@ impl Verb {
             Self::Import => "import",
             Self::Ignore => "ignore",
             Self::Retry => "retry",
+            Self::Confirm => "confirm",
+            Self::Reply => "reply",
+            Self::Test => "test",
+            Self::Publish => "publish",
+            Self::Rescan => "rescan",
             Self::Sync => "sync",
-            Self::Process => "process",
             Self::Unlock => "unlock",
             Self::Split => "split",
+            Self::Dismiss => "dismiss",
+            Self::Restore => "restore",
         }
     }
 
@@ -163,8 +187,11 @@ impl Verb {
             | Self::Create
             | Self::Summary
             | Self::Search
+            | Self::Test
             | Self::Sync
-            | Self::Process => Target::Collection,
+            | Self::Dismiss
+            | Self::Restore => Target::Collection,
+            Self::UpdateMany => Target::Collection,
             Self::Get
             | Self::Show
             | Self::Update
@@ -173,6 +200,10 @@ impl Verb {
             | Self::Import
             | Self::Ignore
             | Self::Retry
+            | Self::Confirm
+            | Self::Reply
+            | Self::Publish
+            | Self::Rescan
             | Self::Unlock
             | Self::Split => Target::Item,
         }
@@ -187,11 +218,17 @@ impl Verb {
             | Self::Import
             | Self::Ignore
             | Self::Retry
+            | Self::Confirm
+            | Self::Reply
+            | Self::Test
+            | Self::Publish
+            | Self::Rescan
             | Self::Unlock
             | Self::Split
-            | Self::Sync
-            | Self::Process => Method::Post,
-            Self::Update => Method::Patch,
+            | Self::Dismiss
+            | Self::Restore
+            | Self::Sync => Method::Post,
+            Self::Update | Self::UpdateMany => Method::Patch,
             Self::Delete => Method::Delete,
         }
     }
@@ -265,6 +302,9 @@ pub struct Capability {
     pub description: &'static str,
     pub examples: Vec<Example>,
     pub params: Schema,
+    path_param: &'static str,
+    route_override: Option<&'static str>,
+    method_override: Option<Method>,
     fixed_params: Vec<FixedParam>,
 }
 
@@ -278,6 +318,9 @@ impl Capability {
             label: "",
             description: "",
             examples: Vec::new(),
+            path_param: "id",
+            route_override: None,
+            method_override: None,
             fixed_params: Vec::new(),
         }
     }
@@ -289,7 +332,7 @@ impl Capability {
 
     /// agent 工具名。连字符换下划线，满足各家模型对工具名的字符限制。
     pub fn tool_name(&self) -> String {
-        format!("{}_{}", self.resource.replace('-', "_"), self.verb)
+        format!("{}_{}", self.resource, self.verb).replace('-', "_")
     }
 
     /// CLI 命令路径，名词在前。
@@ -299,17 +342,25 @@ impl Capability {
 
     /// HTTP 路由模板。CRUD 走裸 REST 路径，意图动词追加动词段。
     pub fn route_path(&self) -> String {
+        if let Some(route) = self.route_override {
+            return route.to_owned();
+        }
         let base = format!("/v1/{}", self.resource);
+        let item = format!("{base}/{{{}}}", self.path_param);
         match (self.verb.target(), self.verb.is_crud()) {
             (Target::Collection, true) => base,
             (Target::Collection, false) => format!("{base}/{}", self.verb),
-            (Target::Item, true) => format!("{base}/{{id}}"),
-            (Target::Item, false) => format!("{base}/{{id}}/{}", self.verb),
+            (Target::Item, true) => item,
+            (Target::Item, false) => format!("{item}/{}", self.verb),
         }
     }
 
+    pub fn path_param(&self) -> Option<&'static str> {
+        (self.verb.target() == Target::Item).then_some(self.path_param)
+    }
+
     pub fn method(&self) -> Method {
-        self.verb.method()
+        self.method_override.unwrap_or_else(|| self.verb.method())
     }
 
     /// 只能由人现场输入的参数名（密码、验证码这类）。
@@ -326,6 +377,42 @@ impl Capability {
                     .iter()
                     .filter(|(_, schema)| {
                         schema.get("x-abei-human-only") == Some(&Value::Bool(true))
+                    })
+                    .map(|(name, _)| name.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// CLI 可把 `@文件` 或 `-` 展开为正文的文本参数。
+    pub fn file_inputs(&self) -> Vec<String> {
+        self.params
+            .as_value()
+            .get("properties")
+            .and_then(Value::as_object)
+            .map(|properties| {
+                properties
+                    .iter()
+                    .filter(|(_, schema)| {
+                        schema.get("x-abei-file-input") == Some(&Value::Bool(true))
+                    })
+                    .map(|(name, _)| name.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// CLI 需要把文本按 JSON 解析后再发给服务端的参数名。
+    pub fn json_inputs(&self) -> Vec<String> {
+        self.params
+            .as_value()
+            .get("properties")
+            .and_then(Value::as_object)
+            .map(|properties| {
+                properties
+                    .iter()
+                    .filter(|(_, schema)| {
+                        schema.get("x-abei-json-input") == Some(&Value::Bool(true))
                     })
                     .map(|(name, _)| name.clone())
                     .collect()
@@ -402,6 +489,9 @@ pub struct CapabilityBuilder {
     label: &'static str,
     description: &'static str,
     examples: Vec<Example>,
+    path_param: &'static str,
+    route_override: Option<&'static str>,
+    method_override: Option<Method>,
     fixed_params: Vec<FixedParam>,
 }
 
@@ -436,6 +526,24 @@ impl CapabilityBuilder {
         self
     }
 
+    /// 单对象资源的稳定路径键。绝大多数资源用默认 id，slug 资源在这里声明一次。
+    pub fn path_param(mut self, name: &'static str) -> Self {
+        self.path_param = name;
+        self
+    }
+
+    /// 少数意图动词需要显式 REST 路径，例如 Feedback 的 Submission 子资源。
+    pub fn route(mut self, path: &'static str) -> Self {
+        self.route_override = Some(path);
+        self
+    }
+
+    /// 少数现有 REST 端点的 HTTP 方法与通用动词不同。
+    pub fn method(mut self, method: Method) -> Self {
+        self.method_override = Some(method);
+        self
+    }
+
     /// 收尾：绑定参数类型，从它生成 JSON Schema。
     pub fn params<P: JsonSchema>(self) -> Capability {
         let mut schema = SchemaGenerator::default().into_root_schema_for::<P>();
@@ -449,6 +557,9 @@ impl CapabilityBuilder {
             description: self.description,
             examples: self.examples,
             params: schema,
+            path_param: self.path_param,
+            route_override: self.route_override,
+            method_override: self.method_override,
             fixed_params: self.fixed_params,
         }
     }

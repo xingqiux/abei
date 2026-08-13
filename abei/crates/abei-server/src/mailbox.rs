@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::env;
 use std::fmt;
 use std::future::Future;
@@ -9,16 +10,18 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use async_http_proxy::{http_connect_tokio, http_connect_tokio_with_basic_auth};
+use async_imap::imap_proto::types::{BodyContentCommon, BodyStructure};
+use async_imap::types::Mailbox as ImapMailbox;
 use async_imap::{Authenticator, Client, Session};
 use axum::Json;
-use axum::extract::State;
-use axum::extract::rejection::JsonRejection;
+use axum::extract::rejection::{JsonRejection, QueryRejection};
+use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chacha20poly1305::aead::{Aead, Generate, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
-use deadpool_postgres::{Pool, Transaction};
+use deadpool_postgres::Pool;
 use futures_util::TryStreamExt;
 use mail_parser::{MessageParser, MimeHeaders};
 use oauth2::basic::BasicClient;
@@ -30,7 +33,7 @@ use oauth2::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use tokio::fs;
+use time::{Date, OffsetDateTime};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
@@ -38,9 +41,8 @@ use tokio_rustls::TlsConnector;
 use tokio_rustls::rustls::pki_types::ServerName;
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 
-use crate::{ApiError, AppState};
+use crate::{ApiError, AppState, WriteGate, authenticated_user_id};
 
-const USER_ID_HEADER: &str = "x-abei-authenticated-user-id";
 const MAX_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
 const GOOGLE_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
@@ -56,6 +58,7 @@ pub struct RuntimeConfig {
     password_cipher: SecretCipher,
     oauth_refresh_cipher: SecretCipher,
     oauth_state_cipher: SecretCipher,
+    job_secret_cipher: SecretCipher,
     google_oauth: Option<GoogleOAuth>,
     operation_timeout: Duration,
     pub sync_interval: Duration,
@@ -85,10 +88,19 @@ impl RuntimeConfig {
                 b"abei-server/google-refresh-token/v1\0",
             ),
             oauth_state_cipher: SecretCipher::new(&app_key, b"abei-server/google-oauth-state/v1\0"),
+            job_secret_cipher: SecretCipher::new(&app_key, b"abei-server/parse-job-secret/v1\0"),
             google_oauth,
             operation_timeout,
             sync_interval,
         })
+    }
+
+    pub(crate) fn storage_root(&self) -> &Path {
+        &self.storage_root
+    }
+
+    pub(crate) fn job_secret_cipher(&self) -> SecretCipher {
+        self.job_secret_cipher.clone()
     }
 
     #[cfg(test)]
@@ -106,6 +118,10 @@ impl RuntimeConfig {
             oauth_state_cipher: SecretCipher::new(
                 "test-app-key-that-is-long-enough",
                 b"abei-server/google-oauth-state/v1\0",
+            ),
+            job_secret_cipher: SecretCipher::new(
+                "test-app-key-that-is-long-enough",
+                b"abei-server/parse-job-secret/v1\0",
             ),
             google_oauth: None,
             operation_timeout: Duration::from_secs(2),
@@ -248,7 +264,7 @@ struct GoogleUserInfo {
 }
 
 #[derive(Clone)]
-struct SecretCipher([u8; 32]);
+pub(crate) struct SecretCipher([u8; 32]);
 
 impl SecretCipher {
     fn new(app_key: &str, label: &[u8]) -> Self {
@@ -258,7 +274,7 @@ impl SecretCipher {
         Self(digest.finalize().into())
     }
 
-    fn encrypt(&self, user_id: i64, password: &str) -> Result<String, String> {
+    pub(crate) fn encrypt(&self, user_id: i64, password: &str) -> Result<String, String> {
         let cipher = XChaCha20Poly1305::new_from_slice(&self.0)
             .map_err(|_| "邮箱密码加密密钥无效".to_owned())?;
         let nonce = XNonce::generate();
@@ -276,7 +292,7 @@ impl SecretCipher {
         Ok(URL_SAFE_NO_PAD.encode(encoded))
     }
 
-    fn decrypt(&self, user_id: i64, encoded: &str) -> Result<String, String> {
+    pub(crate) fn decrypt(&self, user_id: i64, encoded: &str) -> Result<String, String> {
         let bytes = URL_SAFE_NO_PAD
             .decode(encoded)
             .map_err(|_| "保存的邮箱密码格式不正确".to_owned())?;
@@ -304,11 +320,23 @@ impl SecretCipher {
 pub struct Service {
     pool: Pool,
     config: RuntimeConfig,
+    workbench: crate::mail::Service,
+    billing: crate::billing::Service,
 }
 
 impl Service {
-    pub fn new(pool: Pool, config: RuntimeConfig) -> Self {
-        Self { pool, config }
+    pub(crate) fn new(
+        pool: Pool,
+        config: RuntimeConfig,
+        workbench: crate::mail::Service,
+        billing: crate::billing::Service,
+    ) -> Self {
+        Self {
+            pool,
+            config,
+            workbench,
+            billing,
+        }
     }
 
     pub fn start_scheduler(&self) {
@@ -339,63 +367,129 @@ impl Service {
         Ok(())
     }
 
-    async fn enqueue(&self, user_id: i64, limit: i16) -> Result<Value, String> {
+    pub(crate) async fn enqueue(&self, user_id: i64, limit: i16) -> Result<Value, String> {
         let limit = limit.clamp(1, 100);
-        let client = self.pool.get().await.map_err(display)?;
-        let queued = client
-            .query_opt(
-                "INSERT INTO public.bill_mailbox_sync_states
-                   (user_id, status, \"limit\", requested_at, started_at, finished_at, result,
-                    error_message, created_at, updated_at)
-                 VALUES ($1, 'queued', $2, now(), NULL, NULL, NULL, NULL, now(), now())
-                 ON CONFLICT (user_id) DO UPDATE SET
-                   status = 'queued', \"limit\" = EXCLUDED.\"limit\", requested_at = now(),
-                   started_at = NULL, finished_at = NULL, result = NULL, error_message = NULL,
-                   updated_at = now()
-                 WHERE bill_mailbox_sync_states.status <> 'running'
-                    OR bill_mailbox_sync_states.updated_at < now() - interval '3 minutes'
-                 RETURNING status::text, requested_at::text, started_at::text, finished_at::text,
-                           result::text, error_message",
-                &[&user_id, &limit],
-            )
+        let scope = serde_json::to_string(&json!({ "limit": limit })).map_err(display)?;
+        let mut client = self.pool.get().await.map_err(display)?;
+        let transaction = client.transaction().await.map_err(display)?;
+        transaction
+            .query_one("SELECT pg_advisory_xact_lock($1)", &[&user_id])
             .await
             .map_err(display)?;
-
-        if let Some(row) = queued {
-            let state = sync_state(&row);
-            let service = self.clone();
-            tokio::spawn(async move { service.run(user_id, limit).await });
-            return Ok(state);
-        }
-
-        self.load_sync_state(user_id).await
-    }
-
-    async fn load_sync_state(&self, user_id: i64) -> Result<Value, String> {
-        let client = self.pool.get().await.map_err(display)?;
-        let row = client
-            .query_one(
-                "SELECT status::text, requested_at::text, started_at::text, finished_at::text,
-                        result::text, error_message
-                 FROM public.bill_mailbox_sync_states WHERE user_id = $1",
+        transaction
+            .execute(
+                "UPDATE abei_ai.mail_sync_runs SET status = 'failed', stage = 'finished',
+                   error_summary = '同步进程失去心跳，已由下一轮同步回收。',
+                   finished_at = now(), updated_at = now()
+                 WHERE user_id = $1 AND status IN ('queued', 'running')
+                   AND updated_at < now() - interval '3 minutes'",
                 &[&user_id],
             )
             .await
             .map_err(display)?;
-        Ok(sync_state(&row))
+        if let Some(row) = transaction
+            .query_opt(
+                "SELECT id, status, requested_at::text, started_at::text, finished_at::text,
+                        progress, error_summary
+                 FROM abei_ai.mail_sync_runs
+                 WHERE user_id = $1 AND status IN ('queued', 'running')
+                 ORDER BY id DESC LIMIT 1",
+                &[&user_id],
+            )
+            .await
+            .map_err(display)?
+        {
+            transaction.commit().await.map_err(display)?;
+            return Ok(sync_run_state(&row));
+        }
+        let row = transaction
+            .query_one(
+                "INSERT INTO abei_ai.mail_sync_runs
+                   (user_id, mailbox_user_id, kind, scope, status, stage)
+                 VALUES ($1, $1, 'incremental', $2::text::jsonb, 'queued', 'queued')
+                 RETURNING id, status, requested_at::text, started_at::text, finished_at::text,
+                           progress, error_summary",
+                &[&user_id, &scope],
+            )
+            .await
+            .map_err(display)?;
+        let run_id: i64 = row.get(0);
+        let state = sync_run_state(&row);
+        transaction.commit().await.map_err(display)?;
+        let service = self.clone();
+        tokio::spawn(async move { service.run(user_id, limit, run_id).await });
+        Ok(state)
     }
 
-    async fn run(&self, user_id: i64, limit: i16) {
-        match self.set_running(user_id).await {
+    async fn estimate_rescan(&self, user_id: i64, range: &RescanRange) -> Result<usize, String> {
+        let mailbox = self.load_mailbox(user_id).await?;
+        let (mut session, _) =
+            connect_selected(&mailbox, self.config.operation_timeout, "估算历史扫描").await?;
+        let uids = within(
+            self.config.operation_timeout,
+            "估算历史邮件数量",
+            session.uid_search(range.search_query()?),
+        )
+        .await?;
+        let _ = within(self.config.operation_timeout, "退出邮箱", session.logout()).await;
+        Ok(uids.len())
+    }
+
+    async fn enqueue_rescan(&self, user_id: i64, range: RescanRange) -> Result<i64, String> {
+        let scope = serde_json::to_string(&json!({
+            "from": range.from.to_string(),
+            "to": range.to.to_string(),
+            "limit": range.limit,
+        }))
+        .map_err(display)?;
+        let mut client = self.pool.get().await.map_err(display)?;
+        let transaction = client.transaction().await.map_err(display)?;
+        transaction
+            .query_one("SELECT pg_advisory_xact_lock($1)", &[&user_id])
+            .await
+            .map_err(display)?;
+        if transaction
+            .query_opt(
+                "SELECT id FROM abei_ai.mail_sync_runs
+                 WHERE user_id = $1 AND status IN ('queued', 'running')
+                 ORDER BY id DESC LIMIT 1",
+                &[&user_id],
+            )
+            .await
+            .map_err(display)?
+            .is_some()
+        {
+            return Err("已有邮箱同步正在运行，请等待完成后再扫描历史邮件。".to_owned());
+        }
+        let run_id: i64 = transaction
+            .query_one(
+                "INSERT INTO abei_ai.mail_sync_runs
+                   (user_id, mailbox_user_id, kind, scope, status, stage)
+                 VALUES ($1, $1, 'rescan', $2::text::jsonb, 'queued', 'queued')
+                 RETURNING id",
+                &[&user_id, &scope],
+            )
+            .await
+            .map_err(display)?
+            .get(0);
+        transaction.commit().await.map_err(display)?;
+
+        let service = self.clone();
+        tokio::spawn(async move { service.run_rescan(user_id, range, run_id).await });
+        Ok(run_id)
+    }
+
+    async fn run(&self, user_id: i64, limit: i16, run_id: i64) {
+        match self.start_run(user_id, run_id).await {
             Ok(true) => {}
             Ok(false) => return,
             Err(error) => {
-                tracing::error!(user_id, %error, "账单邮箱同步状态无法更新为 running");
+                tracing::error!(user_id, run_id, %error, "邮箱同步运行无法更新为 running");
                 return;
             }
         }
 
-        let result = match self.sync_user(user_id, limit as usize).await {
+        let result = match self.sync_user(user_id, limit as usize, Some(run_id)).await {
             Ok(result) => result,
             Err(error) => SyncResult {
                 failed: 1,
@@ -403,29 +497,48 @@ impl Service {
                 ..SyncResult::default()
             },
         };
-        if let Err(error) = self.finish(user_id, &result).await {
+        if self
+            .is_run_cancelled(user_id, run_id)
+            .await
+            .unwrap_or(false)
+        {
+            return;
+        }
+        if let Err(error) = self.finish(user_id, run_id, &result).await {
             tracing::error!(user_id, %error, "账单邮箱同步结果无法保存");
         }
     }
 
-    async fn set_running(&self, user_id: i64) -> Result<bool, String> {
-        let updated = self
-            .pool
-            .get()
+    async fn run_rescan(&self, user_id: i64, range: RescanRange, run_id: i64) {
+        match self.start_run(user_id, run_id).await {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(error) => {
+                tracing::error!(user_id, run_id, %error, "历史扫描无法更新为 running");
+                return;
+            }
+        }
+        let result = match self.sync_range(user_id, range, run_id).await {
+            Ok(result) => result,
+            Err(error) => SyncResult {
+                failed: 1,
+                errors: vec![error],
+                ..SyncResult::default()
+            },
+        };
+        if self
+            .is_run_cancelled(user_id, run_id)
             .await
-            .map_err(display)?
-            .execute(
-                "UPDATE public.bill_mailbox_sync_states SET status = 'running', started_at = now(),
-                   finished_at = NULL, result = NULL, error_message = NULL, updated_at = now()
-                 WHERE user_id = $1 AND status = 'queued'",
-                &[&user_id],
-            )
-            .await
-            .map_err(display)?;
-        Ok(updated == 1)
+            .unwrap_or(false)
+        {
+            return;
+        }
+        if let Err(error) = self.finish(user_id, run_id, &result).await {
+            tracing::error!(user_id, run_id, %error, "历史扫描结果无法保存");
+        }
     }
 
-    async fn finish(&self, user_id: i64, result: &SyncResult) -> Result<(), String> {
+    async fn finish(&self, user_id: i64, run_id: i64, result: &SyncResult) -> Result<(), String> {
         let status = if result.failed == 0 {
             "succeeded"
         } else {
@@ -433,14 +546,26 @@ impl Service {
         };
         let error = result.errors.first().map(|value| truncate(value, 2000));
         let encoded = serde_json::to_string(result).map_err(display)?;
-        self.pool
-            .get()
-            .await
-            .map_err(display)?
+        let client = self.pool.get().await.map_err(display)?;
+        client
             .execute(
-                "UPDATE public.bill_mailbox_sync_states SET status = $2, finished_at = now(),
-                   result = $3::text::json, error_message = $4, updated_at = now() WHERE user_id = $1",
-                &[&user_id, &status, &encoded, &error],
+                "UPDATE abei_ai.mail_sync_runs SET status = $3, stage = 'finished',
+                   scanned = $4, fetched = $5, matched = $6, unclassified = $7,
+                   failed = $8, progress = $9::text::jsonb, error_summary = $10,
+                   finished_at = now(), updated_at = now()
+                 WHERE user_id = $1 AND id = $2 AND status = 'running'",
+                &[
+                    &user_id,
+                    &run_id,
+                    &status,
+                    &(result.scanned as i32),
+                    &(result.fetched as i32),
+                    &(result.matched as i32),
+                    &(result.unclassified as i32),
+                    &(result.failed as i32),
+                    &encoded,
+                    &error,
+                ],
             )
             .await
             .map_err(display)?;
@@ -453,31 +578,219 @@ impl Service {
         );
         Ok(())
     }
+
+    async fn prepare_run_fetch(
+        &self,
+        user_id: i64,
+        run_id: i64,
+        available: usize,
+        total: usize,
+    ) -> Result<(), String> {
+        let progress = serde_json::to_string(&json!({
+            "stage": "fetch",
+            "available": available,
+            "total": total,
+            "scanned": 0,
+            "fetched": 0,
+        }))
+        .map_err(display)?;
+        self.pool
+            .get()
+            .await
+            .map_err(display)?
+            .execute(
+                "UPDATE abei_ai.mail_sync_runs SET stage = 'fetch',
+                   progress = $3::text::jsonb, updated_at = now()
+                 WHERE user_id = $1 AND id = $2 AND status = 'running'",
+                &[&user_id, &run_id, &progress],
+            )
+            .await
+            .map_err(display)?;
+        Ok(())
+    }
+
+    async fn start_run(&self, user_id: i64, run_id: i64) -> Result<bool, String> {
+        let updated = self
+            .pool
+            .get()
+            .await
+            .map_err(display)?
+            .execute(
+                "UPDATE abei_ai.mail_sync_runs SET status = 'running', stage = 'connect',
+                   started_at = now(), updated_at = now()
+                 WHERE user_id = $1 AND id = $2 AND status = 'queued'",
+                &[&user_id, &run_id],
+            )
+            .await
+            .map_err(display)?;
+        Ok(updated == 1)
+    }
+
+    async fn cancel_run(&self, user_id: i64, run_id: i64) -> Result<bool, String> {
+        let updated = self
+            .pool
+            .get()
+            .await
+            .map_err(display)?
+            .execute(
+                "UPDATE abei_ai.mail_sync_runs SET status = 'cancelled', stage = 'finished',
+                   finished_at = now(), updated_at = now()
+                 WHERE user_id = $1 AND id = $2 AND status IN ('queued', 'running')",
+                &[&user_id, &run_id],
+            )
+            .await
+            .map_err(display)?;
+        Ok(updated == 1)
+    }
+
+    async fn is_run_cancelled(&self, user_id: i64, run_id: i64) -> Result<bool, String> {
+        self.pool
+            .get()
+            .await
+            .map_err(display)?
+            .query_opt(
+                "SELECT 1 FROM abei_ai.mail_sync_runs
+                 WHERE user_id = $1 AND id = $2 AND status = 'cancelled'",
+                &[&user_id, &run_id],
+            )
+            .await
+            .map(|row| row.is_some())
+            .map_err(display)
+    }
+
+    async fn update_run_progress(
+        &self,
+        user_id: i64,
+        run_id: i64,
+        result: &SyncResult,
+    ) -> Result<(), String> {
+        let progress = serde_json::to_string(&json!({
+            "stage": "fetch",
+            "scanned": result.scanned,
+            "fetched": result.fetched,
+            "matched": result.matched,
+            "unclassified": result.unclassified,
+            "failed": result.failed,
+            "cancelled": result.cancelled,
+        }))
+        .map_err(display)?;
+        self.pool
+            .get()
+            .await
+            .map_err(display)?
+            .execute(
+                "UPDATE abei_ai.mail_sync_runs SET stage = 'fetch', scanned = $3, fetched = $4,
+                   matched = $5, unclassified = $6, failed = $7,
+                   progress = progress || $8::text::jsonb, updated_at = now()
+                 WHERE user_id = $1 AND id = $2 AND status = 'running'",
+                &[
+                    &user_id,
+                    &run_id,
+                    &(result.scanned as i32),
+                    &(result.fetched as i32),
+                    &(result.matched as i32),
+                    &(result.unclassified as i32),
+                    &(result.failed as i32),
+                    &progress,
+                ],
+            )
+            .await
+            .map_err(display)?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Default, Serialize)]
 struct SyncResult {
     scanned: usize,
+    fetched: usize,
     created: usize,
     ignored: usize,
     duplicates: usize,
+    matched: usize,
+    unclassified: usize,
     failed: usize,
     processed: usize,
     process_failed: usize,
+    cancelled: bool,
     errors: Vec<String>,
 }
 
-fn sync_state(row: &tokio_postgres::Row) -> Value {
-    let result: Option<Value> = row
-        .get::<_, Option<String>>(4)
-        .and_then(|raw| serde_json::from_str(&raw).ok());
+#[derive(Debug, Clone, Copy)]
+struct RescanRange {
+    from: Date,
+    to: Date,
+    limit: usize,
+}
+
+impl RescanRange {
+    fn parse(request: &RescanRequest) -> Result<Self, ApiError> {
+        let format = time::format_description::parse_borrowed::<2>("[year]-[month]-[day]")
+            .map_err(|error| ApiError::internal(error.to_string()))?;
+        let from = Date::parse(&request.from, &format)
+            .map_err(|_| ApiError::invalid_params("from 必须是 YYYY-MM-DD。"))?;
+        let to = match request.to.as_deref() {
+            Some(value) => Date::parse(value, &format)
+                .map_err(|_| ApiError::invalid_params("to 必须是 YYYY-MM-DD。"))?,
+            None => OffsetDateTime::now_utc().date(),
+        };
+        if to < from {
+            return Err(ApiError::invalid_params("to 不能早于 from。"));
+        }
+        if (to - from).whole_days() > 180 {
+            return Err(ApiError::invalid_params("历史扫描最长 180 天。"));
+        }
+        let limit = usize::from(request.limit.unwrap_or(500));
+        if !(1..=500).contains(&limit) {
+            return Err(ApiError::invalid_params("limit 必须在 1 到 500 之间。"));
+        }
+        Ok(Self { from, to, limit })
+    }
+
+    fn search_query(self) -> Result<String, String> {
+        let before = self
+            .to
+            .next_day()
+            .ok_or_else(|| "历史扫描结束日期超出支持范围。".to_owned())?;
+        Ok(format!(
+            "SINCE {} BEFORE {}",
+            imap_date(self.from),
+            imap_date(before)
+        ))
+    }
+}
+
+fn imap_date(date: Date) -> String {
+    let month = match date.month() {
+        time::Month::January => "Jan",
+        time::Month::February => "Feb",
+        time::Month::March => "Mar",
+        time::Month::April => "Apr",
+        time::Month::May => "May",
+        time::Month::June => "Jun",
+        time::Month::July => "Jul",
+        time::Month::August => "Aug",
+        time::Month::September => "Sep",
+        time::Month::October => "Oct",
+        time::Month::November => "Nov",
+        time::Month::December => "Dec",
+    };
+    format!("{}-{month}-{}", date.day(), date.year())
+}
+
+fn sync_run_state(row: &tokio_postgres::Row) -> Value {
+    let status = row.get::<_, String>(1);
+    let progress = row.get::<_, Value>(5);
+    let result =
+        matches!(status.as_str(), "succeeded" | "failed" | "cancelled").then_some(progress);
     json!({
-        "status": row.get::<_, String>(0),
-        "requested_at": row.get::<_, Option<String>>(1),
-        "started_at": row.get::<_, Option<String>>(2),
-        "finished_at": row.get::<_, Option<String>>(3),
+        "run_id": row.get::<_, i64>(0).to_string(),
+        "status": if status == "cancelled" { "failed" } else { status.as_str() },
+        "requested_at": row.get::<_, String>(2),
+        "started_at": row.get::<_, Option<String>>(3),
+        "finished_at": row.get::<_, Option<String>>(4),
         "result": result,
-        "error_message": row.get::<_, Option<String>>(5),
+        "error_message": row.get::<_, Option<String>>(6),
     })
 }
 
@@ -538,6 +851,16 @@ pub(crate) struct SyncRequest {
     limit: Option<i16>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RescanRequest {
+    from: String,
+    #[serde(default)]
+    to: Option<String>,
+    #[serde(default)]
+    limit: Option<u16>,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GoogleCallback {
@@ -592,6 +915,56 @@ pub(crate) async fn sync(
     ))
 }
 
+pub(crate) async fn rescan(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    gate: Result<Query<WriteGate>, QueryRejection>,
+    payload: Result<Json<RescanRequest>, JsonRejection>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let user_id = authenticated_user_id(&headers)?;
+    let Query(gate) = gate.map_err(|error| ApiError::invalid_params(error.body_text()))?;
+    let Json(request) = payload.map_err(|error| ApiError::invalid_params(error.body_text()))?;
+    let range = RescanRange::parse(&request)?;
+    if !state.mailbox.load_settings(user_id).await?.enabled {
+        return Err(ApiError::invalid_params("请先配置并启用邮箱。"));
+    }
+    if gate.dry_run {
+        let estimated = state
+            .mailbox
+            .estimate_rescan(user_id, &range)
+            .await
+            .map_err(ApiError::oauth)?;
+        return Ok((
+            StatusCode::OK,
+            Json(json!({
+                "dry_run": true,
+                "data": {
+                    "from": request.from,
+                    "to": request.to.unwrap_or_else(|| range.to.to_string()),
+                    "limit": range.limit,
+                    "estimated": estimated,
+                }
+            })),
+        ));
+    }
+    gate.require_confirmation("mailboxes.rescan")?;
+    let run_id = state
+        .mailbox
+        .enqueue_rescan(user_id, range)
+        .await
+        .map_err(ApiError::database)?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({
+            "data": {
+                "type": "mail-sync-run",
+                "id": run_id.to_string(),
+                "attributes": { "status": "queued", "kind": "rescan" }
+            }
+        })),
+    ))
+}
+
 pub(crate) async fn start_google_oauth(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -629,15 +1002,6 @@ pub(crate) async fn disconnect_google(
     let user_id = authenticated_user_id(&headers)?;
     let settings = state.mailbox.disconnect_google(user_id).await?;
     Ok(Json(settings_response(settings)))
-}
-
-fn authenticated_user_id(headers: &HeaderMap) -> Result<i64, ApiError> {
-    headers
-        .get(USER_ID_HEADER)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<i64>().ok())
-        .filter(|value| *value > 0)
-        .ok_or_else(|| ApiError::forbidden("缺少可信的 Firefly 用户 ID。"))
 }
 
 fn settings_response(settings: Settings) -> Value {
@@ -1045,9 +1409,9 @@ fn truncate(value: &str, max: usize) -> String {
     value.chars().take(max).collect()
 }
 
+#[derive(Clone)]
 struct MailboxRecord {
     enabled: bool,
-    email: String,
     host: String,
     port: u16,
     encryption: String,
@@ -1058,17 +1422,60 @@ struct MailboxRecord {
     last_uid: u32,
 }
 
+#[derive(Clone)]
 enum MailboxAuth {
     Password(String),
     GoogleAccessToken(String),
 }
 
 impl Service {
+    pub(crate) async fn request_cancel(
+        &self,
+        user_id: i64,
+        run_id: i64,
+    ) -> Result<Value, ApiError> {
+        self.cancel_run(user_id, run_id)
+            .await
+            .map_err(ApiError::database)?;
+        self.workbench.get_sync_run(user_id, run_id).await
+    }
+
+    pub(crate) async fn cache_message(&self, user_id: i64, id: i64) -> Result<Value, ApiError> {
+        let locator = self.workbench.message_locator(user_id, id).await?;
+        let mut mailbox = self.load_mailbox(user_id).await.map_err(ApiError::oauth)?;
+        if !mailbox.enabled {
+            return Err(ApiError::conflict("请先配置并启用邮箱。"));
+        }
+        mailbox.folder = locator.folder;
+        let (mut session, selected) =
+            connect_selected(&mailbox, self.config.operation_timeout, "缓存邮件")
+                .await
+                .map_err(ApiError::oauth)?;
+        if selected.uid_validity != Some(locator.uid_validity) {
+            let _ = within(self.config.operation_timeout, "退出邮箱", session.logout()).await;
+            return Err(ApiError::conflict(
+                "邮箱服务器已经重建该文件夹，原邮件 UID 已失效；请按日期执行历史扫描。",
+            ));
+        }
+        self.handle_uid(
+            user_id,
+            locator.uid_validity,
+            locator.uid,
+            &mailbox,
+            &mut session,
+            true,
+        )
+        .await
+        .map_err(MessageError::into_api_error)?;
+        let _ = within(self.config.operation_timeout, "退出邮箱", session.logout()).await;
+        self.workbench.get_message(user_id, id).await
+    }
+
     async fn load_mailbox(&self, user_id: i64) -> Result<MailboxRecord, String> {
         let client = self.pool.get().await.map_err(display)?;
         let row = client
             .query_opt(
-                "SELECT enabled, email, host, port, encryption, username, password_ciphertext,
+                "SELECT enabled, host, port, encryption, username, password_ciphertext,
                         folder, uid_validity, last_uid, auth_method,
                         oauth_refresh_token_ciphertext
                  FROM abei_ai.mailboxes WHERE user_id = $1",
@@ -1078,18 +1485,18 @@ impl Service {
             .map_err(display)?
             .ok_or_else(|| "邮箱还没有配置。".to_owned())?;
         let enabled = row.get(0);
-        let auth = match (enabled, row.get::<_, String>(10).as_str()) {
+        let auth = match (enabled, row.get::<_, String>(9).as_str()) {
             (false, _) => MailboxAuth::Password(String::new()),
             (true, "password") => {
                 let encrypted = row
-                    .get::<_, Option<String>>(6)
+                    .get::<_, Option<String>>(5)
                     .filter(|value| !value.is_empty())
                     .ok_or_else(|| "邮箱已启用，但没有保存密码，请重新保存邮箱设置。".to_owned())?;
                 MailboxAuth::Password(self.config.password_cipher.decrypt(user_id, &encrypted)?)
             }
             (true, "google_oauth") => {
                 let encrypted = row
-                    .get::<_, Option<String>>(11)
+                    .get::<_, Option<String>>(10)
                     .filter(|value| !value.is_empty())
                     .ok_or_else(|| "Google 邮箱尚未连接，请重新授权。".to_owned())?;
                 let refresh_token = self
@@ -1107,38 +1514,37 @@ impl Service {
         };
         Ok(MailboxRecord {
             enabled,
-            email: row.get(1),
-            host: row.get(2),
-            port: u16::try_from(row.get::<_, i32>(3))
+            host: row.get(1),
+            port: u16::try_from(row.get::<_, i32>(2))
                 .map_err(|_| "保存的 IMAP 端口不合法。".to_owned())?,
-            encryption: row.get(4),
-            username: row.get(5),
+            encryption: row.get(3),
+            username: row.get(4),
             auth,
-            folder: row.get(7),
+            folder: row.get(6),
             uid_validity: row
-                .get::<_, Option<i64>>(8)
+                .get::<_, Option<i64>>(7)
                 .map(u32::try_from)
                 .transpose()
                 .map_err(|_| "保存的 IMAP UIDVALIDITY 不合法。".to_owned())?,
-            last_uid: u32::try_from(row.get::<_, i64>(9))
+            last_uid: u32::try_from(row.get::<_, i64>(8))
                 .map_err(|_| "保存的 IMAP 游标不合法。".to_owned())?,
         })
     }
 
-    async fn sync_user(&self, user_id: i64, limit: usize) -> Result<SyncResult, String> {
+    async fn sync_user(
+        &self,
+        user_id: i64,
+        limit: usize,
+        run_id: Option<i64>,
+    ) -> Result<SyncResult, String> {
         let mut result = SyncResult::default();
         let mut mailbox = self.load_mailbox(user_id).await?;
         if !mailbox.enabled {
             return Ok(result);
         }
 
-        let mut session = connect(&mailbox, self.config.operation_timeout).await?;
-        let selected = within(
-            self.config.operation_timeout,
-            "打开邮箱文件夹",
-            session.select(&mailbox.folder),
-        )
-        .await?;
+        let (mut session, selected) =
+            connect_selected(&mailbox, self.config.operation_timeout, "增量同步").await?;
         let uid_validity = selected
             .uid_validity
             .ok_or_else(|| "IMAP 服务器没有返回 UIDVALIDITY，无法可靠增量同步。".to_owned())?;
@@ -1170,17 +1576,35 @@ impl Service {
             .into_iter()
             .collect()
         };
+        let available = uids.len();
         let uids = select_uids(uids, mailbox.last_uid, limit);
+        if let Some(run_id) = run_id {
+            self.prepare_run_fetch(user_id, run_id, available, uids.len())
+                .await?;
+        }
 
         for uid in uids {
+            if let Some(run_id) = run_id
+                && self.is_run_cancelled(user_id, run_id).await?
+            {
+                result.cancelled = true;
+                break;
+            }
             result.scanned += 1;
             let handled = self
-                .handle_uid(user_id, uid_validity, uid, &mailbox, &mut session)
+                .handle_uid(user_id, uid_validity, uid, &mailbox, &mut session, false)
                 .await;
             match handled {
-                Ok(MessageOutcome::Created) => result.created += 1,
-                Ok(MessageOutcome::Ignored) => result.ignored += 1,
-                Ok(MessageOutcome::Duplicate) => result.duplicates += 1,
+                Ok(outcome) => {
+                    result.fetched += usize::from(outcome.content_fetched);
+                    match outcome.delivery {
+                        MessageDelivery::Created => result.created += 1,
+                        MessageDelivery::Ignored => result.ignored += 1,
+                        MessageDelivery::Duplicate => result.duplicates += 1,
+                        MessageDelivery::Indexed => {}
+                    }
+                    count_classification(&mut result, outcome.classification);
+                }
                 Err(error) => {
                     let retryable = matches!(error, MessageError::Retryable(_));
                     result.failed += 1;
@@ -1198,6 +1622,76 @@ impl Service {
                 result.errors.push(format!("同步游标保存失败：{error}"));
                 break;
             }
+            if let Some(run_id) = run_id
+                && let Err(error) = self.update_run_progress(user_id, run_id, &result).await
+            {
+                tracing::warn!(user_id, run_id, %error, "邮箱同步进度保存失败");
+            }
+        }
+
+        let _ = within(self.config.operation_timeout, "退出邮箱", session.logout()).await;
+        Ok(result)
+    }
+
+    async fn sync_range(
+        &self,
+        user_id: i64,
+        range: RescanRange,
+        run_id: i64,
+    ) -> Result<SyncResult, String> {
+        let mut result = SyncResult::default();
+        let mailbox = self.load_mailbox(user_id).await?;
+        if !mailbox.enabled {
+            return Ok(result);
+        }
+
+        let (mut session, selected) =
+            connect_selected(&mailbox, self.config.operation_timeout, "历史扫描").await?;
+        let uid_validity = selected
+            .uid_validity
+            .ok_or_else(|| "IMAP 服务器没有返回 UIDVALIDITY，无法可靠索引历史邮件。".to_owned())?;
+        let uids = within(
+            self.config.operation_timeout,
+            "搜索历史邮件",
+            session.uid_search(range.search_query()?),
+        )
+        .await?
+        .into_iter()
+        .collect::<Vec<_>>();
+        let available = uids.len();
+        let uids = select_rescan_uids(uids, range.limit);
+        self.prepare_run_fetch(user_id, run_id, available, uids.len())
+            .await?;
+
+        for uid in uids {
+            if self.is_run_cancelled(user_id, run_id).await? {
+                result.cancelled = true;
+                break;
+            }
+            result.scanned += 1;
+            match self
+                .handle_uid(user_id, uid_validity, uid, &mailbox, &mut session, false)
+                .await
+            {
+                Ok(outcome) => {
+                    result.fetched += usize::from(outcome.content_fetched);
+                    count_classification(&mut result, outcome.classification);
+                }
+                Err(error) => {
+                    let retryable = matches!(error, MessageError::Retryable(_));
+                    result.failed += 1;
+                    result
+                        .errors
+                        .push(format!("邮件 UID {uid} 处理失败：{error}"));
+                    if retryable {
+                        let _ = self.update_run_progress(user_id, run_id, &result).await;
+                        break;
+                    }
+                }
+            }
+            if let Err(error) = self.update_run_progress(user_id, run_id, &result).await {
+                tracing::warn!(user_id, run_id, %error, "历史扫描进度保存失败");
+            }
         }
 
         let _ = within(self.config.operation_timeout, "退出邮箱", session.logout()).await;
@@ -1211,17 +1705,101 @@ impl Service {
         uid: u32,
         mailbox: &MailboxRecord,
         session: &mut Session<MailStream>,
+        force_content: bool,
     ) -> Result<MessageOutcome, MessageError> {
+        let metadata_fetches = within(
+            self.config.operation_timeout,
+            "获取邮件索引",
+            session.uid_fetch(
+                uid.to_string(),
+                "(UID RFC822.SIZE BODY.PEEK[HEADER] BODYSTRUCTURE)",
+            ),
+        )
+        .await
+        .map_err(MessageError::Retryable)?;
+        let metadata_fetches = within(
+            self.config.operation_timeout,
+            "读取邮件索引",
+            metadata_fetches.try_collect::<Vec<_>>(),
+        )
+        .await
+        .map_err(MessageError::Retryable)?;
+        let metadata_fetch = metadata_fetches
+            .first()
+            .ok_or_else(|| MessageError::Retryable("IMAP 没有返回邮件索引。".to_owned()))?;
+        let raw_headers = metadata_fetch
+            .header()
+            .ok_or_else(|| MessageError::Retryable("IMAP 没有返回邮件 Header。".to_owned()))?;
+        let message_size =
+            usize::try_from(metadata_fetch.size.unwrap_or_default()).unwrap_or(usize::MAX);
+        let ImapBodyMetadata {
+            value: mut body_structure,
+            attachments: metadata_attachments,
+        } = ImapBodyMetadata::from_structure(metadata_fetch.bodystructure(), message_size);
+        let metadata = ParsedMessage::parse_headers(raw_headers, metadata_attachments)
+            .map_err(MessageError::Permanent)?;
+        let metadata_to = metadata.to_address.clone().into_iter().collect::<Vec<_>>();
+        let metadata_attachments = metadata
+            .attachments
+            .iter()
+            .map(|attachment| crate::mail::rules::AttachmentFacts {
+                filename: attachment.filename.clone(),
+                mime: attachment.mime.clone(),
+                size: attachment.size,
+            })
+            .collect::<Vec<_>>();
+        let metadata_index = self
+            .workbench
+            .index_metadata(crate::mail::IndexMetadata {
+                user_id,
+                folder: &mailbox.folder,
+                uid_validity,
+                uid,
+                message_id: metadata.message_id.as_deref(),
+                from_address: metadata.from_address.as_deref(),
+                to_addresses: &metadata_to,
+                subject: metadata.subject.as_deref(),
+                received_at: metadata.received_at,
+                headers: &metadata.headers,
+                raw_headers: &metadata.raw_headers,
+                attachments: &metadata_attachments,
+                body_structure: &body_structure,
+            })
+            .await
+            .map_err(|error| MessageError::Local(format!("邮件工作台索引失败：{error}")))?;
+        tracing::debug!(
+            user_id,
+            uid,
+            mail_message_id = metadata_index.id,
+            rule_matched = metadata_index.matched,
+            needs_content = metadata_index.needs_content,
+            "邮件工作台元数据索引完成"
+        );
+        let mut workbench_classification = Some(metadata_index.matched);
+        if !force_content && !metadata_index.matched && !metadata_index.needs_content {
+            return Ok(MessageOutcome {
+                delivery: MessageDelivery::Indexed,
+                classification: workbench_classification,
+                content_fetched: false,
+            });
+        }
+        if message_size > MAX_MESSAGE_BYTES {
+            return Err(MessageError::Permanent(format!(
+                "邮件超过 {} MiB 上限。",
+                MAX_MESSAGE_BYTES / 1024 / 1024
+            )));
+        }
+
         let fetches = within(
             self.config.operation_timeout,
-            "获取邮件",
+            "获取邮件内容",
             session.uid_fetch(uid.to_string(), "(UID BODY.PEEK[])"),
         )
         .await
         .map_err(MessageError::Retryable)?;
         let fetched = within(
             self.config.operation_timeout,
-            "读取邮件正文",
+            "读取邮件内容",
             fetches.try_collect::<Vec<_>>(),
         )
         .await
@@ -1237,28 +1815,77 @@ impl Service {
             )));
         }
         let parsed = ParsedMessage::parse(raw).map_err(MessageError::Permanent)?;
-        let Some(channel) = Channel::detect(&parsed) else {
-            return Ok(MessageOutcome::Ignored);
+        let to_addresses = parsed.to_address.clone().into_iter().collect::<Vec<_>>();
+        let attachments = parsed
+            .attachments
+            .iter()
+            .map(|attachment| crate::mail::rules::AttachmentFacts {
+                filename: attachment.filename.clone(),
+                mime: attachment.mime.clone(),
+                size: attachment.size,
+            })
+            .collect::<Vec<_>>();
+        body_structure["has_text"] = json!(parsed.body_text.is_some());
+        body_structure["has_html"] = json!(parsed.body_html.is_some());
+        body_structure["attachments"] = json!(attachments);
+        let content_index = self
+            .workbench
+            .index(crate::mail::IndexMessage {
+                user_id,
+                folder: &mailbox.folder,
+                uid_validity,
+                uid,
+                message_id: parsed.message_id.as_deref(),
+                from_address: parsed.from_address.as_deref(),
+                to_addresses: &to_addresses,
+                subject: parsed.subject.as_deref(),
+                received_at: parsed.received_at,
+                headers: &parsed.headers,
+                raw_headers: &parsed.raw_headers,
+                body_text: parsed.body_text.as_deref(),
+                body_html: parsed.body_html.as_deref(),
+                attachments: &attachments,
+                body_structure: &body_structure,
+                raw,
+                legacy_channel_key: None,
+            })
+            .await
+            .map_err(|error| MessageError::Local(format!("邮件工作台索引失败：{error}")))?;
+        workbench_classification = Some(content_index.matched);
+        tracing::debug!(
+            user_id,
+            uid,
+            mail_message_id = content_index.id,
+            rule_matched = content_index.matched,
+            "邮件工作台内容索引完成"
+        );
+        let delivery = if content_index.matched {
+            match self
+                .billing
+                .enqueue_message(user_id, content_index.id)
+                .await
+                .map_err(MessageError::Retryable)?
+            {
+                Some((document_id, job_id)) => {
+                    tracing::info!(
+                        user_id,
+                        mail_message_id = content_index.id,
+                        document_id,
+                        job_id,
+                        "邮件已进入 Rust 账单解析链路"
+                    );
+                    MessageDelivery::Created
+                }
+                None => MessageDelivery::Duplicate,
+            }
+        } else {
+            MessageDelivery::Ignored
         };
-        let checksum = sha256(raw);
-        let cursor = format!("imap:{uid_validity}:{uid}");
-        if self
-            .is_duplicate(user_id, parsed.message_id.as_deref(), &checksum, &cursor)
-            .await
-            .map_err(MessageError::Retryable)?
-        {
-            return Ok(MessageOutcome::Duplicate);
-        }
-        let stored = self
-            .store_files(user_id, raw, &parsed, &checksum)
-            .await
-            .map_err(MessageError::Retryable)?;
-        self.insert_message(
-            user_id, mailbox, channel, &parsed, &stored, &checksum, &cursor,
-        )
-        .await
-        .map_err(MessageError::Retryable)?;
-        Ok(MessageOutcome::Created)
+        Ok(MessageOutcome {
+            delivery,
+            classification: workbench_classification,
+            content_fetched: true,
+        })
     }
 
     async fn save_cursor(&self, user_id: i64, validity: u32, uid: u32) -> Result<(), String> {
@@ -1275,29 +1902,6 @@ impl Service {
             .map_err(display)?;
         Ok(())
     }
-
-    async fn is_duplicate(
-        &self,
-        user_id: i64,
-        message_id: Option<&str>,
-        checksum: &str,
-        cursor: &str,
-    ) -> Result<bool, String> {
-        self.pool
-            .get()
-            .await
-            .map_err(display)?
-            .query_opt(
-                "SELECT 1 FROM public.bill_mail_messages
-                 WHERE user_id = $1 AND
-                   (checksum = $2 OR sync_cursor = $3 OR ($4::text IS NOT NULL AND message_id = $4))
-                 LIMIT 1",
-                &[&user_id, &checksum, &cursor, &message_id],
-            )
-            .await
-            .map(|row| row.is_some())
-            .map_err(display)
-    }
 }
 
 fn select_uids(mut uids: Vec<u32>, last_uid: u32, limit: usize) -> Vec<u32> {
@@ -1311,23 +1915,59 @@ fn select_uids(mut uids: Vec<u32>, last_uid: u32, limit: usize) -> Vec<u32> {
     uids
 }
 
+fn select_rescan_uids(mut uids: Vec<u32>, limit: usize) -> Vec<u32> {
+    uids.sort_unstable();
+    if uids.len() > limit {
+        uids.drain(..uids.len() - limit);
+    }
+    uids
+}
+
 #[derive(Debug, Clone, Copy)]
-enum MessageOutcome {
+struct MessageOutcome {
+    delivery: MessageDelivery,
+    classification: Option<bool>,
+    content_fetched: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MessageDelivery {
     Created,
     Ignored,
     Duplicate,
+    Indexed,
+}
+
+fn count_classification(result: &mut SyncResult, matched: Option<bool>) {
+    match matched {
+        Some(true) => result.matched += 1,
+        Some(false) => result.unclassified += 1,
+        None => {}
+    }
 }
 
 #[derive(Debug)]
 enum MessageError {
     Permanent(String),
     Retryable(String),
+    Local(String),
+}
+
+impl MessageError {
+    fn into_api_error(self) -> ApiError {
+        match self {
+            Self::Local(error) => ApiError::database(error),
+            Self::Permanent(error) | Self::Retryable(error) => ApiError::oauth(error),
+        }
+    }
 }
 
 impl fmt::Display for MessageError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Permanent(error) | Self::Retryable(error) => formatter.write_str(error),
+            Self::Permanent(error) | Self::Retryable(error) | Self::Local(error) => {
+                formatter.write_str(error)
+            }
         }
     }
 }
@@ -1425,6 +2065,45 @@ async fn connect(
             }
         }
     }
+}
+
+/// SELECT 偶发超时时重建会话并重试一次。IMAP session 在超时后不能可靠复用，
+/// 所以每次重试都从全新的连接开始，并把文件夹和业务阶段写进错误。
+async fn connect_selected(
+    mailbox: &MailboxRecord,
+    duration: Duration,
+    stage: &str,
+) -> Result<(Session<MailStream>, ImapMailbox), String> {
+    let mut last_error = None;
+    for attempt in 0..=1 {
+        let mut session = connect(mailbox, duration).await.map_err(|error| {
+            format!(
+                "{stage}：连接 IMAP {}:{} 并打开文件夹 {} 失败：{error}",
+                mailbox.host, mailbox.port, mailbox.folder
+            )
+        })?;
+        match within(
+            duration,
+            &format!("{stage}：打开邮箱文件夹 {}", mailbox.folder),
+            session.select(&mailbox.folder),
+        )
+        .await
+        {
+            Ok(selected) => return Ok((session, selected)),
+            Err(error) => {
+                last_error = Some(error);
+                let _ = within(duration, "退出 IMAP 会话", session.logout()).await;
+                if attempt == 0 {
+                    tracing::warn!(folder = %mailbox.folder, %stage, "IMAP SELECT 失败，重建连接重试");
+                }
+            }
+        }
+    }
+    Err(format!(
+        "{stage}：无法打开邮箱文件夹 {}（已重试 1 次）：{}",
+        mailbox.folder,
+        last_error.unwrap_or_else(|| "未知 IMAP 错误".to_owned())
+    ))
 }
 
 struct XOAuth2(Option<String>);
@@ -1596,13 +2275,16 @@ struct ParsedMessage {
     received_at: Option<i64>,
     body_text: Option<String>,
     body_html: Option<String>,
+    headers: BTreeMap<String, Vec<String>>,
+    raw_headers: String,
     attachments: Vec<ParsedAttachment>,
 }
 
 #[derive(Debug)]
 struct ParsedAttachment {
     filename: String,
-    content: Vec<u8>,
+    mime: String,
+    size: usize,
 }
 
 impl ParsedMessage {
@@ -1624,9 +2306,31 @@ impl ParsedMessage {
                     }),
                     index,
                 ),
-                content: part.contents().to_vec(),
+                mime: part
+                    .content_type()
+                    .map(|content_type| {
+                        format!(
+                            "{}/{}",
+                            content_type.ctype(),
+                            content_type.subtype().unwrap_or("octet-stream")
+                        )
+                    })
+                    .unwrap_or_else(|| "application/octet-stream".to_owned()),
+                size: part.contents().len(),
             })
             .collect();
+        let mut headers = BTreeMap::<String, Vec<String>>::new();
+        for header in message.headers().iter().take(200) {
+            let name = header.name.to_string().to_ascii_lowercase();
+            let value = raw
+                .get(header.offset_start as usize..header.offset_end as usize)
+                .map(String::from_utf8_lossy)
+                .map(|value| header_value(Some(value.trim()), 4096).unwrap_or_default())
+                .unwrap_or_default();
+            if !value.is_empty() {
+                headers.entry(name).or_default().push(value);
+            }
+        }
         Ok(Self {
             message_id: message_id_value(message.message_id()),
             from_address: header_value(first_address(message.from()).as_deref(), 255),
@@ -1635,17 +2339,184 @@ impl ParsedMessage {
             received_at: message.date().map(|date| date.to_timestamp()),
             body_text: message.body_text(0).map(|body| body.into_owned()),
             body_html: message.body_html(0).map(|body| body.into_owned()),
+            headers,
+            raw_headers: raw_header_block(raw),
             attachments,
         })
     }
 
-    fn body(&self) -> String {
-        [self.body_html.as_deref(), self.body_text.as_deref()]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join("\n")
+    fn parse_headers(raw: &[u8], attachments: Vec<ParsedAttachment>) -> Result<Self, String> {
+        let message = MessageParser::default()
+            .parse_headers(raw)
+            .ok_or_else(|| "邮件 Header 解析失败。".to_owned())?;
+        let mut headers = BTreeMap::<String, Vec<String>>::new();
+        for header in message.headers().iter().take(200) {
+            let name = header.name.to_string().to_ascii_lowercase();
+            let value = raw
+                .get(header.offset_start as usize..header.offset_end as usize)
+                .map(String::from_utf8_lossy)
+                .map(|value| header_value(Some(value.trim()), 4096).unwrap_or_default())
+                .unwrap_or_default();
+            if !value.is_empty() {
+                headers.entry(name).or_default().push(value);
+            }
+        }
+        Ok(Self {
+            message_id: message_id_value(message.message_id()),
+            from_address: header_value(first_address(message.from()).as_deref(), 255),
+            to_address: header_value(first_address(message.to()).as_deref(), 255),
+            subject: header_value(message.subject(), 255),
+            received_at: message.date().map(|date| date.to_timestamp()),
+            body_text: None,
+            body_html: None,
+            headers,
+            raw_headers: String::from_utf8_lossy(raw).into_owned(),
+            attachments,
+        })
     }
+}
+
+struct ImapBodyMetadata {
+    value: Value,
+    attachments: Vec<ParsedAttachment>,
+}
+
+impl ImapBodyMetadata {
+    fn from_structure(structure: Option<&BodyStructure<'_>>, message_size: usize) -> Self {
+        let mut attachments = Vec::new();
+        let tree = structure.map(|body| body_structure_json(body, &mut attachments));
+        let has_text = structure.is_some_and(|body| body_structure_has_mime(body, "text/plain"));
+        let has_html = structure.is_some_and(|body| body_structure_has_mime(body, "text/html"));
+        Self {
+            value: json!({
+                "message_size": message_size,
+                "has_text": has_text,
+                "has_html": has_html,
+                "attachments": attachments.iter().map(|attachment| json!({
+                    "filename": attachment.filename,
+                    "mime": attachment.mime,
+                    "size": attachment.size,
+                })).collect::<Vec<_>>(),
+                "tree": tree,
+            }),
+            attachments,
+        }
+    }
+}
+
+fn body_structure_json(body: &BodyStructure<'_>, attachments: &mut Vec<ParsedAttachment>) -> Value {
+    match body {
+        BodyStructure::Basic { common, other, .. } | BodyStructure::Text { common, other, .. } => {
+            body_part_json(
+                common,
+                usize::try_from(other.octets).unwrap_or(usize::MAX),
+                attachments,
+            )
+        }
+        BodyStructure::Message {
+            common,
+            other,
+            body,
+            ..
+        } => {
+            let mut value = body_part_json(
+                common,
+                usize::try_from(other.octets).unwrap_or(usize::MAX),
+                attachments,
+            );
+            value["children"] = json!([body_structure_json(body, attachments)]);
+            value
+        }
+        BodyStructure::Multipart { common, bodies, .. } => json!({
+            "mime": body_mime(common),
+            "disposition": common.disposition.as_ref().map(|value| value.ty.as_ref()),
+            "children": bodies
+                .iter()
+                .map(|body| body_structure_json(body, attachments))
+                .collect::<Vec<_>>(),
+        }),
+    }
+}
+
+fn body_part_json(
+    common: &BodyContentCommon<'_>,
+    size: usize,
+    attachments: &mut Vec<ParsedAttachment>,
+) -> Value {
+    let mime = body_mime(common);
+    let filename = body_param(
+        common
+            .disposition
+            .as_ref()
+            .and_then(|value| value.params.as_ref()),
+        "filename",
+    )
+    .or_else(|| body_param(common.ty.params.as_ref(), "name"));
+    let disposition = common
+        .disposition
+        .as_ref()
+        .map(|value| value.ty.as_ref().to_ascii_lowercase());
+    if disposition.as_deref() == Some("attachment") || filename.is_some() {
+        let index = attachments.len();
+        attachments.push(ParsedAttachment {
+            filename: safe_filename(filename.as_deref().unwrap_or("attachment.bin"), index),
+            mime: mime.clone(),
+            size,
+        });
+    }
+    json!({
+        "mime": mime,
+        "filename": filename,
+        "disposition": disposition,
+        "size": size,
+    })
+}
+
+fn body_structure_has_mime(body: &BodyStructure<'_>, expected: &str) -> bool {
+    match body {
+        BodyStructure::Basic { common, .. } | BodyStructure::Text { common, .. } => {
+            body_mime(common) == expected
+        }
+        BodyStructure::Message { common, body, .. } => {
+            body_mime(common) == expected || body_structure_has_mime(body, expected)
+        }
+        BodyStructure::Multipart { bodies, .. } => bodies
+            .iter()
+            .any(|body| body_structure_has_mime(body, expected)),
+    }
+}
+
+fn body_mime(common: &BodyContentCommon<'_>) -> String {
+    format!(
+        "{}/{}",
+        common.ty.ty.to_ascii_lowercase(),
+        common.ty.subtype.to_ascii_lowercase()
+    )
+}
+
+fn body_param(
+    params: Option<&Vec<(std::borrow::Cow<'_, str>, std::borrow::Cow<'_, str>)>>,
+    expected: &str,
+) -> Option<String> {
+    params?
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(expected))
+        .map(|(_, value)| value.to_string())
+}
+
+fn raw_header_block(raw: &[u8]) -> String {
+    let end = raw
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|index| index + 2)
+        .or_else(|| {
+            raw.windows(2)
+                .position(|window| window == b"\n\n")
+                .map(|index| index + 1)
+        })
+        .unwrap_or(raw.len())
+        .min(64 * 1024);
+    String::from_utf8_lossy(&raw[..end]).into_owned()
 }
 
 fn first_address(address: Option<&mail_parser::Address<'_>>) -> Option<String> {
@@ -1673,143 +2544,6 @@ fn header_value(value: Option<&str>, max: usize) -> Option<String> {
         .take(max)
         .collect::<String>();
     (!value.is_empty()).then_some(value)
-}
-
-#[derive(Debug)]
-struct StoredMessage {
-    raw_path: String,
-    body_text_path: Option<String>,
-    body_html_path: Option<String>,
-    attachments: Vec<StoredAttachment>,
-}
-
-#[derive(Debug)]
-struct StoredAttachment {
-    filename: String,
-    path: String,
-    checksum: String,
-    size: i64,
-}
-
-impl Service {
-    async fn store_files(
-        &self,
-        user_id: i64,
-        raw: &[u8],
-        parsed: &ParsedMessage,
-        checksum: &str,
-    ) -> Result<StoredMessage, String> {
-        let base = PathBuf::from(format!("bill-inbox/{user_id}/{checksum}"));
-        let raw_path = base.join("message.eml");
-        self.write(&raw_path, raw).await?;
-        let body_text_path = match parsed
-            .body_text
-            .as_deref()
-            .filter(|body| !body.trim().is_empty())
-        {
-            Some(body) => {
-                let path = base.join("body.txt");
-                self.write(&path, body.as_bytes()).await?;
-                Some(relative_path(&path))
-            }
-            None => None,
-        };
-        let body_html_path = match parsed
-            .body_html
-            .as_deref()
-            .filter(|body| !body.trim().is_empty())
-        {
-            Some(body) => {
-                let path = base.join("body.html");
-                self.write(&path, body.as_bytes()).await?;
-                Some(relative_path(&path))
-            }
-            None => None,
-        };
-        let mut attachments = Vec::with_capacity(parsed.attachments.len());
-        for (index, attachment) in parsed.attachments.iter().enumerate() {
-            let path =
-                base.join("attachments")
-                    .join(format!("{:02}-{}", index + 1, attachment.filename));
-            self.write(&path, &attachment.content).await?;
-            attachments.push(StoredAttachment {
-                filename: attachment.filename.clone(),
-                path: relative_path(&path),
-                checksum: sha256(&attachment.content),
-                size: attachment.content.len() as i64,
-            });
-        }
-        Ok(StoredMessage {
-            raw_path: relative_path(&raw_path),
-            body_text_path,
-            body_html_path,
-            attachments,
-        })
-    }
-
-    async fn write(&self, relative: &Path, content: &[u8]) -> Result<(), String> {
-        let path = self.config.storage_root.join(relative);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).await.map_err(display)?;
-        }
-        fs::write(path, content).await.map_err(display)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn insert_message(
-        &self,
-        user_id: i64,
-        mailbox: &MailboxRecord,
-        channel: Channel,
-        parsed: &ParsedMessage,
-        stored: &StoredMessage,
-        checksum: &str,
-        cursor: &str,
-    ) -> Result<(), String> {
-        let mut client = self.pool.get().await.map_err(display)?;
-        let transaction = client.transaction().await.map_err(display)?;
-        let received_at = parsed.received_at.map(|value| value as f64);
-        let mailbox_name = if mailbox.email.is_empty() {
-            &mailbox.username
-        } else {
-            &mailbox.email
-        };
-        let row = transaction
-            .query_one(
-                "INSERT INTO public.bill_mail_messages
-                   (user_id, message_id, mailbox, from_address, to_address, subject, received_at,
-                    raw_path, body_text_path, body_html_path, checksum, sync_cursor, created_at, updated_at)
-                 VALUES ($1,$2,$3,$4,$5,$6,
-                         CASE WHEN $7::double precision IS NULL THEN NULL ELSE to_timestamp($7) END,
-                         $8,$9,$10,$11,$12,now(),now()) RETURNING id",
-                &[
-                    &user_id,
-                    &parsed.message_id,
-                    &mailbox_name,
-                    &parsed.from_address,
-                    &parsed.to_address,
-                    &parsed.subject,
-                    &received_at,
-                    &stored.raw_path,
-                    &stored.body_text_path,
-                    &stored.body_html_path,
-                    &checksum,
-                    &cursor,
-                ],
-            )
-            .await
-            .map_err(display)?;
-        let mail_id: i64 = row.get(0);
-        channel
-            .ingest(&transaction, user_id, mail_id, parsed, stored)
-            .await?;
-        transaction.commit().await.map_err(display)?;
-        Ok(())
-    }
-}
-
-fn relative_path(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
 }
 
 fn safe_filename(value: &str, index: usize) -> String {
@@ -1843,469 +2577,143 @@ fn sha256(content: &[u8]) -> String {
         .collect()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Channel {
-    Alipay,
-    Wechat,
-    CmbTransaction,
-    CmbCreditDaily,
-    Boc,
-}
-
-impl Channel {
-    fn detect(mail: &ParsedMessage) -> Option<Self> {
-        let sender = mail
-            .from_address
-            .as_deref()
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        let subject = mail.subject.as_deref().unwrap_or("");
-        let body = mail.body();
-        let has_zip = mail
-            .attachments
-            .iter()
-            .any(|attachment| extension(&attachment.filename) == "zip");
-        let has_pdf = mail
-            .attachments
-            .iter()
-            .any(|attachment| extension(&attachment.filename) == "pdf");
-
-        if sender.contains("service@mail.alipay.com") && subject.contains("支付宝交易流水明细")
-        {
-            Some(Self::Alipay)
-        } else if sender.contains("wechatpay@tencent.com")
-            && (subject.contains("微信支付账单流水文件") || body.contains("微信支付账单流水文件"))
-            && (subject.contains("账单流水文件") || body.contains("点击下载"))
-            && has_wechat_download_url(&body)
-        {
-            Some(Self::Wechat)
-        } else if sender.contains("95555@message.cmbchina.com")
-            && (subject.contains("招商银行交易流水") || body.contains("电子版交易流水"))
-            && (body.contains("招商银行App") || body.contains("流水打印") || has_zip)
-        {
-            Some(Self::CmbTransaction)
-        } else if sender.contains("ccsvc@message.cmbchina.com")
-            && subject.trim() == "每日信用管家"
-            && mail
-                .body_html
-                .as_deref()
-                .is_some_and(|html| html.contains("您的消费明细如下"))
-        {
-            Some(Self::CmbCreditDaily)
-        } else if subject.contains("中国银行交易流水")
-            && (body.contains("中国银行APP") || body.contains("交易流水打印"))
-            && has_pdf
-        {
-            Some(Self::Boc)
-        } else {
-            None
-        }
-    }
-
-    async fn ingest(
-        self,
-        transaction: &Transaction<'_>,
-        user_id: i64,
-        mail_id: i64,
-        mail: &ParsedMessage,
-        stored: &StoredMessage,
-    ) -> Result<(), String> {
-        let metadata = serde_json::to_string(&self.task_metadata(mail)).map_err(display)?;
-        let received_at = mail.received_at.map(|value| value as f64);
-        let row = transaction
-            .query_one(
-                "INSERT INTO public.bill_tasks
-                   (user_id, bill_mail_message_id, source, profile_id, status, received_at,
-                    summary, metadata, created_at, updated_at)
-                 VALUES ($1,$2,$3,$4,'received',
-                         CASE WHEN $5::double precision IS NULL THEN NULL ELSE to_timestamp($5) END,
-                         $6,$7::text::json,now(),now()) RETURNING id",
-                &[
-                    &user_id,
-                    &mail_id,
-                    &self.source(),
-                    &self.profile_id(),
-                    &received_at,
-                    &self.summary(),
-                    &metadata,
-                ],
-            )
-            .await
-            .map_err(display)?;
-        let task_id: i64 = row.get(0);
-
-        match self {
-            Self::Alipay | Self::CmbTransaction => {
-                for attachment in &stored.attachments {
-                    self.insert_attachment(transaction, task_id, attachment)
-                        .await?;
-                }
-            }
-            Self::Boc => {
-                for attachment in stored
-                    .attachments
-                    .iter()
-                    .filter(|attachment| extension(&attachment.filename) == "pdf")
-                {
-                    self.insert_attachment(transaction, task_id, attachment)
-                        .await?;
-                }
-            }
-            Self::CmbCreditDaily => {
-                let html = mail
-                    .body_html
-                    .as_deref()
-                    .ok_or_else(|| "招商银行每日信用管家邮件缺少 HTML 正文。".to_owned())?;
-                let path = stored
-                    .body_html_path
-                    .as_deref()
-                    .ok_or_else(|| "招商银行每日信用管家 HTML 正文没有落盘。".to_owned())?;
-                let artifact_metadata = json!({
-                    "source": "mail_body",
-                    "original_name": "body.html",
-                    "content_type": "text/html",
-                    "size": html.len(),
-                });
-                insert_artifact(
-                    transaction,
-                    task_id,
-                    "html",
-                    "cmb-credit-daily.html",
-                    path,
-                    &sha256(html.as_bytes()),
-                    false,
-                    &artifact_metadata,
-                )
-                .await?;
-            }
-            Self::Wechat => {}
-        }
-
-        transaction
-            .execute(
-                "INSERT INTO public.bill_task_events
-                   (bill_task_id, event_type, message, metadata, created_at, updated_at)
-                 VALUES ($1, 'task.created', $2, '{\"source\":\"mailbox\"}'::json, now(), now())",
-                &[&task_id, &self.event_message()],
-            )
-            .await
-            .map_err(display)?;
-        Ok(())
-    }
-
-    async fn insert_attachment(
-        self,
-        transaction: &Transaction<'_>,
-        task_id: i64,
-        attachment: &StoredAttachment,
-    ) -> Result<(), String> {
-        let metadata = json!({
-            "source": "mail_attachment",
-            "password_source": self.password_source(),
-            "size": attachment.size,
-        });
-        insert_artifact(
-            transaction,
-            task_id,
-            &extension(&attachment.filename),
-            &attachment.filename,
-            &attachment.path,
-            &attachment.checksum,
-            true,
-            &metadata,
-        )
-        .await
-    }
-
-    fn source(self) -> &'static str {
-        match self {
-            Self::Alipay => "alipay",
-            Self::Wechat => "wechat",
-            Self::CmbTransaction | Self::CmbCreditDaily => "cmb",
-            Self::Boc => "boc",
-        }
-    }
-
-    fn profile_id(self) -> &'static str {
-        match self {
-            Self::Alipay => "alipay-statement",
-            Self::Wechat => "wechat-pay-statement",
-            Self::CmbTransaction => "cmb-transaction-statement",
-            Self::CmbCreditDaily => "cmb-credit-card-daily",
-            Self::Boc => "boc-transaction-statement",
-        }
-    }
-
-    fn summary(self) -> &'static str {
-        match self {
-            Self::Alipay => "支付宝交易流水明细",
-            Self::Wechat => "微信支付账单流水",
-            Self::CmbTransaction => "招商银行交易流水",
-            Self::CmbCreditDaily => "招商银行信用卡每日消费",
-            Self::Boc => "中国银行交易流水",
-        }
-    }
-
-    fn password_source(self) -> Option<&'static str> {
-        match self {
-            Self::Alipay => Some("alipay_service_message"),
-            Self::Wechat => Some("wechat_pay_official_account"),
-            Self::CmbTransaction => Some("cmb_app_statement_record"),
-            Self::Boc => Some("boc_app_statement_record"),
-            Self::CmbCreditDaily => None,
-        }
-    }
-
-    fn task_metadata(self, mail: &ParsedMessage) -> Value {
-        let common = json!({
-            "mail_subject": mail.subject,
-            "sender": mail.from_address,
-        });
-        match self {
-            Self::Alipay => merge_json(
-                common,
-                json!({
-                    "password_source": "alipay_service_message",
-                }),
-            ),
-            Self::Wechat => {
-                let (start, end) = wechat_statement_period(&format!(
-                    "{} {}",
-                    mail.subject.as_deref().unwrap_or(""),
-                    mail.body()
-                ));
-                merge_json(
-                    common,
-                    json!({
-                        "password_source": "wechat_pay_official_account",
-                        "statement_period": {"start": start, "end": end},
-                        "remote_file": {
-                            "source": "tenpay_download",
-                            "status": "pending",
-                            "host": "tenpay.wechatpay.cn",
-                            "path": "/userroll/userbilldownload/downloadfilefromemail"
-                        }
-                    }),
-                )
-            }
-            Self::CmbTransaction => merge_json(
-                common,
-                json!({
-                    "password_source": "cmb_app_statement_record",
-                    "applied_at": cmb_applied_at(&format!(
-                        "{}\n{}",
-                        mail.subject.as_deref().unwrap_or(""),
-                        mail.body()
-                    )),
-                }),
-            ),
-            Self::CmbCreditDaily => common,
-            Self::Boc => merge_json(
-                common,
-                json!({
-                    "password_source": "boc_app_statement_record",
-                }),
-            ),
-        }
-    }
-
-    fn event_message(self) -> &'static str {
-        match self {
-            Self::Alipay => "已识别支付宝交易流水邮件，等待解压密码",
-            Self::Wechat => "已识别微信支付账单流水邮件，等待自动下载账单文件",
-            Self::CmbTransaction => "已识别招商银行交易流水邮件，等待解压码",
-            Self::CmbCreditDaily => "已识别招商银行每日信用管家邮件，等待解析消费明细",
-            Self::Boc => "已识别中国银行交易流水邮件，等待打开密码",
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn insert_artifact(
-    transaction: &Transaction<'_>,
-    task_id: i64,
-    kind: &str,
-    filename: &str,
-    path: &str,
-    checksum: &str,
-    encrypted: bool,
-    metadata: &Value,
-) -> Result<(), String> {
-    let metadata = serde_json::to_string(metadata).map_err(display)?;
-    transaction
-        .execute(
-            "INSERT INTO public.bill_artifacts
-               (bill_task_id, kind, filename, path, checksum, encrypted, metadata, created_at, updated_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7::text::json,now(),now())",
-            &[&task_id, &kind, &filename, &path, &checksum, &encrypted, &metadata],
-        )
-        .await
-        .map_err(display)?;
-    Ok(())
-}
-
-fn extension(filename: &str) -> String {
-    Path::new(filename)
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .filter(|extension| !extension.is_empty())
-        .unwrap_or("attachment")
-        .to_ascii_lowercase()
-}
-
-fn has_wechat_download_url(body: &str) -> bool {
-    const PREFIX: &str =
-        "https://tenpay.wechatpay.cn/userroll/userbilldownload/downloadfilefromemail?";
-
-    body.match_indices(PREFIX).any(|(start, _)| {
-        let query = &body[start + PREFIX.len()..];
-        let query = query
-            .split(|character: char| {
-                character.is_whitespace() || matches!(character, '"' | '\'' | '<' | '>')
-            })
-            .next()
-            .unwrap_or_default()
-            .replace("&amp;", "&");
-        query.split('&').any(|pair| {
-            pair.split_once('=')
-                .is_some_and(|(name, value)| name == "encrypted_file_data" && !value.is_empty())
-        })
-    })
-}
-
-fn wechat_statement_period(content: &str) -> (Option<String>, Option<String>) {
-    const MARKER: &str = "账单流水文件(";
-
-    for (start, _) in content.match_indices(MARKER) {
-        let tail = &content[start + MARKER.len()..];
-        let Some(period) = tail.get(..17) else {
-            continue;
-        };
-        if period.as_bytes().get(8) != Some(&b'-') {
-            continue;
-        }
-        let start = date8(&period[..8]);
-        let end = date8(&period[9..]);
-        if start.is_some() && end.is_some() {
-            return (start, end);
-        }
-    }
-    (None, None)
-}
-
-fn cmb_applied_at(content: &str) -> Option<String> {
-    for (year_end, _) in content.match_indices('年') {
-        let Some(year_start) = year_end.checked_sub(4) else {
-            continue;
-        };
-        let Some(year) = content.get(year_start..year_end).and_then(number) else {
-            continue;
-        };
-        let mut tail = &content[year_end + '年'.len_utf8()..];
-        let Some((month, rest)) = take_number(tail, 2, "月") else {
-            continue;
-        };
-        tail = rest;
-        let Some((day, rest)) = take_number(tail, 2, "日") else {
-            continue;
-        };
-        tail = rest;
-        let Some((hour, rest)) = take_number(tail, 2, ":") else {
-            continue;
-        };
-        tail = rest;
-        let Some((minute, rest)) = take_number(tail, 2, ":") else {
-            continue;
-        };
-        let Some(second) = rest.get(..2).and_then(number) else {
-            continue;
-        };
-        if valid_date(year, month, day) && hour < 24 && minute < 60 && second < 60 {
-            return Some(format!(
-                "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}"
-            ));
-        }
-    }
-    None
-}
-
-fn take_number<'a>(value: &'a str, width: usize, suffix: &str) -> Option<(u32, &'a str)> {
-    let number = value.get(..width).and_then(number)?;
-    let rest = value.get(width..)?.strip_prefix(suffix)?;
-    Some((number, rest))
-}
-
-fn number(value: &str) -> Option<u32> {
-    value
-        .bytes()
-        .all(|byte| byte.is_ascii_digit())
-        .then(|| value.parse().ok())
-        .flatten()
-}
-
-fn date8(value: &str) -> Option<String> {
-    if value.len() != 8 {
-        return None;
-    }
-    let year = number(&value[..4])?;
-    let month = number(&value[4..6])?;
-    let day = number(&value[6..])?;
-    valid_date(year, month, day).then(|| format!("{year:04}-{month:02}-{day:02}"))
-}
-
-fn valid_date(year: u32, month: u32, day: u32) -> bool {
-    let leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
-    let days = match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if leap => 29,
-        2 => 28,
-        _ => return false,
-    };
-    year > 0 && (1..=days).contains(&day)
-}
-
-fn merge_json(mut left: Value, right: Value) -> Value {
-    if let (Some(left), Some(right)) = (left.as_object_mut(), right.as_object()) {
-        left.extend(right.clone());
-    }
-    left
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpListener;
 
-    fn message(
-        sender: &str,
-        subject: &str,
-        body_text: Option<&str>,
-        body_html: Option<&str>,
-        attachment: Option<&str>,
-    ) -> ParsedMessage {
-        ParsedMessage {
-            message_id: None,
-            from_address: Some(sender.to_owned()),
-            to_address: None,
-            subject: Some(subject.to_owned()),
-            received_at: None,
-            body_text: body_text.map(str::to_owned),
-            body_html: body_html.map(str::to_owned),
-            attachments: attachment
-                .map(|filename| {
-                    vec![ParsedAttachment {
-                        filename: filename.to_owned(),
-                        content: Vec::new(),
-                    }]
-                })
-                .unwrap_or_default(),
-        }
+    #[tokio::test]
+    async fn select_timeout_reconnects_once_and_reports_the_folder() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let mut handlers = Vec::new();
+            for attempt in 0..2 {
+                let (socket, _) = listener.accept().await.unwrap();
+                handlers.push(tokio::spawn(async move {
+                    let (reader, mut writer) = socket.into_split();
+                    let mut reader = BufReader::new(reader);
+                    writer.write_all(b"* OK fake IMAP ready\r\n").await.unwrap();
+                    let mut line = String::new();
+                    loop {
+                        line.clear();
+                        if reader.read_line(&mut line).await.unwrap() == 0 {
+                            break;
+                        }
+                        let tag = line.split_whitespace().next().unwrap_or("A1");
+                        let command = line.to_ascii_uppercase();
+                        if command.contains(" LOGIN ") {
+                            writer
+                                .write_all(format!("{tag} OK LOGIN completed\r\n").as_bytes())
+                                .await
+                                .unwrap();
+                        } else if command.contains(" SELECT ") && attempt == 0 {
+                            tokio::time::sleep(Duration::from_millis(300)).await;
+                            break;
+                        } else if command.contains(" SELECT ") {
+                            writer
+                                .write_all(
+                                    format!(
+                                        "* FLAGS (\\Seen)\r\n* 0 EXISTS\r\n* 0 RECENT\r\n\
+                                         * OK [UIDVALIDITY 42] valid\r\n* OK [UIDNEXT 1] next\r\n\
+                                         {tag} OK [READ-WRITE] SELECT completed\r\n"
+                                    )
+                                    .as_bytes(),
+                                )
+                                .await
+                                .unwrap();
+                        } else if command.contains(" LOGOUT") {
+                            writer
+                                .write_all(
+                                    format!("* BYE logout\r\n{tag} OK LOGOUT completed\r\n")
+                                        .as_bytes(),
+                                )
+                                .await
+                                .unwrap();
+                            break;
+                        }
+                    }
+                }));
+            }
+            for handler in handlers {
+                handler.await.unwrap();
+            }
+        });
+        let mailbox = MailboxRecord {
+            enabled: true,
+            host: address.ip().to_string(),
+            port: address.port(),
+            encryption: "none".to_owned(),
+            username: "user@example.com".to_owned(),
+            auth: MailboxAuth::Password("app-password".to_owned()),
+            folder: "INBOX".to_owned(),
+            uid_validity: None,
+            last_uid: 0,
+        };
+
+        let (mut session, selected) =
+            connect_selected(&mailbox, Duration::from_millis(100), "增量同步")
+                .await
+                .unwrap();
+        assert_eq!(selected.uid_validity, Some(42));
+        within(Duration::from_secs(1), "退出测试邮箱", session.logout())
+            .await
+            .unwrap();
+        server.await.unwrap();
+
+        let unavailable = MailboxRecord {
+            port: address.port().saturating_add(1),
+            ..mailbox
+        };
+        let error = connect_selected(&unavailable, Duration::from_millis(20), "增量同步")
+            .await
+            .unwrap_err();
+        assert!(error.contains("增量同步"), "{error}");
     }
 
     #[test]
     fn initial_sync_prioritizes_the_latest_messages() {
         assert_eq!(select_uids((1..=30).collect(), 0, 3), vec![28, 29, 30]);
         assert_eq!(select_uids((1..=30).collect(), 10, 3), vec![11, 12, 13]);
+    }
+
+    #[test]
+    fn historical_scan_uses_an_inclusive_date_range_and_latest_limit() {
+        let range = RescanRange::parse(&RescanRequest {
+            from: "2026-08-01".to_owned(),
+            to: Some("2026-08-11".to_owned()),
+            limit: Some(3),
+        })
+        .unwrap();
+        assert_eq!(
+            range.search_query().unwrap(),
+            "SINCE 1-Aug-2026 BEFORE 12-Aug-2026"
+        );
+        assert_eq!(select_rescan_uids(vec![5, 2, 4, 1, 3], 3), vec![3, 4, 5]);
+    }
+
+    #[test]
+    fn historical_scan_rejects_invalid_ranges() {
+        for request in [
+            RescanRequest {
+                from: "2026-08-12".to_owned(),
+                to: Some("2026-08-11".to_owned()),
+                limit: Some(100),
+            },
+            RescanRequest {
+                from: "2026-01-01".to_owned(),
+                to: Some("2026-08-11".to_owned()),
+                limit: Some(100),
+            },
+            RescanRequest {
+                from: "2026-08-01".to_owned(),
+                to: Some("2026-08-11".to_owned()),
+                limit: Some(0),
+            },
+        ] {
+            assert!(RescanRange::parse(&request).is_err());
+        }
     }
 
     #[test]
@@ -2355,63 +2763,7 @@ mod tests {
     }
 
     #[test]
-    fn recognizes_all_supported_channels() {
-        assert_eq!(
-            Channel::detect(&message(
-                "service@mail.alipay.com",
-                "支付宝交易流水明细",
-                None,
-                None,
-                Some("statement.zip")
-            )),
-            Some(Channel::Alipay)
-        );
-        assert_eq!(
-            Channel::detect(&message(
-                "wechatpay@tencent.com",
-                "微信支付账单流水文件",
-                Some(
-                    "点击下载 https://tenpay.wechatpay.cn/userroll/userbilldownload/downloadfilefromemail?encrypted_file_data=token"
-                ),
-                None,
-                None
-            )),
-            Some(Channel::Wechat)
-        );
-        assert_eq!(
-            Channel::detect(&message(
-                "95555@message.cmbchina.com",
-                "招商银行交易流水",
-                Some("电子版交易流水，请在招商银行App查看。"),
-                None,
-                Some("statement.zip")
-            )),
-            Some(Channel::CmbTransaction)
-        );
-        assert_eq!(
-            Channel::detect(&message(
-                "ccsvc@message.cmbchina.com",
-                "每日信用管家",
-                None,
-                Some("<p>您的消费明细如下</p>"),
-                None
-            )),
-            Some(Channel::CmbCreditDaily)
-        );
-        assert_eq!(
-            Channel::detect(&message(
-                "service@bankofchina.com",
-                "中国银行交易流水",
-                Some("请在中国银行APP查看交易流水打印记录。"),
-                None,
-                Some("statement.pdf")
-            )),
-            Some(Channel::Boc)
-        );
-    }
-
-    #[test]
-    fn mature_parser_feeds_channel_matching_and_passwords_round_trip() {
+    fn mime_parser_and_password_cipher_round_trip() {
         let raw = concat!(
             "Message-ID: <cmb-1@example.test>\r\n",
             "From: CMB <95555@message.cmbchina.com>\r\n",
@@ -2428,9 +2780,8 @@ mod tests {
             "--abei--\r\n"
         );
         let parsed = ParsedMessage::parse(raw.as_bytes()).unwrap();
-        assert_eq!(Channel::detect(&parsed), Some(Channel::CmbTransaction));
         assert_eq!(parsed.attachments[0].filename, "statement.zip");
-        assert_eq!(parsed.attachments[0].content, b"PK\x03\x04\n");
+        assert_eq!(parsed.attachments[0].size, 5);
 
         let cipher = RuntimeConfig::test().password_cipher;
         let encrypted = cipher.encrypt(7, "app-password").unwrap();
@@ -2439,20 +2790,5 @@ mod tests {
         assert!(cipher.decrypt(8, &encrypted).is_err());
         assert!(validate_password(&"x".repeat(4097)).is_err());
         assert!(validate_password("line\nbreak").is_err());
-
-        assert_eq!(
-            cmb_applied_at("申请时间：2026年06月16日17:44:37"),
-            Some("2026-06-16 17:44:37".to_owned())
-        );
-        assert_eq!(
-            wechat_statement_period("微信支付账单流水文件(20260515-20260615)"),
-            (Some("2026-05-15".to_owned()), Some("2026-06-15".to_owned()))
-        );
-        assert!(has_wechat_download_url(
-            "https://tenpay.wechatpay.cn/userroll/userbilldownload/downloadfilefromemail?foo=1&amp;encrypted_file_data=token"
-        ));
-        assert!(!has_wechat_download_url(
-            "https://example.com/userroll/userbilldownload/downloadfilefromemail?encrypted_file_data=token"
-        ));
     }
 }

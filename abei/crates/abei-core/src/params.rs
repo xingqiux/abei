@@ -11,7 +11,6 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 
 /// `transactions list` 的参数。
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -101,93 +100,117 @@ pub struct IdParams {
     pub id: String,
 }
 
-/// `feedback create` 的参数。CLI 会把 source 固定成 cli。
+/// `feedback create` 的 AI 输入。幂等 key 与安全运行上下文由 CLI 自动注入。
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FeedbackCreateParams {
-    /// 一句话说清问题，最多 120 字。
-    pub title: String,
-    /// Markdown 正文，分为现象、期望、复现、环境。
-    pub body: String,
-    /// 标签，可重复；优先参考 bug、friction、idea。
-    pub labels: Option<Vec<String>>,
-    /// 反馈类型：bug、friction 或 idea。
+    /// 1/bug=已有行为失败或结果错误；2/experience=能完成但难用、慢或提示不清；3/suggestion=希望增加不存在的能力。
     pub kind: String,
-    /// 提交者的 AI 名字或人名。
-    pub submitted_by: String,
-    /// 来源：cli 或 web。CLI 固定填 cli。
-    pub source: String,
+    /// 直接描述现象或诉求，1 到 4000 字纯文本；不要粘贴 Token、财务正文或完整工具输出。
+    pub message: String,
+    /// 可选目标面：1/cli、2/app、3/web；省略时 CLI 自动设为 cli。
+    pub target: Option<String>,
+    /// bug 且用户明确说出预期时填写。
+    pub expected: Option<String>,
+    /// bug 且 message 没有表达实际结果时填写。
+    pub actual: Option<String>,
 }
 
-/// 反馈的业务状态。GitHub 同步是否成功由独立的 `sync_status` 表示。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum FeedbackStatus {
-    Open,
-    Planned,
-    Started,
-    Completed,
-    Declined,
-    Duplicate,
-}
-
-impl FeedbackStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Open => "open",
-            Self::Planned => "planned",
-            Self::Started => "started",
-            Self::Completed => "completed",
-            Self::Declined => "declined",
-            Self::Duplicate => "duplicate",
-        }
-    }
-}
-
-impl fmt::Display for FeedbackStatus {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
-/// `feedback update` 的参数。把状态改回 open 就是重开。
+/// `feedback confirm` 的参数。same_as 与 new 必须且只能选一个。
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct FeedbackUpdateParams {
-    /// 反馈 id，正整数。
+pub struct FeedbackConfirmParams {
+    /// create 返回的 submission_id，正整数。
     pub id: String,
-    /// 新状态：open、planned、started、completed、declined 或 duplicate。
-    pub status: FeedbackStatus,
-    /// 给提交者看的处理说明。completed 与 declined 必填。
-    pub response: Option<String>,
-    /// 原反馈 id；status=duplicate 时必填，其余状态不能填写。
-    pub duplicate_of: Option<u64>,
+    /// 用户确认相同时，填写 create 候选中的 feedback_id。
+    pub same_as: Option<u64>,
+    /// 用户确认不是同一事项时使用 --new。
+    #[serde(rename = "new")]
+    pub create_new: Option<bool>,
 }
 
-/// `feedback delete` 的参数。服务端采用可审计的软删除。
+/// `feedback reply` 的参数。回复只属于本次 Submission，不广播给其他用户。
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct FeedbackDeleteParams {
-    /// 反馈 id，正整数。
+pub struct FeedbackReplyParams {
+    /// 要回复的 submission_id，正整数。
     pub id: String,
-    /// 删除原因，供审计与误删排查。
-    pub reason: String,
+    /// 补充说明，1 到 4000 字纯文本。
+    pub message: String,
 }
 
 /// `feedback list` 的筛选与分页参数。
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FeedbackListParams {
-    /// 按反馈类型筛选：bug、friction 或 idea。
+    /// 按反馈类型筛选：bug、experience 或 suggestion。
     pub kind: Option<String>,
+    /// 按产品面筛选：cli、app 或 web。
+    pub target: Option<String>,
     /// 按业务状态筛选。
-    pub status: Option<FeedbackStatus>,
-    /// 按同步状态筛选：local、synced 或 failed。
-    pub sync_status: Option<String>,
+    pub status: Option<String>,
     /// 返回条数，1 到 100，默认 50。
     pub limit: Option<u32>,
     /// 跳过条数，默认 0。
     pub offset: Option<u32>,
+}
+
+/// `profile-doc list` 没有筛选参数。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileDocListParams {}
+
+/// `profile-doc get` 的稳定文档标识。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileDocGetParams {
+    /// 小写字母、数字和中划线组成的 slug，最多 64 个字符。
+    pub slug: String,
+}
+
+/// `profile-doc create` 的参数。Markdown 按原字节内容保存，CLI 固定 source=cli。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileDocCreateParams {
+    /// 小写字母、数字和中划线组成的 slug，最多 64 个字符。
+    #[schemars(extend("x-abei-positional" = true))]
+    pub slug: String,
+    /// 文档标题，最多 200 字。
+    pub title: String,
+    /// Markdown 正文，最多 1 MiB。
+    #[schemars(extend("x-abei-file-input" = true))]
+    pub content_md: String,
+    /// 来源：cli 或 web。CLI 固定填 cli。
+    pub source: String,
+}
+
+/// `profile-doc update` 的参数。expected_version 防止覆盖别人刚保存的版本。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileDocUpdateParams {
+    /// 小写字母、数字和中划线组成的 slug，最多 64 个字符。
+    pub slug: String,
+    /// 当前读到的版本号；服务端不匹配时返回 409。
+    #[schemars(range(min = 1, max = 2_147_483_647))]
+    pub expected_version: u32,
+    /// 新标题；不提供就保持原值。
+    pub title: Option<String>,
+    /// 新 Markdown 正文；不提供就保持原值，最多 1 MiB。
+    #[schemars(extend("x-abei-file-input" = true))]
+    pub content_md: Option<String>,
+    /// 来源：cli 或 web。CLI 固定填 cli。
+    pub source: String,
+}
+
+/// `profile-doc delete` 的参数。expected_version 防止删除别人刚更新的版本。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileDocDeleteParams {
+    /// 小写字母、数字和中划线组成的 slug，最多 64 个字符。
+    pub slug: String,
+    /// 当前读到的版本号；服务端不匹配时返回 409。
+    #[schemars(range(min = 1, max = 2_147_483_647))]
+    pub expected_version: u32,
 }
 
 /// `bills import` 的参数。all 与 row_ids 二选一。
@@ -215,11 +238,97 @@ pub struct BillsUnlockParams {
     pub secret: String,
 }
 
-/// `bills sync` 与 `bills process` 的参数。
+/// `bills sync` 的参数。
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BillsBatchParams {
     /// 这一轮最多处理多少封，默认 100。
+    pub limit: Option<u32>,
+    /// 等待这次同步运行结束并返回最终统计。
+    pub wait: Option<bool>,
+    /// wait=true 时最多等待多少秒，默认 120，最大 600。
+    pub timeout_seconds: Option<u32>,
+}
+
+/// `mail-sync-runs list` 的参数。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MailSyncRunsListParams {
+    /// 返回最近多少次运行，1 到 100。
+    pub limit: Option<u32>,
+}
+
+/// `bill-account-mappings list` 的参数。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BillAccountMappingsListParams {
+    /// 只看某个账单渠道。
+    pub channel: Option<String>,
+}
+
+/// `bill-account-mappings update` 的参数。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BillAccountMappingUpdateParams {
+    /// 账单渠道。
+    pub channel_key: String,
+    /// 账单中出现的原始账户名称或别名。
+    pub account_hint: String,
+    /// Firefly 资产、现金或负债账户 id。
+    pub firefly_account_id: String,
+}
+
+/// `rows dismiss/restore` 的参数。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RowsBulkParams {
+    /// 要操作的流水 id，最多 500 条；dismiss 可配合 filter。
+    #[serde(default)]
+    pub row_ids: Vec<u64>,
+    /// dismiss 的机器重复过滤器。
+    pub filter: Option<String>,
+    /// dismiss 的人工原因；restore 会忽略该字段。
+    pub reason: Option<String>,
+}
+
+/// `mail-messages list` 的参数。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MailMessagesListParams {
+    /// 归类状态：unclassified、matched、ignored 或 error。
+    pub classification: Option<String>,
+    /// 搜索发件人、主题、Message-ID 或附件信息。
+    pub search: Option<String>,
+    /// 返回数量，1 到 100。
+    pub limit: Option<u32>,
+    /// 跳过数量，最大 100000。
+    pub offset: Option<u32>,
+}
+
+/// `mail-rules test` 的参数。conditions 可由 CLI 从 JSON 文件读取。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MailRuleTestParams {
+    /// 结构化规则条件 JSON；CLI 支持 `@文件` 或标准输入 `-`。
+    #[schemars(extend("x-abei-file-input" = true, "x-abei-json-input" = true))]
+    pub conditions: serde_json::Value,
+    /// 只对指定邮件 id 测试；不填时使用最近邮件。
+    pub message_ids: Option<Vec<u64>>,
+    /// 最大测试数量，1 到 500。
+    pub limit: Option<u32>,
+}
+
+/// `mailboxes rescan` 的参数。CLI 固定使用当前用户邮箱。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MailboxRescanParams {
+    /// 邮箱 id；CLI 自动使用 current。
+    pub id: String,
+    /// 开始日期，格式 YYYY-MM-DD，含当天。
+    pub from: String,
+    /// 结束日期，格式 YYYY-MM-DD，含当天。
+    pub to: Option<String>,
+    /// 本轮最多扫描多少封，1 到 500。
     pub limit: Option<u32>,
 }
 
@@ -242,13 +351,36 @@ pub struct RowsUpdateParams {
     pub firefly_description: Option<String>,
     /// 付款账户名。
     pub source_name: Option<String>,
+    /// 付款 Firefly 账户 id。
+    pub source_account_id: Option<u64>,
     /// 收款账户名。
     pub destination_name: Option<String>,
+    /// 收款 Firefly 账户 id。
+    pub destination_account_id: Option<u64>,
     /// 分类名。
     pub category_name: Option<String>,
     /// 备注。
     pub notes: Option<String>,
     /// 标签。
+    pub tags: Option<Vec<String>>,
+}
+
+/// `rows update-many` 的参数。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RowsBatchUpdateParams {
+    /// 要更新的待处理流水 id，最多 500 条。
+    pub row_ids: Vec<u64>,
+    pub firefly_type: Option<String>,
+    pub firefly_date: Option<String>,
+    pub firefly_amount: Option<String>,
+    pub firefly_description: Option<String>,
+    pub source_name: Option<String>,
+    pub source_account_id: Option<u64>,
+    pub destination_name: Option<String>,
+    pub destination_account_id: Option<u64>,
+    pub category_name: Option<String>,
+    pub notes: Option<String>,
     pub tags: Option<Vec<String>>,
 }
 

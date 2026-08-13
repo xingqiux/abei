@@ -56,6 +56,10 @@ impl Harness {
         self.send(Method::PATCH, path, Some(body)).await
     }
 
+    async fn put(&self, path: &str, body: Value) -> reqwest::Response {
+        self.send(Method::PUT, path, Some(body)).await
+    }
+
     async fn send(&self, method: Method, path: &str, body: Option<Value>) -> reqwest::Response {
         let mut request = self
             .client
@@ -79,6 +83,15 @@ impl Harness {
 
     fn upstream_calls(&self) -> usize {
         self.sent.lock().unwrap().len()
+    }
+
+    fn upstream_count(&self, marker: &str) -> usize {
+        self.sent
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(where_to, _)| where_to.contains(marker))
+            .count()
     }
 }
 
@@ -165,8 +178,9 @@ async fn catalog_serves_the_whole_capability_list() {
         .iter()
         .find(|c| c["id"] == "feedback.create")
         .unwrap();
-    assert_eq!(feedback["fixed_params"]["source"], "cli");
-    assert_eq!(feedback["risk"], "confirm");
+    assert!(feedback["fixed_params"].as_object().unwrap().is_empty());
+    assert_eq!(feedback["risk"], "draft");
+    assert_eq!(feedback["params"]["required"], json!(["kind", "message"]));
 
     assert!(
         body["resources"]
@@ -185,7 +199,10 @@ async fn catalog_serves_the_whole_capability_list() {
 async fn every_capability_route_is_mounted() {
     let harness = Harness::start().await;
     for capability in abei_core::catalog().capabilities() {
-        let path = capability.route_path().replace("{id}", "1");
+        let path = capability.path_param().map_or_else(
+            || capability.route_path(),
+            |name| capability.route_path().replace(&format!("{{{name}}}"), "1"),
+        );
         // 写能力一律带 dry_run，探活不该真改数据。
         let probe = if capability.risk.is_write() {
             format!("{path}?dry_run=true")
@@ -197,6 +214,7 @@ async fn every_capability_route_is_mounted() {
             abei_core::Method::Post => Method::POST,
             abei_core::Method::Patch => Method::PATCH,
             abei_core::Method::Delete => Method::DELETE,
+            abei_core::Method::Put => Method::PUT,
         };
         let response = harness.send(method, &probe, Some(json!({}))).await;
         let status = response.status();
@@ -229,12 +247,44 @@ async fn bills_list_reaches_firefly() {
 }
 
 #[tokio::test]
-async fn bills_review_returns_the_buckets() {
+async fn bills_review_returns_the_groups() {
     let harness = Harness::start().await;
     let response = harness.get_auth("/v1/bills/42/review").await;
     assert_eq!(response.status(), 200);
     let body: Value = response.json().await.unwrap();
-    assert!(body["data"]["buckets"]["needs_attention"].is_array());
+    assert!(body["data"]["groups"]["attention"].is_array());
+}
+
+#[tokio::test]
+async fn bills_review_detects_the_existing_withdrawal_combination() {
+    let harness = Harness::start().await;
+    let response = harness.get_auth("/v1/bills/53/review").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+
+    assert_eq!(body["summary"]["new"], 0);
+    assert_eq!(body["summary"]["attention"], 1);
+    assert!(body["new_candidates"].as_array().unwrap().is_empty());
+    assert_eq!(body["existing_candidates"][0]["row_id"], "802");
+    assert!(
+        body["data"]["groups"]["importable"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let row = &body["data"]["groups"]["attention"][0];
+    assert_eq!(row["id"], "802");
+    assert_eq!(row["attributes"]["group"], "attention");
+    assert_eq!(
+        row["attributes"]["issues"][0]["code"],
+        "existing_firefly_transaction"
+    );
+    let candidate = &row["attributes"]["existing_transaction_candidates"][0];
+    assert_eq!(candidate["confidence"], "high");
+    assert_eq!(candidate["match_kind"], "same_day_combination");
+    assert_eq!(candidate["transaction_group_ids"], json!(["397", "398"]));
+    assert_eq!(candidate["amount"], "2952.95");
+    assert_eq!(candidate["currency_code"], "CNY");
 }
 
 #[tokio::test]
@@ -245,6 +295,73 @@ async fn bills_sync_preserves_the_upstream_accepted_status() {
     let body: Value = response.json().await.unwrap();
     assert_eq!(body["data"]["attributes"]["status"], "queued");
     assert_eq!(body["data"]["attributes"]["authenticated_user_id"], "1");
+}
+
+#[tokio::test]
+async fn bills_sync_can_wait_for_final_counts() {
+    let harness = Harness::start().await;
+    let response = harness
+        .post(
+            "/v1/bills/sync",
+            json!({ "limit": 10, "wait": true, "timeout_seconds": 2 }),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["data"]["attributes"]["status"], "succeeded");
+    assert_eq!(body["data"]["attributes"]["counts"]["matched"], 2);
+}
+
+#[tokio::test]
+async fn bills_sync_wait_reports_failed_and_cancelled_runs() {
+    for (limit, expected_status) in [(98, "failed"), (99, "cancelled")] {
+        let harness = Harness::start().await;
+        let response = harness
+            .post(
+                "/v1/bills/sync",
+                json!({ "limit": limit, "wait": true, "timeout_seconds": 2 }),
+            )
+            .await;
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["reason"], "SyncFailed");
+        assert_eq!(
+            body["upstream"]["data"]["attributes"]["status"],
+            expected_status
+        );
+    }
+}
+
+#[tokio::test]
+async fn bills_sync_wait_rejects_timeout_values_outside_the_contract() {
+    for timeout in [0, 601] {
+        let harness = Harness::start().await;
+        let response = harness
+            .post(
+                "/v1/bills/sync",
+                json!({ "limit": 10, "wait": true, "timeout_seconds": timeout }),
+            )
+            .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["reason"], "InvalidParams");
+        assert!(body["detail"].as_str().unwrap().contains("1 到 600"));
+    }
+}
+
+#[tokio::test]
+async fn bills_sync_wait_times_out_without_cancelling_the_run() {
+    let harness = Harness::start().await;
+    let response = harness
+        .post(
+            "/v1/bills/sync",
+            json!({ "limit": 100, "wait": true, "timeout_seconds": 1 }),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["reason"], "SyncTimeout");
+    assert_eq!(body["upstream"]["data"]["attributes"]["status"], "running");
 }
 
 #[tokio::test]
@@ -335,7 +452,7 @@ async fn confirm_capabilities_are_blocked_without_confirmation() {
     assert_eq!(harness.upstream_calls(), 0);
 }
 
-/// 干跑打到上游，但落在上游那个 confirm:false 的分支上，不落库。
+/// 干跑只向 Server 准备预览，不向 Firefly 写交易，也不创建导入尝试。
 #[tokio::test]
 async fn dry_run_import_previews_without_committing() {
     let harness = Harness::recording().await;
@@ -346,12 +463,50 @@ async fn dry_run_import_previews_without_committing() {
     assert_eq!(response.status(), 200);
     let body: Value = response.json().await.unwrap();
     assert_eq!(body["dry_run"], true, "预览要打记号，免得被当成已执行");
-    assert_eq!(body["data"]["confirmed"], false);
-    assert_eq!(body["data"]["would_create"], 2);
+    assert_eq!(body["summary"]["would_import"], 2);
+    assert_eq!(body["summary"]["imported"], 0);
+    assert_eq!(body["rows"].as_array().unwrap().len(), 2);
+    assert!(body["rows"][0]["attempt_id"].is_null());
 
-    let sent = harness.upstream("/bill-tasks/42/import").unwrap();
-    assert_eq!(sent["confirm"], false);
-    assert_eq!(sent["all"], true);
+    let sent = harness
+        .upstream("/internal/v1/bill-imports/prepare")
+        .unwrap();
+    assert_eq!(sent["dry_run"], true);
+    assert!(harness.upstream("/api/v1/transactions").is_none());
+}
+
+#[tokio::test]
+async fn dry_run_import_explains_the_existing_transaction_exclusion() {
+    let harness = Harness::recording().await;
+    let response = harness
+        .post(
+            "/v1/bills/53/import?dry_run=true",
+            json!({ "all": true, "include_payload": true }),
+        )
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["summary"]["total"], 1);
+    assert_eq!(body["summary"]["would_import"], 0);
+    assert_eq!(body["summary"]["skipped"], 1);
+    assert_eq!(body["rows"][0]["row_id"], "802");
+    assert_eq!(
+        body["rows"][0]["reason_code"],
+        "existing_firefly_transaction"
+    );
+    assert!(
+        body["rows"][0]["exclusion_reason"]
+            .as_str()
+            .unwrap()
+            .contains("已有高置信")
+    );
+    assert_eq!(
+        body["rows"][0]["existing_transaction_candidates"][0]["transaction_group_ids"],
+        json!(["397", "398"])
+    );
+    assert!(body["rows"][0]["payload"].is_object());
+    assert_eq!(harness.upstream_count("POST /api/v1/transactions"), 0);
 }
 
 #[tokio::test]
@@ -364,12 +519,102 @@ async fn confirmed_import_commits_upstream() {
     assert_eq!(response.status(), 200);
     let body: Value = response.json().await.unwrap();
     assert!(body.get("dry_run").is_none(), "真跑不该打预览记号");
-    assert_eq!(body["data"]["created"], 2);
+    assert_eq!(body["summary"]["imported"], 2);
+    assert_eq!(body["summary"]["uncertain"], 0);
 
     assert_eq!(
-        harness.upstream("/bill-tasks/42/import").unwrap()["confirm"],
-        true
+        harness
+            .upstream("/internal/v1/bill-imports/prepare")
+            .unwrap()["dry_run"],
+        false
     );
+    assert!(harness.upstream("/api/v1/transactions").is_some());
+    assert!(harness.upstream("/complete").is_some());
+}
+
+#[tokio::test]
+async fn confirmed_import_rechecks_existing_transactions_before_sending() {
+    let harness = Harness::recording().await;
+    let response = harness
+        .post("/v1/bills/53/import?confirm=true", json!({ "all": true }))
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["summary"]["imported"], 0);
+    assert_eq!(body["summary"]["skipped"], 1);
+    assert_eq!(
+        body["rows"][0]["reason_code"],
+        "existing_firefly_transaction"
+    );
+    assert_eq!(harness.upstream_count("POST /api/v1/transactions"), 0);
+    assert_eq!(harness.upstream_count("mark-sending"), 0);
+    assert_eq!(harness.upstream_count("/reject"), 1);
+}
+
+#[tokio::test]
+async fn account_mapping_is_verified_then_saved_in_server() {
+    let harness = Harness::recording().await;
+    let response = harness
+        .put(
+            "/v1/bill-account-mappings",
+            json!({
+                "channel_key": "cmb",
+                "account_hint": "招商银行信用卡(5599)",
+                "firefly_account_id": 10
+            }),
+        )
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let sent = harness.upstream("PUT /v1/bill-account-mappings").unwrap();
+    assert_eq!(sent["firefly_account_id"], 10);
+    assert_eq!(sent["firefly_account_name"], "招行卡");
+    assert_eq!(sent["firefly_account_type"], "asset");
+}
+
+#[tokio::test]
+async fn uncertain_import_can_be_reconciled_by_external_id() {
+    let harness = Harness::recording().await;
+    let attempt_id = "00000000-0000-0000-0000-000000000001";
+    let response = harness
+        .post(
+            &format!("/v1/bill-import-attempts/{attempt_id}/reconcile"),
+            json!({}),
+        )
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["match_count"], 1);
+    assert_eq!(body["data"]["status"], "succeeded");
+    assert_eq!(
+        harness.upstream("/complete").unwrap()["transaction_group_id"],
+        9
+    );
+}
+
+#[tokio::test]
+async fn retryable_import_runs_the_new_import_protocol() {
+    let harness = Harness::recording().await;
+    let attempt_id = "00000000-0000-0000-0000-000000000002";
+    let response = harness
+        .post(
+            &format!("/v1/bill-import-attempts/{attempt_id}/retry?confirm=true"),
+            json!({}),
+        )
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["summary"]["imported"], 1);
+    assert!(
+        harness
+            .upstream("/internal/v1/bill-imports/prepare")
+            .is_some()
+    );
+    assert!(harness.upstream("/api/v1/transactions").is_some());
+    assert!(harness.upstream("/complete").is_some());
 }
 
 /// 导入要么整份要么挑行，两个都给或都不给都是参数错。
@@ -414,7 +659,7 @@ async fn confirmed_unlock_forwards_the_password_once() {
 
     assert_eq!(response.status(), 200);
     assert_eq!(
-        harness.upstream("/bill-tasks/43/secret").unwrap()["value"],
+        harness.upstream("/v1/bills/43/unlock").unwrap()["secret"],
         "hunter2"
     );
     assert_eq!(harness.upstream_calls(), 1);
@@ -436,7 +681,7 @@ async fn draft_capabilities_pass_without_confirmation() {
     let harness = Harness::recording().await;
     let response = harness.post("/v1/bills/42/retry", json!({})).await;
     assert_eq!(response.status(), 200);
-    assert!(harness.upstream("/bill-tasks/42/retry").is_some());
+    assert!(harness.upstream("/v1/bills/42/retry").is_some());
 }
 
 /// 机器写入永远记成建议，调用方说了不算。
@@ -445,15 +690,98 @@ async fn row_updates_are_always_recorded_as_suggestions() {
     let harness = Harness::recording().await;
     let response = harness
         .patch(
-            "/v1/rows/7",
+            "/v1/bill-rows/7",
             json!({ "category_name": "餐饮", "firefly_type": "withdrawal" }),
         )
         .await;
 
     assert_eq!(response.status(), 200);
-    let sent = harness.upstream("/bill-statement-rows/7").unwrap();
+    let sent = harness.upstream("/v1/bill-rows/7").unwrap();
     assert_eq!(sent["as_suggestion"], true);
     assert_eq!(sent["category_name"], "餐饮");
+}
+
+#[tokio::test]
+async fn row_batch_updates_use_the_explicit_route_and_keep_account_ids() {
+    let harness = Harness::recording().await;
+    let response = harness
+        .patch(
+            "/v1/bill-rows/update-many",
+            json!({
+                "row_ids": [8, 7, 7],
+                "firefly_type": "transfer",
+                "source_account_id": 10,
+                "destination_account_id": 11,
+                "category_name": "内部转账"
+            }),
+        )
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["affected_count"], 2);
+    let sent = harness.upstream("PATCH /v1/bill-rows/update-many").unwrap();
+    assert_eq!(sent["row_ids"], json!([7, 8]));
+    assert_eq!(sent["values"]["as_suggestion"], true);
+    assert_eq!(sent["values"]["source_account_id"], 10);
+    assert_eq!(sent["values"]["destination_account_id"], 11);
+    assert_eq!(harness.upstream_count("PATCH /v1/bill-rows/update-many"), 1);
+    assert_eq!(
+        harness.upstream_count("PATCH /v1/bill-rows/update-many/"),
+        0
+    );
+}
+
+#[tokio::test]
+async fn row_batch_update_dry_run_returns_real_affected_ids() {
+    let harness = Harness::recording().await;
+    let response = harness
+        .patch(
+            "/v1/bill-rows/update-many?dry_run=true",
+            json!({ "row_ids": [8, 7, 7], "category_name": "餐饮" }),
+        )
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["dry_run"], true);
+    assert_eq!(body["would"]["row_ids"], json!([7, 8]));
+    assert_eq!(body["would"]["affected_count"], 2);
+}
+
+#[tokio::test]
+async fn row_batch_updates_reject_non_positive_ids_and_invalid_values() {
+    let harness = Harness::recording().await;
+    for body in [
+        json!({ "row_ids": [0, 7], "category_name": "餐饮" }),
+        json!({ "row_ids": [7], "firefly_type": "spending" }),
+        json!({ "row_ids": [7], "firefly_date": "2026-7-1" }),
+        json!({ "row_ids": [7], "firefly_amount": "0" }),
+        json!({ "row_ids": [7], "source_account_id": 0 }),
+    ] {
+        let response = harness.patch("/v1/bill-rows/update-many", body).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+    assert_eq!(harness.upstream_calls(), 0);
+}
+
+#[tokio::test]
+async fn row_dismiss_forwards_reason_and_dry_run_count() {
+    let harness = Harness::recording().await;
+    let response = harness
+        .post(
+            "/v1/bill-rows/dismiss?dry_run=true",
+            json!({ "row_ids": [7, 8], "reason": "账单外消费" }),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["would"]["affected_count"], 2);
+    assert_eq!(body["would"]["row_ids"], json!([7, 8]));
+    assert_eq!(
+        harness.upstream("POST /v1/bill-rows/dismiss").unwrap()["reason"],
+        "账单外消费"
+    );
 }
 
 /// 银行原文和 as_suggestion 都不给调用方碰，拼错的字段也不能被悄悄丢掉。
@@ -467,7 +795,7 @@ async fn row_updates_refuse_fields_that_are_not_theirs() {
         json!({ "as_suggestion": false }),
         json!({ "categry_name": "餐饮" }),
     ] {
-        let response = harness.patch("/v1/rows/7", body.clone()).await;
+        let response = harness.patch("/v1/bill-rows/7", body.clone()).await;
         assert_eq!(response.status(), 400, "{body} 不该被接受");
         let problem: Value = response.json().await.unwrap();
         assert_eq!(problem["reason"], "InvalidParams");
@@ -478,7 +806,7 @@ async fn row_updates_refuse_fields_that_are_not_theirs() {
 #[tokio::test]
 async fn row_updates_need_at_least_one_field() {
     let harness = Harness::recording().await;
-    let response = harness.patch("/v1/rows/7", json!({})).await;
+    let response = harness.patch("/v1/bill-rows/7", json!({})).await;
     assert_eq!(response.status(), 400);
     let body: Value = response.json().await.unwrap();
     assert!(
@@ -492,14 +820,14 @@ async fn row_updates_validate_the_type_and_date() {
     let harness = Harness::recording().await;
 
     let response = harness
-        .patch("/v1/rows/7", json!({ "firefly_type": "spending" }))
+        .patch("/v1/bill-rows/7", json!({ "firefly_type": "spending" }))
         .await;
     assert_eq!(response.status(), 400);
     let body: Value = response.json().await.unwrap();
     assert!(body["detail"].as_str().unwrap().contains("withdrawal"));
 
     let response = harness
-        .patch("/v1/rows/7", json!({ "firefly_date": "2026-7-1" }))
+        .patch("/v1/bill-rows/7", json!({ "firefly_date": "2026-7-1" }))
         .await;
     assert_eq!(response.status(), 400);
     let body: Value = response.json().await.unwrap();
@@ -513,22 +841,28 @@ async fn splitting_needs_at_least_two_positive_parts() {
     let harness = Harness::recording().await;
 
     let one = json!({ "splits": [{ "amount": "45.00", "description": "只有一笔" }] });
-    assert_eq!(harness.post("/v1/rows/7/split", one).await.status(), 400);
+    assert_eq!(
+        harness.post("/v1/bill-rows/7/split", one).await.status(),
+        400
+    );
 
     let zero = json!({ "splits": [
         { "amount": "0.00", "description": "零" },
         { "amount": "45.00", "description": "正常" }
     ]});
-    assert_eq!(harness.post("/v1/rows/7/split", zero).await.status(), 400);
+    assert_eq!(
+        harness.post("/v1/bill-rows/7/split", zero).await.status(),
+        400
+    );
     assert_eq!(harness.upstream_calls(), 0);
 
     let good = json!({ "splits": [
         { "amount": "20.00", "description": "菜" },
         { "amount": "25.00", "description": "酒" }
     ]});
-    let response = harness.post("/v1/rows/7/split", good).await;
+    let response = harness.post("/v1/bill-rows/7/split", good).await;
     assert_eq!(response.status(), 200);
-    let sent = harness.upstream("/bill-statement-rows/7/split").unwrap();
+    let sent = harness.upstream("/v1/bill-rows/7/split").unwrap();
     assert_eq!(sent["splits"].as_array().unwrap().len(), 2);
 }
 
@@ -716,15 +1050,15 @@ async fn proxy_still_requires_a_token() {
 }
 
 #[tokio::test]
-async fn feedback_proxy_preserves_dry_run_create_and_get_semantics() {
+async fn feedback_proxy_preserves_submission_confirmation_and_reply_semantics() {
     let harness = Harness::start().await;
     let feedback = json!({
-        "title": "错误信息不够明确",
-        "body": "## 现象\n失败\n## 期望\n指出字段",
-        "labels": ["friction"],
-        "kind": "friction",
-        "submitted_by": "codex",
-        "source": "cli"
+        "kind": "bug",
+        "target": "cli",
+        "message": "账单导入后没有结果",
+        "submitted_via": "cli",
+        "idempotency_key": "api-test-1",
+        "context": { "cli_version": "test" }
     });
 
     let response = harness
@@ -738,37 +1072,66 @@ async fn feedback_proxy_preserves_dry_run_create_and_get_semantics() {
     let body: Value = response.json().await.unwrap();
     assert!(body["data"].as_array().unwrap().is_empty());
 
-    let response = harness.post("/v1/feedback", feedback.clone()).await;
-    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let response = harness.post("/v1/feedback", feedback).await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let first: Value = response.json().await.unwrap();
+    assert_eq!(first["submission_id"], 1);
+    assert_eq!(first["feedback_id"], 1);
+    assert_eq!(first["occurrences"], 1);
 
-    let response = harness.post("/v1/feedback?confirm=true", feedback).await;
+    let response = harness.get_auth("/v1/feedback/1").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["data"]["title"], "账单导入后没有结果");
+
+    let response = harness
+        .post(
+            "/v1/feedback",
+            json!({
+                "kind": "bug",
+                "target": "cli",
+                "message": "导入账单一直没有结果",
+                "submitted_via": "web",
+                "idempotency_key": "api-test-2",
+                "context": {}
+            }),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let pending: Value = response.json().await.unwrap();
+    assert_eq!(pending["state"], "needs_confirmation");
+    assert_eq!(pending["candidates"][0]["feedback_id"], 1);
+
+    let response = harness
+        .post(
+            "/v1/feedback/submissions/2/confirm",
+            json!({ "same_as": 1 }),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let linked: Value = response.json().await.unwrap();
+    assert_eq!(linked["occurrences"], 2);
+
+    let response = harness
+        .post(
+            "/v1/feedback/submissions/2/confirm",
+            json!({ "same_as": 1 }),
+        )
+        .await;
+    let repeated: Value = response.json().await.unwrap();
+    assert_eq!(repeated["occurrences"], 2);
+
+    let response = harness
+        .post(
+            "/v1/feedback/submissions/2/messages",
+            json!({ "message": "补充：只在 0.2.0 出现" }),
+        )
+        .await;
     assert_eq!(response.status(), StatusCode::CREATED);
 
     let response = harness.get_auth("/v1/feedback/1").await;
-    assert_eq!(response.status(), StatusCode::OK);
     let body: Value = response.json().await.unwrap();
-    assert_eq!(body["data"]["title"], "错误信息不够明确");
-
-    let response = harness
-        .patch(
-            "/v1/feedback/1?confirm=true",
-            json!({ "status": "completed", "response": "已修复" }),
-        )
-        .await;
-    assert_eq!(response.status(), StatusCode::OK);
-    let body: Value = response.json().await.unwrap();
-    assert_eq!(body["data"]["status"], "completed");
-
-    let response = harness
-        .send(
-            Method::DELETE,
-            "/v1/feedback/1?confirm=true",
-            Some(json!({ "reason": "测试清理" })),
-        )
-        .await;
-    assert_eq!(response.status(), StatusCode::OK);
-    let response = harness.get_auth("/v1/feedback/1").await;
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(body["messages"][0]["body"], "补充：只在 0.2.0 出现");
 }
 
 #[tokio::test]

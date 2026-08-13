@@ -1,0 +1,68 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH abei 1  "abei 0.1.0" 
+.SH NAME
+abei \- 手写命令。用 derive 定义，再嫁接到生成的命令树上。
+.SH SYNOPSIS
+\fBabei\fR [\fB\-\-url\fR] [\fB\-\-token\fR] [\fB\-\-json\fR] [\fB\-\-jq\fR] [\fB\-\-month\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] [\fIsubcommands\fR]
+.SH DESCRIPTION
+手写命令。用 derive 定义，再嫁接到生成的命令树上。
+.SH OPTIONS
+.TP
+\fB\-\-url\fR \fI<URL>\fR
+abei\-api 地址，盖过配置与 ABEI_API_URL
+.TP
+\fB\-\-token\fR \fI<TOKEN>\fR
+令牌，盖过令牌文件与 ABEI_TOKEN；auth login 存的也是它，写 \- 从标准输入读
+.TP
+\fB\-\-json\fR[=\fI<字段,字段>\fR]
+输出 JSON；不带值时列出可选字段
+.TP
+\fB\-\-jq\fR \fI<表达式>\fR
+对原始响应跑 jq 表达式
+.TP
+\fB\-\-month\fR \fI<YYYY\-MM>\fR
+裸命令看哪个月，默认本月
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.SH SUBCOMMANDS
+.TP
+abei\-auth(1)
+配对与令牌
+.TP
+abei\-api(1)
+直接打接口，目录里没建模的也能打
+.TP
+abei\-explain(1)
+讲清楚一个资源有哪些动词和参数
+.TP
+abei\-guide(1)
+一页纸说明书，给 AI 看
+.TP
+abei\-completion(1)
+生成 shell 补全脚本
+.TP
+abei\-man(1)
+生成 man 页
+.TP
+abei\-transactions(1)
+交易
+.TP
+abei\-accounts(1)
+账户
+.TP
+abei\-bills(1)
+账单任务
+.TP
+abei\-rows(1)
+账单流水
+.TP
+abei\-feedback(1)
+产品反馈
+.SH VERSION
+v0.1.0
+

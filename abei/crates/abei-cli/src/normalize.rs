@@ -82,41 +82,70 @@ pub fn rows_for(capability_id: &str, body: &Value) -> Rows {
         "transactions.list" | "transactions.show" | "transactions.search" => transactions(body),
         "accounts.list" => accounts(body),
         "transactions.summary" => summary(body),
-        "bills.list" | "bills.show" => bills(body),
+        "bills.list" => bills_list(body),
+        "bills.show" => bills_show(body),
+        "bills.unlock" => bills_show(body),
         "bills.review" => review(body),
-        "feedback.create" | "feedback.update" | "feedback.retry" | "feedback.list"
-        | "feedback.get" => feedback(body),
+        "bills.import" => bill_import(body),
+        "feedback.create" | "feedback.confirm" => feedback_submission_result(body),
+        "feedback.reply" => feedback_reply(body),
+        "feedback.list" => feedback_list(body),
+        "feedback.get" => feedback_detail(body),
+        "profile-doc.list" | "profile-doc.get" | "profile-doc.create" | "profile-doc.update" => {
+            profile_docs(body)
+        }
         _ => generic(body),
     }
 }
 
-const FEEDBACK_FIELDS: &[&str] = &[
-    "id",
-    "title",
-    "body",
-    "labels",
-    "kind",
-    "submitted_by",
-    "source",
+/// 解锁默认只保留能判断结果的几列；`--json`/`--jq` 仍分别使用规范化字段或原始响应。
+pub fn unlock_summary_rows(body: &Value) -> Rows {
+    const FIELDS: &[&str] = &["id", "source", "status", "pending", "imported", "message"];
+    let full = bills_show(body);
+    let rows = full
+        .rows
+        .into_iter()
+        .map(|mut row| {
+            let message = row
+                .get("error_message")
+                .filter(|value| !value.is_null())
+                .cloned()
+                .or_else(|| row.get("summary").cloned())
+                .unwrap_or(Value::Null);
+            row.insert("message".to_owned(), message);
+            FIELDS
+                .iter()
+                .map(|field| {
+                    (
+                        (*field).to_owned(),
+                        row.get(*field).cloned().unwrap_or(Value::Null),
+                    )
+                })
+                .collect()
+        })
+        .collect();
+    Rows::new(FIELDS, rows)
+}
+
+const BILL_IMPORT_FIELDS: &[&str] = &[
+    "row_id",
     "status",
-    "response",
-    "responded_by",
-    "responded_at",
-    "duplicate_of",
-    "github_issue_url",
-    "github_issue_number",
-    "sync_status",
-    "sync_error",
-    "created_at",
-    "updated_at",
+    "action",
+    "amount",
+    "description",
+    "attempt_id",
+    "transaction_group_id",
+    "error",
 ];
 
-fn feedback(body: &Value) -> Rows {
-    let rows = array(body, "data")
+fn bill_import(body: &Value) -> Rows {
+    let rows = body["rows"]
+        .as_array()
         .into_iter()
-        .filter_map(|item| item.as_object().cloned())
+        .flatten()
+        .filter_map(Value::as_object)
         .map(|item| {
-            FEEDBACK_FIELDS
+            BILL_IMPORT_FIELDS
                 .iter()
                 .map(|field| {
                     (
@@ -127,7 +156,324 @@ fn feedback(body: &Value) -> Rows {
                 .collect()
         })
         .collect();
-    Rows::new(FEEDBACK_FIELDS, rows)
+    Rows::new(BILL_IMPORT_FIELDS, rows)
+}
+
+const PROFILE_DOC_FIELDS: &[&str] = &[
+    "slug",
+    "title",
+    "version",
+    "updated_by",
+    "updated_source",
+    "updated_at",
+];
+
+fn profile_docs(body: &Value) -> Rows {
+    let rows = array(body, "data")
+        .into_iter()
+        .filter_map(|item| item.as_object().cloned())
+        .map(|item| {
+            PROFILE_DOC_FIELDS
+                .iter()
+                .map(|field| {
+                    (
+                        (*field).to_owned(),
+                        item.get(*field).cloned().unwrap_or(Value::Null),
+                    )
+                })
+                .collect()
+        })
+        .collect();
+    Rows::new(PROFILE_DOC_FIELDS, rows)
+}
+
+const FEEDBACK_SUBMISSION_FIELDS: &[&str] = &[
+    "submission_id",
+    "state",
+    "feedback_id",
+    "status",
+    "affected_users",
+    "occurrences",
+    "candidates",
+    "next_actions",
+];
+
+fn feedback_submission_result(body: &Value) -> Rows {
+    if body.get("dry_run").and_then(Value::as_bool) == Some(true) {
+        let mut row = body
+            .get("data")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        row.insert("state".to_owned(), Value::String("dry_run".to_owned()));
+        return Rows::new(
+            &["state", "kind", "target", "message", "submitted_via"],
+            vec![row],
+        );
+    }
+
+    let Some(source) = body.as_object() else {
+        return Rows::new(FEEDBACK_SUBMISSION_FIELDS, Vec::new());
+    };
+    let mut row = pick(source, FEEDBACK_SUBMISSION_FIELDS);
+    row.insert(
+        "candidates".to_owned(),
+        Value::String(candidate_summary(source.get("candidates"))),
+    );
+    row.insert(
+        "next_actions".to_owned(),
+        Value::String(confirmation_commands(source)),
+    );
+    Rows::new(FEEDBACK_SUBMISSION_FIELDS, vec![row])
+}
+
+const FEEDBACK_LIST_FIELDS: &[&str] = &[
+    "record",
+    "feedback_id",
+    "submission_id",
+    "title",
+    "message",
+    "request",
+    "kind",
+    "target",
+    "state",
+    "status",
+    "severity",
+    "affected_users",
+    "occurrences",
+    "candidates",
+    "next_actions",
+    "my_submission_ids",
+    "updated_at",
+];
+
+fn feedback_list(body: &Value) -> Rows {
+    let mut rows = Vec::new();
+    if let Some(pending) = body.get("pending").and_then(Value::as_array) {
+        for item in pending.iter().filter_map(Value::as_object) {
+            let mut row = pick(item, FEEDBACK_LIST_FIELDS);
+            row.insert("record".to_owned(), Value::String("pending".to_owned()));
+            row.insert(
+                "candidates".to_owned(),
+                Value::String(candidate_summary(item.get("candidates"))),
+            );
+            let request = latest_admin_message(item.get("messages"));
+            row.insert("request".to_owned(), Value::String(request));
+            let next_actions =
+                if item.get("state").and_then(Value::as_str) == Some("needs_information") {
+                    item.get("submission_id")
+                        .and_then(Value::as_i64)
+                        .map(|id| format!("abei feedback reply {id} --message '<补充信息>'"))
+                        .unwrap_or_default()
+                } else {
+                    confirmation_commands(item)
+                };
+            row.insert("next_actions".to_owned(), Value::String(next_actions));
+            rows.push(row);
+        }
+    }
+    if let Some(items) = body.get("data").and_then(Value::as_array) {
+        for item in items.iter().filter_map(Value::as_object) {
+            let mut row = pick(item, FEEDBACK_LIST_FIELDS);
+            row.insert("record".to_owned(), Value::String("feedback".to_owned()));
+            row.insert(
+                "my_submission_ids".to_owned(),
+                Value::String(number_list(item.get("my_submission_ids"))),
+            );
+            rows.push(row);
+        }
+    }
+    Rows::new(FEEDBACK_LIST_FIELDS, rows)
+}
+
+const FEEDBACK_DETAIL_FIELDS: &[&str] = &[
+    "record",
+    "id",
+    "feedback_id",
+    "submission_id",
+    "title",
+    "kind",
+    "target",
+    "state",
+    "status",
+    "severity",
+    "content",
+    "author",
+    "affected_users",
+    "occurrences",
+    "created_at",
+    "updated_at",
+];
+
+fn feedback_detail(body: &Value) -> Rows {
+    let mut rows = Vec::new();
+    if let Some(item) = body.get("data").and_then(Value::as_object) {
+        let mut row = pick(item, FEEDBACK_DETAIL_FIELDS);
+        row.insert("record".to_owned(), Value::String("feedback".to_owned()));
+        row.insert(
+            "content".to_owned(),
+            item.get("public_summary").cloned().unwrap_or(Value::Null),
+        );
+        rows.push(row);
+    }
+    append_timeline_rows(&mut rows, body, "updates", "update", Some("body"), None);
+    append_timeline_rows(
+        &mut rows,
+        body,
+        "submissions",
+        "submission",
+        Some("message"),
+        None,
+    );
+    append_timeline_rows(
+        &mut rows,
+        body,
+        "messages",
+        "message",
+        Some("body"),
+        Some("author_kind"),
+    );
+    Rows::new(FEEDBACK_DETAIL_FIELDS, rows)
+}
+
+fn append_timeline_rows(
+    rows: &mut Vec<Map<String, Value>>,
+    body: &Value,
+    key: &str,
+    record: &str,
+    content_field: Option<&str>,
+    author_field: Option<&str>,
+) {
+    let Some(items) = body.get(key).and_then(Value::as_array) else {
+        return;
+    };
+    for item in items.iter().filter_map(Value::as_object) {
+        let mut row = pick(item, FEEDBACK_DETAIL_FIELDS);
+        row.insert("record".to_owned(), Value::String(record.to_owned()));
+        if let Some(field) = content_field {
+            row.insert(
+                "content".to_owned(),
+                item.get(field).cloned().unwrap_or(Value::Null),
+            );
+        }
+        if let Some(field) = author_field {
+            row.insert(
+                "author".to_owned(),
+                item.get(field).cloned().unwrap_or(Value::Null),
+            );
+        }
+        rows.push(row);
+    }
+}
+
+const FEEDBACK_REPLY_FIELDS: &[&str] = &[
+    "submission_id",
+    "message_id",
+    "author",
+    "message",
+    "created_at",
+];
+
+fn feedback_reply(body: &Value) -> Rows {
+    let Some(item) = body.get("data").and_then(Value::as_object) else {
+        return Rows::new(FEEDBACK_REPLY_FIELDS, Vec::new());
+    };
+    let mut row = pick(item, FEEDBACK_REPLY_FIELDS);
+    row.insert(
+        "message_id".to_owned(),
+        item.get("id").cloned().unwrap_or(Value::Null),
+    );
+    row.insert(
+        "author".to_owned(),
+        item.get("author_kind").cloned().unwrap_or(Value::Null),
+    );
+    row.insert(
+        "message".to_owned(),
+        item.get("body").cloned().unwrap_or(Value::Null),
+    );
+    Rows::new(FEEDBACK_REPLY_FIELDS, vec![row])
+}
+
+fn pick(source: &Map<String, Value>, fields: &[&str]) -> Map<String, Value> {
+    fields
+        .iter()
+        .map(|field| {
+            (
+                (*field).to_owned(),
+                source.get(*field).cloned().unwrap_or(Value::Null),
+            )
+        })
+        .collect()
+}
+
+fn candidate_summary(value: Option<&Value>) -> String {
+    value
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_object)
+        .map(|candidate| {
+            let id = candidate
+                .get("feedback_id")
+                .and_then(Value::as_i64)
+                .map(|id| format!("#{id}"))
+                .unwrap_or_else(|| "#?".to_owned());
+            let title = candidate
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or("未命名反馈");
+            let status = candidate
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            format!("{id} {title} [{status}]")
+        })
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+fn latest_admin_message(value: Option<&Value>) -> String {
+    value
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .rev()
+        .filter_map(Value::as_object)
+        .find(|message| message.get("author_kind").and_then(Value::as_str) == Some("admin"))
+        .and_then(|message| message.get("body"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned()
+}
+
+fn confirmation_commands(source: &Map<String, Value>) -> String {
+    if source.get("state").and_then(Value::as_str) != Some("needs_confirmation") {
+        return String::new();
+    }
+    let Some(submission_id) = source.get("submission_id").and_then(Value::as_i64) else {
+        return String::new();
+    };
+    let mut commands = source
+        .get("candidates")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|candidate| candidate.get("feedback_id").and_then(Value::as_i64))
+        .map(|feedback_id| format!("abei feedback confirm {submission_id} --same-as {feedback_id}"))
+        .collect::<Vec<_>>();
+    commands.push(format!("abei feedback confirm {submission_id} --new"));
+    commands.join(" | ")
+}
+
+fn number_list(value: Option<&Value>) -> String {
+    value
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_i64)
+        .map(|number| number.to_string())
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 const TRANSACTION_FIELDS: &[&str] = &[
@@ -204,7 +550,7 @@ fn accounts(body: &Value) -> Rows {
     Rows::new(ACCOUNT_FIELDS, rows)
 }
 
-const BILL_FIELDS: &[&str] = &[
+const BILL_LIST_FIELDS: &[&str] = &[
     "id",
     "source",
     "status",
@@ -216,7 +562,33 @@ const BILL_FIELDS: &[&str] = &[
 
 /// 账单任务。`pending` / `imported` 从嵌套的 row_counts 里提上来——
 /// 「这份还剩几行要处理」是看收件箱时最先要问的，不该埋在 --jq 里。
-fn bills(body: &Value) -> Rows {
+fn bills_list(body: &Value) -> Rows {
+    bills_with_fields(body, BILL_LIST_FIELDS)
+}
+
+const BILL_SHOW_FIELDS: &[&str] = &[
+    "id",
+    "source",
+    "status",
+    "subject",
+    "parse_stage",
+    "waiting_reason",
+    "current_secret_challenge_id",
+    "error_code",
+    "error_message",
+    "summary",
+    "period_start",
+    "period_end",
+    "received_at",
+    "pending",
+    "imported",
+];
+
+fn bills_show(body: &Value) -> Rows {
+    bills_with_fields(body, BILL_SHOW_FIELDS)
+}
+
+fn bills_with_fields(body: &Value, fields: &[&str]) -> Rows {
     let mut rows = Vec::new();
     for item in array(body, "data") {
         let attributes = item.get("attributes").cloned().unwrap_or(Value::Null);
@@ -238,9 +610,46 @@ fn bills(body: &Value) -> Rows {
         );
         row.insert("pending".into(), count("pending"));
         row.insert("imported".into(), count("imported"));
+        row.insert("summary".into(), string(str_of(&attributes, "summary")));
+        row.insert(
+            "period_start".into(),
+            string(str_of(&attributes, "period_start")),
+        );
+        row.insert(
+            "period_end".into(),
+            string(str_of(&attributes, "period_end")),
+        );
+        row.insert(
+            "current_secret_challenge_id".into(),
+            string(str_of(&attributes, "current_secret_challenge_id")),
+        );
+        row.insert(
+            "error_code".into(),
+            string(str_of(&attributes, "error_code")),
+        );
+        row.insert(
+            "error_message".into(),
+            string(str_of(&attributes, "error_message")),
+        );
+        row.insert(
+            "parse_stage".into(),
+            string(
+                attributes
+                    .pointer("/metadata/parse_stage")
+                    .and_then(Value::as_str),
+            ),
+        );
+        row.insert(
+            "waiting_reason".into(),
+            string(
+                attributes
+                    .pointer("/metadata/waiting_reason")
+                    .and_then(Value::as_str),
+            ),
+        );
         rows.push(row);
     }
-    Rows::new(BILL_FIELDS, rows)
+    Rows::new(fields, rows)
 }
 
 const REVIEW_FIELDS: &[&str] = &[
@@ -259,15 +668,11 @@ const REVIEW_FIELDS: &[&str] = &[
 /// 审阅视图是三个桶，摊平时把桶名留成第一列：一眼看出哪几行卡着。
 /// 桶的顺序是固定的（要处理的排在前面），不跟着 JSON 的键序走。
 fn review(body: &Value) -> Rows {
-    let buckets = body
-        .pointer("/data/buckets")
-        .or_else(|| body.get("buckets"))
-        .cloned()
-        .unwrap_or(Value::Null);
+    let groups = body.pointer("/data/groups").cloned().unwrap_or(Value::Null);
 
     let mut rows = Vec::new();
-    for bucket in ["needs_attention", "ready", "duplicates"] {
-        let items = buckets
+    for bucket in ["attention", "importable", "dismissed", "imported"] {
+        let items = groups
             .get(bucket)
             .and_then(Value::as_array)
             .cloned()
@@ -283,19 +688,37 @@ fn review(body: &Value) -> Rows {
                     other => string(other.and_then(Value::as_str)),
                 },
             );
+            let attributes = item
+                .get("attributes")
+                .filter(|value| value.is_object())
+                .unwrap_or(&item);
             row.insert(
                 "date".into(),
-                Value::String(day(
-                    str_of(&item, "firefly_date").or_else(|| str_of(&item, "occurred_at"))
-                )),
+                Value::String(day(str_of(attributes, "firefly_date")
+                    .or_else(|| str_of(attributes, "occurred_at")))),
             );
-            row.insert("amount".into(), string(str_of(&item, "amount")));
-            row.insert("counterparty".into(), string(str_of(&item, "counterparty")));
-            row.insert("description".into(), string(str_of(&item, "description")));
-            row.insert("type".into(), string(str_of(&item, "firefly_type")));
-            row.insert("category".into(), string(str_of(&item, "category_name")));
-            row.insert("duplicate".into(), string(str_of(&item, "duplicate_state")));
-            row.insert("suggested_by".into(), string(str_of(&item, "suggested_by")));
+            row.insert("amount".into(), string(str_of(attributes, "amount")));
+            row.insert(
+                "counterparty".into(),
+                string(str_of(attributes, "counterparty")),
+            );
+            row.insert(
+                "description".into(),
+                string(str_of(attributes, "description")),
+            );
+            row.insert("type".into(), string(str_of(attributes, "firefly_type")));
+            row.insert(
+                "category".into(),
+                string(str_of(attributes, "category_name")),
+            );
+            row.insert(
+                "duplicate".into(),
+                string(str_of(attributes, "duplicate_state")),
+            );
+            row.insert(
+                "suggested_by".into(),
+                string(str_of(attributes, "suggested_by")),
+            );
             rows.push(row);
         }
     }
@@ -535,33 +958,78 @@ mod tests {
         assert_eq!(rows.rows[0]["subject"], Value::Null);
     }
 
+    #[test]
+    fn bills_show_surfaces_subject_stage_errors_and_unlock_state() {
+        let body = json!({ "data": { "id": "43", "attributes": {
+            "source": "cmb", "status": "needs_secret", "subject": "招商银行交易流水",
+            "summary": "2026 年 7 月流水", "period_start": "2026-07-01",
+            "period_end": "2026-07-31", "received_at": "2026-08-01T09:00:00+08:00",
+            "current_secret_challenge_id": "91", "error_code": "bad_password",
+            "error_message": "密码不正确", "metadata": {
+                "parse_stage": "unlock", "waiting_reason": "secret_rejected"
+            }, "row_counts": { "pending": 12, "imported": 3 }
+        } } });
+        let rows = rows_for("bills.show", &body);
+        assert_eq!(rows.fields, BILL_SHOW_FIELDS);
+        let row = &rows.rows[0];
+        assert_eq!(row["subject"], "招商银行交易流水");
+        assert_eq!(row["parse_stage"], "unlock");
+        assert_eq!(row["waiting_reason"], "secret_rejected");
+        assert_eq!(row["current_secret_challenge_id"], "91");
+        assert_eq!(row["error_code"], "bad_password");
+        assert_eq!(row["error_message"], "密码不正确");
+        assert_eq!(row["period_start"], "2026-07-01");
+        assert_eq!(row["pending"], 12);
+    }
+
+    #[test]
+    fn bill_import_exposes_each_rows_result() {
+        let body = json!({
+            "summary": { "total": 2, "would_import": 1, "failed": 1 },
+            "rows": [
+                {
+                    "row_id": "7", "status": "pending", "action": "would_import",
+                    "amount": "45.00", "description": "面馆"
+                },
+                {
+                    "row_id": "8", "status": "failed", "action": "failed",
+                    "error": "缺少账户映射"
+                }
+            ]
+        });
+        let rows = rows_for("bills.import", &body);
+        assert_eq!(rows.rows.len(), 2);
+        assert_eq!(rows.rows[0]["action"], "would_import");
+        assert_eq!(rows.rows[1]["error"], "缺少账户映射");
+    }
+
     /// 三个桶摊成一张表，要处理的排在最前面。
     #[test]
     fn review_buckets_flatten_with_attention_first() {
-        let body = json!({ "data": { "buckets": {
-            "ready": [{ "id": 7, "occurred_at": "2026-07-15", "amount": "45.00",
+        let body = json!({ "data": { "groups": {
+            "importable": [{ "id": "7", "attributes": { "occurred_at": "2026-07-15", "amount": "45.00",
                         "counterparty": "面馆", "firefly_type": "withdrawal",
-                        "category_name": "餐饮", "duplicate_state": "unique" }],
-            "needs_attention": [{ "id": 8, "occurred_at": "2026-07-16", "amount": "128.50",
-                                  "counterparty": "山姆", "duplicate_state": "unique" }],
-            "duplicates": []
+                        "category_name": "餐饮", "duplicate_state": "unique" } }],
+            "attention": [{ "id": "8", "attributes": { "occurred_at": "2026-07-16", "amount": "128.50",
+                                  "counterparty": "山姆", "duplicate_state": "unique" } }],
+            "dismissed": [], "imported": []
         }}});
         let rows = rows_for("bills.review", &body);
         assert_eq!(rows.rows.len(), 2);
-        assert_eq!(rows.rows[0]["bucket"], "needs_attention");
+        assert_eq!(rows.rows[0]["bucket"], "attention");
         // id 是数字也要能当字符串用（后面要拼进 abei rows update <id>）。
         assert_eq!(rows.rows[0]["id"], "8");
         assert_eq!(rows.rows[0]["type"], Value::Null);
-        assert_eq!(rows.rows[1]["bucket"], "ready");
+        assert_eq!(rows.rows[1]["bucket"], "importable");
         assert_eq!(rows.rows[1]["category"], "餐饮");
     }
 
     /// 已经填过 firefly_date 的行按填的日期显示，没填的退回银行原始日期。
     #[test]
     fn review_prefers_the_booked_date_over_the_bank_date() {
-        let body = json!({ "buckets": { "ready": [
-            { "id": 1, "occurred_at": "2026-07-15", "firefly_date": "2026-07-16" }
-        ]}});
+        let body = json!({ "data": { "groups": { "importable": [
+            { "id": "1", "attributes": { "occurred_at": "2026-07-15", "firefly_date": "2026-07-16" } }
+        ], "attention": [], "dismissed": [], "imported": [] }}});
         let rows = rows_for("bills.review", &body);
         assert_eq!(rows.rows[0]["date"], "2026-07-16");
     }
@@ -593,6 +1061,116 @@ mod tests {
         let query = crate::query::parse(&["餐饮".to_owned()]).unwrap();
         rows.retain(&query);
         assert_eq!(rows.rows.len(), 1);
+    }
+
+    #[test]
+    fn feedback_create_shows_candidates_and_copyable_confirmation_commands() {
+        let body = json!({
+            "submission_id": 91,
+            "state": "needs_confirmation",
+            "candidates": [{
+                "feedback_id": 42,
+                "title": "账单导入后没有结果",
+                "status": "reviewing"
+            }],
+            "next_actions": ["confirm_same", "confirm_new"]
+        });
+        let rows = rows_for("feedback.create", &body);
+        assert_eq!(rows.rows.len(), 1);
+        assert_eq!(rows.rows[0]["submission_id"], 91);
+        assert_eq!(
+            rows.rows[0]["candidates"],
+            "#42 账单导入后没有结果 [reviewing]"
+        );
+        let actions = rows.rows[0]["next_actions"].as_str().unwrap();
+        assert!(actions.contains("abei feedback confirm 91 --same-as 42"));
+        assert!(actions.contains("abei feedback confirm 91 --new"));
+    }
+
+    #[test]
+    fn feedback_list_keeps_pending_submissions_separate_from_items() {
+        let body = json!({
+            "pending": [{
+                "submission_id": 91,
+                "kind": "bug",
+                "target": "cli",
+                "state": "needs_confirmation",
+                "message": "没有结果",
+                "candidates": [],
+                "messages": []
+            }],
+            "data": [{
+                "feedback_id": 42,
+                "title": "账单导入后没有结果",
+                "kind": "bug",
+                "target": "cli",
+                "status": "reviewing",
+                "my_submission_ids": [88, 89]
+            }]
+        });
+        let rows = rows_for("feedback.list", &body);
+        assert_eq!(rows.rows.len(), 2);
+        assert_eq!(rows.rows[0]["record"], "pending");
+        assert_eq!(rows.rows[0]["submission_id"], 91);
+        assert_eq!(
+            rows.rows[0]["next_actions"],
+            "abei feedback confirm 91 --new"
+        );
+        assert_eq!(rows.rows[1]["record"], "feedback");
+        assert_eq!(rows.rows[1]["feedback_id"], 42);
+        assert_eq!(rows.rows[1]["my_submission_ids"], "88,89");
+    }
+
+    #[test]
+    fn feedback_list_surfaces_admin_questions_and_reply_command() {
+        let body = json!({
+            "pending": [{
+                "submission_id": 91,
+                "kind": "bug",
+                "target": "cli",
+                "state": "needs_information",
+                "message": "没有结果",
+                "candidates": [],
+                "messages": [{
+                    "id": 8,
+                    "submission_id": 91,
+                    "author_kind": "admin",
+                    "body": "请补充版本",
+                    "created_at": "later"
+                }]
+            }],
+            "data": []
+        });
+        let rows = rows_for("feedback.list", &body);
+        assert_eq!(rows.rows[0]["request"], "请补充版本");
+        assert_eq!(
+            rows.rows[0]["next_actions"],
+            "abei feedback reply 91 --message '<补充信息>'"
+        );
+    }
+
+    #[test]
+    fn feedback_get_includes_public_updates_and_private_messages() {
+        let body = json!({
+            "data": {
+                "feedback_id": 42,
+                "title": "账单导入后没有结果",
+                "status": "in_progress",
+                "public_summary": "正在修复"
+            },
+            "updates": [{ "id": 7, "body": "已定位", "status": "in_progress", "created_at": "now" }],
+            "submissions": [{ "submission_id": 91, "message": "没有结果", "state": "linked" }],
+            "messages": [{ "id": 8, "submission_id": 91, "author_kind": "admin", "body": "请补充版本", "created_at": "later" }]
+        });
+        let rows = rows_for("feedback.get", &body);
+        assert_eq!(rows.rows.len(), 4);
+        assert_eq!(rows.rows[0]["record"], "feedback");
+        assert_eq!(rows.rows[0]["content"], "正在修复");
+        assert_eq!(rows.rows[1]["record"], "update");
+        assert_eq!(rows.rows[1]["content"], "已定位");
+        assert_eq!(rows.rows[3]["record"], "message");
+        assert_eq!(rows.rows[3]["author"], "admin");
+        assert_eq!(rows.rows[3]["content"], "请补充版本");
     }
 
     #[test]

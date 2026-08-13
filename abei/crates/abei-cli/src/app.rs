@@ -9,7 +9,7 @@ use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 use clap_complete::Shell;
 
 use crate::client::Client;
-use crate::commands::{self, auth::AuthCommand, docs};
+use crate::commands::{self, auth::AuthCommand, docs, parser::ParserCommand};
 use crate::config::Settings;
 use crate::error::CliError;
 use crate::exit::Exit;
@@ -25,6 +25,11 @@ enum Handwritten {
         #[command(subcommand)]
         command: AuthCommand,
     },
+    /// 解析流程开发与发布
+    Parser {
+        #[command(subcommand)]
+        command: ParserCommand,
+    },
     /// 讲清楚一个资源有哪些动词和参数
     Explain {
         /// 资源名或别名
@@ -34,10 +39,14 @@ enum Handwritten {
     /// 一页纸说明书，给 AI 看
     Guide,
     /// 生成 shell 补全脚本
+    #[command(hide = true)]
     Completion {
         #[arg(value_name = "SHELL")]
         shell: Shell,
     },
+    /// 生成 man page
+    #[command(hide = true)]
+    Man,
 }
 
 /// 只为拿到 `--help` 里的全局说明，实际解析走 builder。
@@ -210,7 +219,10 @@ async fn dispatch(
     };
 
     // 手写命令：不碰目录，也不都需要令牌。
-    if matches!(name, "auth" | "explain" | "guide" | "completion") {
+    if matches!(
+        name,
+        "auth" | "parser" | "explain" | "guide" | "completion" | "man"
+    ) {
         let command = Handwritten::from_arg_matches(matches)
             .map_err(|error| CliError::Usage(error.to_string()))?;
         return run_handwritten(io, &settings, command).await;
@@ -227,11 +239,20 @@ async fn run_handwritten(
 ) -> Result<(), CliError> {
     match command {
         Handwritten::Auth { command } => commands::auth::run(io, settings, &command).await,
+        Handwritten::Parser { command } => commands::parser::run(io, settings, &command).await,
         Handwritten::Explain { resource } => docs::explain(io, &resource),
         Handwritten::Guide => docs::guide(io),
         Handwritten::Completion { shell } => {
             let mut buffer = Vec::new();
             clap_complete::generate(shell, &mut root_command(), "abei", &mut buffer);
+            io.line(&String::from_utf8_lossy(&buffer))
+                .map_err(|error| CliError::Other(error.to_string()))
+        }
+        Handwritten::Man => {
+            let mut buffer = Vec::new();
+            clap_mangen::Man::new(root_command())
+                .render(&mut buffer)
+                .map_err(|error| CliError::Other(error.to_string()))?;
             io.line(&String::from_utf8_lossy(&buffer))
                 .map_err(|error| CliError::Other(error.to_string()))
         }
@@ -284,6 +305,9 @@ async fn run_capability(
     hooks.gate(capability, &retyped(argv))?;
 
     let mut params = tree::params_from(capability, leaf)?;
+    if capability.id() == "feedback.create" {
+        crate::diagnostics::enrich_feedback_create(&mut params)?;
+    }
 
     // 查询串里的 date: 下推成 start/end，其余留到本地过滤。
     let terms = tree::query_terms(leaf);
@@ -306,9 +330,28 @@ async fn run_capability(
         &settings.api_url,
         Some(settings.require_token()?.to_owned()),
     )?;
-    let response = client
+    let invocation = client
         .invoke(capability, &params, hooks.gate_params())
-        .await?;
+        .await;
+    if !capability.id().starts_with("feedback.") {
+        match &invocation {
+            Ok(_) => crate::diagnostics::record(
+                &capability.id(),
+                client.last_request_id(),
+                "success",
+                None,
+                Exit::Ok.code(),
+            ),
+            Err(error) => crate::diagnostics::record(
+                &capability.id(),
+                client.last_request_id(),
+                "error",
+                Some(error.machine_reason()),
+                error.exit().code(),
+            ),
+        }
+    }
+    let response = invocation?;
 
     // 本地过滤：API 还没有对应参数的条件在这里生效。
     if !query.filters.is_empty() {
@@ -433,11 +476,10 @@ mod tests {
     fn root_carries_generated_and_handwritten_commands() {
         let root = root_command();
         let names: Vec<&str> = root.get_subcommands().map(|c| c.get_name()).collect();
-        for handwritten in ["auth", "explain", "guide", "completion"] {
+        for handwritten in ["auth", "parser", "explain", "guide", "completion", "man"] {
             assert!(names.contains(&handwritten), "少了手写命令 {handwritten}");
         }
         assert!(!names.contains(&"api"));
-        assert!(!names.contains(&"man"));
         for resource in catalog().resources() {
             assert!(names.contains(&resource.name), "少了资源 {}", resource.name);
         }
@@ -448,6 +490,14 @@ mod tests {
         let help = root_command().render_long_help().to_string();
         assert!(help.contains("阿贝（abei）——记账工具的命令行。"));
         assert!(!help.contains("手写命令"));
+        for hidden in ["completion", "man"] {
+            assert!(
+                !help
+                    .lines()
+                    .any(|line| line.trim_start().starts_with(&format!("{hidden} "))),
+                "默认帮助泄露了隐藏命令 {hidden}：\n{help}"
+            );
+        }
     }
 
     #[test]

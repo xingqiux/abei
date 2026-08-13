@@ -331,6 +331,14 @@ async fn completion_scripts_generate() {
 }
 
 #[tokio::test]
+async fn man_page_generates_without_a_server() {
+    let result = run("http://127.0.0.1:1", "x", &["man"]).await;
+    assert_eq!(result.exit, Exit::Ok);
+    assert!(result.out.contains(".TH abei 1"), "{}", result.out);
+    assert!(result.out.contains(".SH NAME"), "{}", result.out);
+}
+
+#[tokio::test]
 async fn help_exits_zero() {
     let result = run("http://127.0.0.1:1", "x", &["--help"]).await;
     assert_eq!(result.exit, Exit::Ok);
@@ -396,9 +404,9 @@ async fn bills_review_puts_the_stuck_rows_first() {
     let rows = result.json();
     let rows = rows.as_array().unwrap();
     assert_eq!(rows.len(), 2);
-    assert_eq!(rows[0]["bucket"], "needs_attention");
+    assert_eq!(rows[0]["bucket"], "attention");
     assert_eq!(rows[0]["amount"], "128.50");
-    assert_eq!(rows[1]["bucket"], "ready");
+    assert_eq!(rows[1]["bucket"], "importable");
 }
 
 /// 写命令不带 --yes 就退 6，并把补好的命令原样给出来——agent 照抄就能重试。
@@ -439,18 +447,31 @@ async fn the_write_gate_is_machine_readable() {
 async fn dry_run_reaches_the_upstream_without_committing() {
     let sent = Recorder::default();
     let base = start_api_recording(sent.clone()).await;
-    let result = ok(&base, &["bills", "import", "42", "--all", "--dry-run"]).await;
+    let result = ok(
+        &base,
+        &[
+            "bills",
+            "import",
+            "42",
+            "--all",
+            "--dry-run",
+            "--json=row_id,action",
+        ],
+    )
+    .await;
 
     // 预览必须说明白自己是预览，否则跟真跑的输出长得一样。
     assert!(result.err.contains("这是预览"), "{}", result.err);
     assert!(result.err.contains("--yes"), "{}", result.err);
-    assert!(result.out.contains("2"), "预览要说会写几笔：{}", result.out);
+    let preview = result.json();
+    assert_eq!(preview.as_array().unwrap().len(), 2);
+    assert_eq!(preview[0]["action"], "would_import");
 
     let calls = sent.lock().unwrap();
     let (path, body) = calls.first().expect("干跑也该打到上游拿预览");
-    assert!(path.contains("/bill-tasks/42/import"), "{path}");
-    assert_eq!(body["confirm"], false, "干跑不能带 confirm");
-    assert_eq!(body["all"], true);
+    assert_eq!(path, "POST /internal/v1/bill-imports/prepare");
+    assert_eq!(body["dry_run"], true, "干跑不能创建导入尝试");
+    assert_eq!(body["row_id"], 7);
 }
 
 /// --yes 要变成服务端认的 confirm=true，否则会被 409 挡回来。
@@ -467,14 +488,20 @@ async fn yes_becomes_a_server_side_confirmation() {
             "--all",
             "--yes",
             "--jq",
-            ".data.created",
+            ".summary.imported",
         ],
     )
     .await;
     assert_eq!(result.out.trim(), "2");
 
     let calls = sent.lock().unwrap();
-    assert_eq!(calls[0].1["confirm"], true);
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|(path, _)| path == "POST /api/v1/transactions")
+            .count(),
+        2
+    );
 }
 
 /// 密码不写在命令行历史里也能干跑；干跑不把密码递给上游。
@@ -508,7 +535,7 @@ async fn row_updates_go_out_as_suggestions() {
     .await;
 
     let (path, body) = sent.lock().unwrap().first().cloned().expect("该打到上游");
-    assert!(path.contains("/bill-statement-rows/8"), "{path}");
+    assert!(path.contains("/v1/bill-rows/8"), "{path}");
     assert_eq!(body["as_suggestion"], true);
     assert_eq!(body["category_name"], "餐饮");
 
@@ -544,7 +571,7 @@ async fn splitting_a_row_travels_end_to_end() {
 
     let calls = sent.lock().unwrap();
     let (path, body) = calls.first().expect("该打到上游");
-    assert!(path.contains("/bill-statement-rows/8/split"), "{path}");
+    assert!(path.contains("/v1/bill-rows/8/split"), "{path}");
     let splits = body["splits"].as_array().unwrap();
     assert_eq!(splits.len(), 2);
     assert_eq!(splits[0]["amount"], "100.00");
@@ -588,70 +615,90 @@ async fn feedback_create_and_list_travel_through_api() {
         &[
             "feedback",
             "create",
-            "--title",
-            "错误信息不够明确",
-            "--body",
-            "## 现象\n失败\n## 期望\n指出字段\n## 复现\n运行命令\n## 环境\n测试",
-            "--label",
-            "friction",
             "--kind",
-            "friction",
-            "--by",
-            "codex",
-            "--yes",
+            "1",
+            "--message",
+            "账单导入后没有结果",
             "--jq",
-            ".data.source",
+            ".feedback_id",
         ],
     )
     .await;
-    assert_eq!(created.out.trim(), "\"cli\"");
+    assert_eq!(created.out.trim(), "1");
 
     let listed = ok(&base, &["feedback", "list", "--jq", ".data[0].title"]).await;
-    assert_eq!(listed.out.trim(), "\"错误信息不够明确\"");
+    assert_eq!(listed.out.trim(), "\"账单导入后没有结果\"");
 
     let fetched = ok(&base, &["feedback", "get", "1", "--jq", ".data.title"]).await;
-    assert_eq!(fetched.out.trim(), "\"错误信息不够明确\"");
+    assert_eq!(fetched.out.trim(), "\"账单导入后没有结果\"");
 
-    let resolved = ok(
+    let duplicate = ok(
         &base,
         &[
             "feedback",
-            "update",
-            "1",
-            "--status",
-            "completed",
-            "--response",
-            "已修复",
-            "--yes",
+            "create",
+            "--kind",
+            "bug",
+            "--message",
+            "导入账单一直没有结果",
             "--jq",
-            ".data.status",
+            ".submission_id",
         ],
     )
     .await;
-    assert_eq!(resolved.out.trim(), "\"completed\"");
+    assert_eq!(duplicate.out.trim(), "2");
 
-    let retried = ok(
-        &base,
-        &["feedback", "retry", "1", "--yes", "--jq", ".data.id"],
-    )
-    .await;
-    assert_eq!(retried.out.trim(), "1");
-
-    let deleted = ok(
+    let confirmed = ok(
         &base,
         &[
             "feedback",
-            "delete",
+            "confirm",
+            "2",
+            "--same-as",
             "1",
-            "--reason",
-            "测试清理",
-            "--yes",
             "--jq",
-            ".data.deleted",
+            ".occurrences",
         ],
     )
     .await;
-    assert_eq!(deleted.out.trim(), "true");
+    assert_eq!(confirmed.out.trim(), "2");
+
+    let repeated = ok(
+        &base,
+        &[
+            "feedback",
+            "confirm",
+            "2",
+            "--same-as",
+            "1",
+            "--jq",
+            ".occurrences",
+        ],
+    )
+    .await;
+    assert_eq!(repeated.out.trim(), "2");
+
+    let replied = ok(
+        &base,
+        &[
+            "feedback",
+            "reply",
+            "2",
+            "--message",
+            "补充：只在 0.2.0 出现",
+            "--jq",
+            ".data.author_kind",
+        ],
+    )
+    .await;
+    assert_eq!(replied.out.trim(), "\"user\"");
+
+    let fetched = ok(
+        &base,
+        &["feedback", "get", "1", "--jq", ".messages[0].body"],
+    )
+    .await;
+    assert_eq!(fetched.out.trim(), "\"补充：只在 0.2.0 出现\"");
 }
 
 #[tokio::test]
@@ -662,14 +709,10 @@ async fn feedback_dry_run_does_not_create_a_record() {
         &[
             "feedback",
             "create",
-            "--title",
-            "只预览",
-            "--body",
-            "不会落库",
             "--kind",
-            "idea",
-            "--by",
-            "codex",
+            "3",
+            "--message",
+            "希望支持只预览",
             "--dry-run",
             "--jq",
             ".dry_run",
