@@ -253,6 +253,9 @@ export const EMPTY_BILL_INBOX_TODO: BillInboxTodo = {
 export const billMailboxSyncResultSchema = z
   .object({
     scanned: z.number(),
+    fetched: z.number().optional(),
+    matched: z.number().optional(),
+    unclassified: z.number().optional(),
     created: z.number(),
     ignored: z.number(),
     duplicates: z.number(),
@@ -283,6 +286,7 @@ export const billInboxSummarySchema = z
     needs_code: z.number(),
     unprocessed: z.number(),
     failed: z.number(),
+    unclassified_mail: z.number().optional().default(0),
     channels: z.array(billInboxChannelSchema),
     todo: billInboxTodoSchema.optional(),
     mailbox_sync: billMailboxSyncStateSchema.optional(),
@@ -335,7 +339,7 @@ export type GoogleOAuthStart = z.infer<typeof googleOAuthStartSchema>
 export type BillInboxProcessResult = z.infer<typeof billInboxProcessResultSchema>
 export type BillInboxCleanupResult = z.infer<typeof billInboxCleanupResultSchema>
 
-/** GET /api/v1/bill-tasks（自建端点）任务状态枚举 */
+/** GET /v1/bills 的兼容任务状态枚举。 */
 export const billTaskStatusSchema = z.enum([
   'received',
   'ready',
@@ -367,6 +371,7 @@ export const billTaskAttributesSchema = z
     status: billTaskStatusSchema,
     received_at: z.string().nullable().optional(),
     summary: z.string().nullable().optional(),
+    account_hint: z.string().nullable().optional(),
     current_secret_challenge_id: z.union([z.string(), z.number()]).nullable().optional(),
     error_code: z.string().nullable().optional(),
     error_message: z.string().nullable().optional(),
@@ -390,7 +395,7 @@ export type BillTask = z.infer<typeof billTaskSchema>
 export type BillTasksResponse = z.infer<typeof billTasksResponseSchema>
 
 /**
- * GET /api/v1/bill-tasks/{id}/rows（自建端点）行状态/去重状态枚举。
+ * GET /v1/bills/{id}/rows 的行状态/去重状态枚举。
  * `dismissed`（已忽略）是设计稿 02 §2 新增的终态：不计待办、不可入账、可恢复为 pending。
  */
 export const billRowStatusSchema = z.enum(['pending', 'imported', 'failed', 'needs_split', 'split', 'dismissed'])
@@ -398,6 +403,28 @@ export const billRowDuplicateStateSchema = z.enum(['unique', 'duplicate', 'confl
 
 export type BillRowStatus = z.infer<typeof billRowStatusSchema>
 export type BillRowDuplicateState = z.infer<typeof billRowDuplicateStateSchema>
+
+export const billImportAttemptStatusSchema = z.enum([
+  'prepared',
+  'sending',
+  'succeeded',
+  'rejected',
+  'retryable',
+  'uncertain',
+  'reconciled',
+])
+
+export const billImportAttemptSummarySchema = z
+  .object({
+    id: z.string(),
+    status: billImportAttemptStatusSchema,
+    error_code: z.string().nullable().optional(),
+    error_message: z.string().nullable().optional(),
+    retry_after: z.string().nullable().optional(),
+    transaction_group_id: z.union([z.string(), z.number()]).nullable().optional(),
+    updated_at: z.string().nullable().optional(),
+  })
+  .passthrough()
 
 export const billStatementRowAttributesSchema = z
   .object({
@@ -415,13 +442,18 @@ export const billStatementRowAttributesSchema = z
     firefly_date: z.string().nullable().optional(),
     firefly_amount: z.string().nullable().optional(),
     firefly_description: z.string().nullable().optional(),
+    account_hint: z.string().nullable().optional(),
+    source_account_id: z.union([z.string(), z.number()]).nullable().optional(),
     source_name: z.string().nullable().optional(),
+    destination_account_id: z.union([z.string(), z.number()]).nullable().optional(),
     destination_name: z.string().nullable().optional(),
     category_name: z.string().nullable().optional(),
     notes: z.string().nullable().optional(),
     tags: z.array(z.string()).nullable().optional(),
     transaction_group_id: z.union([z.string(), z.number()]).nullable().optional(),
     error_message: z.string().nullable().optional(),
+    issues: z.array(z.record(z.string(), z.unknown())).optional(),
+    import_attempt: billImportAttemptSummarySchema.nullable().optional(),
     /** 非空表示这个值是 AI 建议的（目前只有 'ai'）；人改过后端会清空。 */
     suggested_by: z.string().nullable().optional(),
     user_modified_at: z.string().nullable().optional(),
@@ -493,7 +525,7 @@ export const billRowsBulkResultSchema = z
 
 export type BillRowsBulkResult = z.infer<typeof billRowsBulkResultSchema>
 
-/** PATCH /api/v1/bill-statement-rows/{id} 响应：单条 Item */
+/** PATCH /v1/bill-rows/{id} 响应：单条 Item。 */
 export const billStatementRowItemResponseSchema = z
   .object({
     data: billStatementRowSchema,
@@ -502,13 +534,13 @@ export const billStatementRowItemResponseSchema = z
 
 export type BillStatementRowItemResponse = z.infer<typeof billStatementRowItemResponseSchema>
 
-/** POST /api/v1/bill-tasks/{id}/import 响应 */
+/** POST /v1/bills/{id}/import 与 /v1/bill-rows/import 响应。 */
 export const billImportRowResultSchema = z
   .object({
     row_id: z.string(),
     row_number: z.number().optional(),
     status: z.string(),
-    action: z.enum(['would_import', 'skip', 'imported', 'failed']).optional(),
+    action: z.enum(['would_import', 'skip', 'imported', 'failed', 'retryable', 'uncertain']).optional(),
     occurred_at: z.string().optional(),
     direction: z.string().nullable().optional(),
     amount: z.string().optional(),
@@ -525,6 +557,7 @@ export const billImportRowResultSchema = z
     duplicate_of_row_id: z.union([z.string(), z.number()]).nullable().optional(),
     user_modified_at: z.string().nullable().optional(),
     error: z.string().nullable().optional(),
+    attempt_id: z.string().nullable().optional(),
     transaction_group_id: z.union([z.string(), z.number()]).nullable().optional(),
   })
   .passthrough()
@@ -537,15 +570,72 @@ export const billImportResponseSchema = z
         imported: z.number(),
         skipped: z.number(),
         failed: z.number(),
+        retryable: z.number().optional().default(0),
+        uncertain: z.number().optional().default(0),
+        would_import: z.number().optional().default(0),
       })
       .passthrough(),
     rows: z.array(billImportRowResultSchema),
     balance_chain: z.array(z.unknown()).optional(),
+    dry_run: z.boolean().optional(),
   })
   .passthrough()
 
 export type BillImportRowResult = z.infer<typeof billImportRowResultSchema>
 export type BillImportResponse = z.infer<typeof billImportResponseSchema>
+
+export const billImportAttemptSchema = billImportAttemptSummarySchema.extend({
+  bill_row_id: z.string(),
+  attempt_no: z.number(),
+  external_id: z.string(),
+  payload_hash: z.string(),
+  payload: z.unknown(),
+  firefly_status: z.number().nullable().optional(),
+  created_at: z.string(),
+  finished_at: z.string().nullable().optional(),
+})
+
+export const billImportAttemptResponseSchema = z
+  .object({
+    data: billImportAttemptSchema,
+    match_count: z.number().optional(),
+  })
+  .passthrough()
+
+export type BillImportAttempt = z.infer<typeof billImportAttemptSchema>
+export type BillImportAttemptResponse = z.infer<typeof billImportAttemptResponseSchema>
+
+export const billAccountMappingSchema = z
+  .object({
+    id: z.string(),
+    type: z.string().optional(),
+    attributes: z
+      .object({
+        channel_key: z.string(),
+        account_hint: z.string(),
+        firefly_account_id: z.string(),
+        firefly_account_name: z.string(),
+        firefly_account_type: z.string().nullable().optional(),
+        source: z.string(),
+        last_verified_at: z.string().nullable().optional(),
+        created_at: z.string(),
+        updated_at: z.string(),
+      })
+      .passthrough(),
+  })
+  .passthrough()
+
+export const billAccountMappingsResponseSchema = z
+  .object({ data: z.array(billAccountMappingSchema) })
+  .passthrough()
+
+export const billAccountMappingResponseSchema = z
+  .object({ data: billAccountMappingSchema })
+  .passthrough()
+
+export type BillAccountMapping = z.infer<typeof billAccountMappingSchema>
+export type BillAccountMappingsResponse = z.infer<typeof billAccountMappingsResponseSchema>
+export type BillAccountMappingResponse = z.infer<typeof billAccountMappingResponseSchema>
 
 /** POST /api/v1/bill-inbox/sync：只排队，结果由 summary 里的 mailbox_sync 返回。 */
 export const billInboxSyncResultSchema = z

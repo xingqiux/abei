@@ -1,6 +1,7 @@
 import {
   AbeiApiError,
   apiDelete,
+  apiDeleteJson,
   apiDownload,
   apiGet,
   apiPatch,
@@ -25,11 +26,12 @@ import {
   attachmentItemResponseSchema,
   attachmentsResponseSchema,
   billImportResponseSchema,
+  billImportAttemptResponseSchema,
+  billAccountMappingResponseSchema,
+  billAccountMappingsResponseSchema,
   billInboxSummarySchema,
   billInboxSettingsSchema,
   googleOAuthStartSchema,
-  billInboxProcessResultSchema,
-  billInboxCleanupResultSchema,
   billInboxSyncResultSchema,
   billStatementRowItemResponseSchema,
   billStatementRowsResponseSchema,
@@ -64,11 +66,12 @@ import {
   type AttachmentItemResponse,
   type AttachmentsResponse,
   type BillImportResponse,
+  type BillImportAttemptResponse,
+  type BillAccountMappingResponse,
+  type BillAccountMappingsResponse,
   type BillInboxSummary,
   type BillInboxSettings,
   type GoogleOAuthStart,
-  type BillInboxProcessResult,
-  type BillInboxCleanupResult,
   type BillInboxSyncResult,
   type BillStatementRowItemResponse,
   type BillStatementRowsResponse,
@@ -130,8 +133,6 @@ const proxyPost = <T = unknown>(path: string, body: unknown): Promise<T> =>
   apiPost<T>(viaFirefly(path), body)
 const proxyPut = <T = unknown>(path: string, body: unknown): Promise<T> =>
   apiPut<T>(viaFirefly(path), body)
-const proxyPatch = <T = unknown>(path: string, body: unknown): Promise<T> =>
-  apiPatch<T>(viaFirefly(path), body)
 const proxyDelete = (path: string): Promise<void> => apiDelete(viaFirefly(path))
 const proxyDownload = (path: string): Promise<{ blob: Blob; filename: string | null }> =>
   apiDownload(viaFirefly(path))
@@ -367,7 +368,7 @@ export async function getAccountOverviewChart(
 }
 
 export async function getBillInboxSummary(): Promise<BillInboxSummary> {
-  const raw = await proxyGet('/api/v1/bill-inbox/summary', {})
+  const raw = await apiGet('/v1/bill-inbox/summary', {})
   return billInboxSummarySchema.parse(raw)
 }
 
@@ -408,21 +409,11 @@ export async function disconnectGoogleMailbox(): Promise<BillInboxSettings> {
   return getBillInboxSettings()
 }
 
-export async function processBillInbox(limit = 25): Promise<BillInboxProcessResult> {
-  const raw = await proxyPost('/api/v1/bill-inbox/process', { limit })
-  return billInboxProcessResultSchema.parse(raw)
-}
-
-export async function cleanupBillInbox(): Promise<BillInboxCleanupResult> {
-  const raw = await proxyPost('/api/v1/bill-inbox/cleanup-stale', {})
-  return billInboxCleanupResultSchema.parse(raw)
-}
-
 export type BillTaskSource = 'alipay' | 'wechat' | 'cmb' | 'boc'
 
 /**
  * GET /api/v1/bill-rows —— 跨任务的流水队列（设计稿 02 §3）。
- * 收件箱页面的主数据源；单任务的 /bill-tasks/{id}/rows 仍保留给来源凭证视图。
+ * 收件箱页面的主数据源；单文档的 /v1/bills/{id}/rows 用于来源凭证视图。
  */
 export async function getBillRows(opts: {
   group: BillRowGroup
@@ -430,7 +421,7 @@ export async function getBillRows(opts: {
   page?: number
   limit?: number
 }): Promise<BillRowsResponse> {
-  const raw = await proxyGet('/api/v1/bill-rows', {
+  const raw = await apiGet('/v1/bill-rows', {
     group: opts.group,
     source: opts.source,
     page: opts.page ?? 1,
@@ -468,32 +459,73 @@ export async function getAllBillRows(opts: {
 export async function dismissBillRows(
   body: { row_ids: string[] } | { filter: 'machine_duplicates' },
 ): Promise<BillRowsBulkResult> {
-  const raw = await proxyPost('/api/v1/bill-rows/dismiss', body)
+  const raw = await apiPost('/v1/bill-rows/dismiss', body)
   return billRowsBulkResultSchema.parse(raw)
 }
 
 /** POST /api/v1/bill-rows/restore —— 已忽略的流水恢复成 pending */
 export async function restoreBillRows(rowIds: string[]): Promise<BillRowsBulkResult> {
-  const raw = await proxyPost('/api/v1/bill-rows/restore', { row_ids: rowIds })
+  const raw = await apiPost('/v1/bill-rows/restore', { row_ids: rowIds })
   return billRowsBulkResultSchema.parse(raw)
 }
 
 /**
  * POST /api/v1/bill-rows/import —— 跨任务批量入账。
- * confirm=false 是干跑，响应结构与单任务 /bill-tasks/{id}/import 完全一致。
+ * confirm=false 是干跑，响应结构与单文档 /v1/bills/{id}/import 完全一致。
  */
 export async function importBillRows(body: {
   row_ids: string[]
   confirm: boolean
 }): Promise<BillImportResponse> {
-  const raw = await proxyPost('/api/v1/bill-rows/import', body)
+  const raw = await apiPost(
+    '/v1/bill-rows/import',
+    { row_ids: body.row_ids.map(Number) },
+    gateParams(body.confirm ? { confirm: true } : { dryRun: true }),
+  )
   return billImportResponseSchema.parse(raw)
+}
+
+export async function getBillImportAttempt(attemptId: string): Promise<BillImportAttemptResponse> {
+  const raw = await apiGet(`/v1/bill-import-attempts/${attemptId}`)
+  return billImportAttemptResponseSchema.parse(raw)
+}
+
+export async function reconcileBillImportAttempt(attemptId: string): Promise<BillImportAttemptResponse> {
+  const raw = await apiPost(`/v1/bill-import-attempts/${attemptId}/reconcile`, {})
+  return billImportAttemptResponseSchema.parse(raw)
+}
+
+export async function retryBillImportAttempt(attemptId: string): Promise<BillImportResponse> {
+  const raw = await apiPost(
+    `/v1/bill-import-attempts/${attemptId}/retry`,
+    {},
+    gateParams({ confirm: true }),
+  )
+  return billImportResponseSchema.parse(raw)
+}
+
+export async function getBillAccountMappings(channel?: string): Promise<BillAccountMappingsResponse> {
+  const raw = await apiGet('/v1/bill-account-mappings', { channel })
+  return billAccountMappingsResponseSchema.parse(raw)
+}
+
+export async function upsertBillAccountMapping(input: {
+  channel_key: string
+  account_hint: string
+  firefly_account_id: string
+}): Promise<BillAccountMappingResponse> {
+  const raw = await apiPut('/v1/bill-account-mappings', input)
+  return billAccountMappingResponseSchema.parse(raw)
+}
+
+export async function deleteBillAccountMapping(mappingId: string): Promise<void> {
+  await apiDeleteJson(`/v1/bill-account-mappings/${mappingId}`, {}, { confirm: true })
 }
 
 /* ------------------------------------------------------------------ *
  * 账单收件箱：已建模的能力
  *
- * bills.list / show / review / sync / process / import / unlock / ignore / retry
+ * bills.list / show / review / sync / import / unlock / ignore / retry
  * 和 rows.update / split 都走 abei-api 的资源路由。写闸门在服务端，页面绕不过。
  *
  * 同一个域里没建模的接口（行列表、产物、事件、归档、跨任务批量）仍走 proxy*，
@@ -553,19 +585,19 @@ export async function getBillTaskRows(
   taskId: string,
   opts: { status?: string } = {},
 ): Promise<BillStatementRowsResponse> {
-  const raw = await proxyGet(`/api/v1/bill-tasks/${taskId}/rows`, {
+  const raw = await apiGet(`/v1/bills/${taskId}/rows`, {
     status: opts.status,
   })
   return billStatementRowsResponseSchema.parse(raw)
 }
 
 export async function getBillTaskArtifacts(taskId: string): Promise<BillArtifactsResponse> {
-  const raw = await proxyGet(`/api/v1/bill-tasks/${taskId}/artifacts`)
+  const raw = await apiGet(`/v1/bills/${taskId}/artifacts`)
   return billArtifactsResponseSchema.parse(raw)
 }
 
 export async function getBillTaskEvents(taskId: string): Promise<BillTaskEventsResponse> {
-  const raw = await proxyGet(`/api/v1/bill-tasks/${taskId}/events`)
+  const raw = await apiGet(`/v1/bills/${taskId}/events`)
   return billTaskEventsResponseSchema.parse(raw)
 }
 
@@ -577,11 +609,11 @@ export async function getBillTaskReview(taskId: string): Promise<BillTaskReview>
 export async function downloadBillArtifact(
   artifactId: string,
 ): Promise<{ blob: Blob; filename: string | null }> {
-  return proxyDownload(`/api/v1/bill-artifacts/${artifactId}/download`)
+  return apiDownload(`/v1/bill-artifacts/${artifactId}/download`)
 }
 
 /**
- * PATCH /v1/rows/{id} —— 填一条流水该记成什么。
+ * PATCH /v1/bill-rows/{id} —— 填一条流水该记成什么。
  *
  * 服务端有两条不给调用方选的规矩，页面必须照着做，别绕：
  *
@@ -612,7 +644,7 @@ export async function updateBillStatementRow(
 ): Promise<BillStatementRowItemResponse> {
   // 生成的 Zod 来自 abei/openapi.json，与服务端同源：字段写错在这里就炸，不用等 400。
   const body = zRowsUpdateBody.parse(input)
-  const raw = await apiPatch(`/v1/rows/${rowId}`, body)
+  const raw = await apiPatch(`/v1/bill-rows/${rowId}`, body)
   return billStatementRowItemResponseSchema.parse(raw)
 }
 
@@ -623,17 +655,17 @@ export async function updateBillStatementRow(
  * 只允许改判为 unique，见设计稿 02 §2。
  */
 export async function markBillRowUnique(rowId: string): Promise<BillStatementRowItemResponse> {
-  const raw = await proxyPatch(`/api/v1/bill-statement-rows/${rowId}`, { duplicate_state: 'unique' })
+  const raw = await apiPost(`/v1/bill-rows/${rowId}/mark-unique`, {})
   return billStatementRowItemResponseSchema.parse(raw)
 }
 
-/** POST /v1/rows/{id}/split —— 组合支付拆成两笔以上草稿。服务端限 2 到 20 笔。 */
+/** POST /v1/bill-rows/{id}/split —— 组合支付拆成两笔以上草稿。服务端限 2 到 20 笔。 */
 export async function splitBillStatementRow(
   rowId: string,
   splits: Array<{ payment_method?: string; source_name?: string; amount: string; description: string; category_name?: string }>,
 ): Promise<BillRowSplitResponse> {
   const body = zRowsSplitBody.parse({ splits })
-  const raw = await apiPost(`/v1/rows/${rowId}/split`, body)
+  const raw = await apiPost(`/v1/bill-rows/${rowId}/split`, body)
   return billRowSplitResponseSchema.parse(raw)
 }
 
@@ -665,14 +697,13 @@ export async function ignoreBillTask(taskId: string, gate: WriteGate): Promise<u
   return apiPost(`/v1/bills/${taskId}/ignore`, {}, gateParams(gate))
 }
 
-/** 还没建模，走逃生舱。 */
 export async function archiveBillTask(taskId: string): Promise<BillTaskItemResponse> {
-  const raw = await proxyPost(`/api/v1/bill-tasks/${taskId}/archive`, {})
+  const raw = await apiPost(`/v1/bill-documents/${taskId}/archive`, {})
   return billTaskItemResponseSchema.parse(raw)
 }
 
 export async function deleteBillTask(taskId: string): Promise<void> {
-  return proxyDelete(`/api/v1/bill-tasks/${taskId}`)
+  await apiPost(`/v1/bill-documents/${taskId}/archive`, {})
 }
 
 /** POST /v1/bills/sync：投递邮箱同步任务，进度从 bill-inbox summary 读取。 */

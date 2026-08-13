@@ -364,6 +364,22 @@ export function apiDeleteJson<T = unknown>(path: string, body: unknown, params?:
   return sendJson<T>('DELETE', path, body, params)
 }
 
+export async function apiPostForm<T = unknown>(path: string, body: FormData): Promise<T> {
+  const identity = requestIdentity()
+  const res = await fetch(apiUrl(path).toString(), {
+    method: 'POST',
+    signal: identity.signal,
+    headers: authHeaders(identity.token),
+    body,
+  })
+
+  assertRequestIdentity(identity)
+  if (!res.ok) return throwForResponse(res, identity)
+  const data = (await res.json()) as T
+  assertRequestIdentity(identity)
+  return data
+}
+
 export async function apiDelete(path: string): Promise<void> {
   const identity = requestIdentity()
   const res = await fetch(apiUrl(path).toString(), {

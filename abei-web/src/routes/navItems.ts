@@ -3,7 +3,10 @@ import {
   ArrowsLeftRight,
   ChartBar,
   ChatTeardropText,
+  EnvelopeOpen,
+  FlowArrow,
   Gear,
+  IdentificationCard,
   Money,
   Sparkle,
   SquaresFour,
@@ -24,8 +27,11 @@ export type NavPath =
   | '/reference-data'
   | '/analysis'
   | '/feedback'
+  | '/profile'
   | '/settings'
   | '/bill-inbox'
+  | '/mail-workbench'
+  | '/parser-workbench'
 
 export interface NavItemDef {
   label: string
@@ -37,12 +43,15 @@ export interface NavItemDef {
 export const NAV_ITEMS: NavItemDef[] = [
   { label: '概况', to: '/', icon: SquaresFour },
   { label: '账单收件箱', to: '/bill-inbox', icon: Tray },
+  { label: '邮件工作台', to: '/mail-workbench', icon: EnvelopeOpen },
+  { label: '解析工作台', to: '/parser-workbench', icon: FlowArrow },
   { label: '交易', to: '/transactions', icon: ArrowsLeftRight },
   { label: '财务助手', to: '/assistant', icon: Sparkle },
   { label: '账户', to: '/accounts', icon: Wallet },
   { label: '预算', to: '/budgets', icon: Money },
   { label: '分类与标签', to: '/reference-data', icon: Tag },
   { label: '分析', to: '/analysis', icon: ChartBar },
+  { label: '用户资料', to: '/profile', icon: IdentificationCard },
   { label: '反馈', to: '/feedback', icon: ChatTeardropText },
   { label: '设置', to: '/settings', icon: Gear },
 ]

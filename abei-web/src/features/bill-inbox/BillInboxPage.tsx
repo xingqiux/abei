@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { ArrowsClockwise, Gear, Sparkle } from '@phosphor-icons/react'
+import { ArrowsClockwise, ArrowsLeftRight, Gear, Sparkle } from '@phosphor-icons/react'
 import {
   invalidateBillInbox,
   useBillInboxSummary,
@@ -12,7 +12,9 @@ import {
   useDeleteTransaction,
   useDismissBillRows,
   useImportBillRows,
+  useReconcileBillImportAttempt,
   useRestoreBillRows,
+  useRetryBillImportAttempt,
   useSyncBillInbox,
 } from '../../api/queries'
 import { AssistantApiError, runAutofill } from '../../api/assistant'
@@ -25,6 +27,7 @@ import { Card } from '../../components/ui/Card'
 import { showToast } from '../../store/toastStore'
 import { AbeiApiError } from '../../api/client'
 import { BillInboxSettingsDialog } from './BillInboxSettingsDialog'
+import { AccountMappingDialog } from './AccountMappingDialog'
 import { ImportConfirmDialog } from './ImportConfirmDialog'
 import { QueueRow } from './QueueRow'
 import { ChannelBar, type SourceGroup } from './ChannelBar'
@@ -73,10 +76,13 @@ export function BillInboxPage() {
   const dismissMutation = useDismissBillRows()
   const restoreMutation = useRestoreBillRows()
   const importMutation = useImportBillRows()
+  const reconcileMutation = useReconcileBillImportAttempt()
+  const retryImportMutation = useRetryBillImportAttempt()
   const deleteTransaction = useDeleteTransaction()
   const requestedSync = useRef<string | null>(null)
 
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [accountMappingsOpen, setAccountMappingsOpen] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [anchorIndex, setAnchorIndex] = useState<number | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -105,6 +111,7 @@ export function BillInboxPage() {
   // 来源面板要的是整箱邮件，故意不跟着当前渠道过滤走：面板本身就是换渠道的地方，
   // 跟着过滤会把「换一个渠道看看」这条路自己堵死。
   const tasksQuery = useBillTasks()
+  const billTasks = useMemo(() => tasksQuery.data?.data ?? [], [tasksQuery.data])
 
   const allRows = useMemo(() => rowsQuery.data?.data ?? [], [rowsQuery.data])
   const rows = useMemo(
@@ -119,7 +126,7 @@ export function BillInboxPage() {
   )
 
   const sourceGroups = useMemo<SourceGroup[]>(() => {
-    const tasks = (tasksQuery.data?.data ?? []).filter(
+    const tasks = billTasks.filter(
       (task) => !CLOSED_TASK_STATUSES.includes(task.attributes.status),
     )
     const byChannel = new Map<string, BillTask[]>()
@@ -142,7 +149,7 @@ export function BillInboxPage() {
           (b.attributes.received_at ?? '').localeCompare(a.attributes.received_at ?? '')),
       }))
       .sort((a, b) => a.label.localeCompare(b.label, 'zh-Hans-CN'))
-  }, [tasksQuery.data, summaryQuery.data, channelName])
+  }, [billTasks, summaryQuery.data, channelName])
 
   /** 渠道 chip 上的笔数：每个渠道一个 limit=1 的轻请求，只取 meta 总数 */
   const channelKeys = useMemo(() => sourceGroups.map((group) => group.key), [sourceGroups])
@@ -382,24 +389,55 @@ export function BillInboxPage() {
     const res = await importMutation.mutateAsync({ rowIds, confirm: true })
     setSelected(new Set())
     setAnchorIndex(null)
-    if (res.summary.failed > 0) {
-      showToast({
-        kind: 'error',
-        message: `入账 ${res.summary.imported} 笔，失败 ${res.summary.failed} 笔`,
-        duration: 6000,
-      })
-      return
-    }
+    reportImportResult(res)
+  }
+
+  function reportImportResult(res: BillImportResponse) {
     setHandledCount((value) => value + res.summary.imported)
     const groupIds = undoTargets(res)
+    const pending = [
+      res.summary.uncertain > 0 ? `待对账 ${res.summary.uncertain} 笔` : null,
+      res.summary.retryable > 0 ? `可重试 ${res.summary.retryable} 笔` : null,
+      res.summary.failed > 0 ? `失败 ${res.summary.failed} 笔` : null,
+      res.summary.skipped > 0 ? `跳过 ${res.summary.skipped} 笔` : null,
+    ].filter(Boolean)
     showToast({
-      kind: 'success',
-      message: `已入账 ${res.summary.imported} 笔`,
-      duration: UNDO_TOAST_DURATION,
+      kind: pending.length === 0 ? 'success' : 'error',
+      message: [`已入账 ${res.summary.imported} 笔`, ...pending].join('，'),
+      duration: pending.length === 0 ? UNDO_TOAST_DURATION : 8000,
       action: groupIds.length > 0
         ? { label: '撤销', onClick: () => void undoImport(groupIds) }
         : undefined,
     })
+  }
+
+  async function handleReconcile(attemptId: string) {
+    try {
+      const result = await reconcileMutation.mutateAsync(attemptId)
+      if (result.data.status === 'reconciled' || result.data.status === 'succeeded') {
+        showToast({ kind: 'success', message: '已在 Firefly 找到对应交易并完成对账' })
+      } else {
+        showToast({ kind: 'success', message: 'Firefly 中尚未找到对应交易，这笔现在可以重试' })
+      }
+    } catch (error) {
+      showToast({
+        kind: 'error',
+        message: error instanceof AbeiApiError ? error.message : '对账失败，请稍后重试',
+        duration: 8000,
+      })
+    }
+  }
+
+  async function handleRetryImport(attemptId: string) {
+    try {
+      reportImportResult(await retryImportMutation.mutateAsync(attemptId))
+    } catch (error) {
+      showToast({
+        kind: 'error',
+        message: error instanceof AbeiApiError ? error.message : '重新入账失败',
+        duration: 8000,
+      })
+    }
   }
 
   async function handleImport(rowIds: string[]) {
@@ -538,6 +576,7 @@ export function BillInboxPage() {
     : sourceGroups.flatMap((group) => group.tasks).find((task) => task.id === taskFilter)?.attributes.summary ?? null
 
   function rowProps(row: BillQueueRow, index: number) {
+    const attempt = row.attributes.import_attempt
     return {
       row,
       mode: view,
@@ -552,7 +591,19 @@ export function BillInboxPage() {
       onEndEdit: () => setEditingId(null),
       onDismiss: selectable ? () => void handleDismiss([row.id]) : undefined,
       onRestore: view === 'dismissed' ? () => void handleRestore([row.id]) : undefined,
-      busy: dismissMutation.isPending || restoreMutation.isPending,
+      onReconcile: attempt?.status === 'uncertain'
+        ? () => void handleReconcile(attempt.id)
+        : undefined,
+      onRetryImport: attempt?.status === 'retryable'
+        ? () => void handleRetryImport(attempt.id)
+        : undefined,
+      onMapAccount: row.attributes.issues?.some((issue) => issue.code === 'account_mapping_required')
+        ? () => setAccountMappingsOpen(true)
+        : undefined,
+      busy: dismissMutation.isPending
+        || restoreMutation.isPending
+        || reconcileMutation.isPending
+        || retryImportMutation.isPending,
     }
   }
 
@@ -580,8 +631,12 @@ export function BillInboxPage() {
               : mailboxSync?.status === 'queued'
                 ? '等待同步…'
                 : mailboxSync?.status === 'running'
-                  ? '正在同步邮件…'
-                  : '同步邮件'}
+                  ? '正在检查新邮件…'
+                  : '检查新邮件'}
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setAccountMappingsOpen(true)}>
+            <ArrowsLeftRight aria-hidden className="size-4" />
+            账户映射
           </Button>
           <IconButton label="邮箱设置" onClick={() => setSettingsOpen(true)}>
             <Gear aria-hidden className="size-4" />
@@ -591,6 +646,17 @@ export function BillInboxPage() {
 
       {summaryQuery.isError && (
         <InlineError message="收件箱汇总加载失败" error={summaryQuery.error} onRetry={() => void summaryQuery.refetch()} />
+      )}
+
+      {(summaryQuery.data?.unclassified_mail ?? 0) > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] px-4 py-3 text-sm">
+          <span className="text-[var(--text-secondary)]">
+            有 {summaryQuery.data?.unclassified_mail} 封邮件尚未匹配账单规则，因此不会出现在账单收件箱。
+          </span>
+          <Button variant="secondary" size="sm" onClick={() => void navigate({ to: '/mail-workbench' })}>
+            前往邮件工作台
+          </Button>
+        </div>
       )}
 
       {view === 'importable' && rows.length > 0 && (
@@ -820,6 +886,11 @@ export function BillInboxPage() {
       />
 
       <BillInboxSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <AccountMappingDialog
+        open={accountMappingsOpen}
+        tasks={billTasks}
+        onClose={() => setAccountMappingsOpen(false)}
+      />
     </div>
   )
 }
@@ -906,7 +977,7 @@ function emptyStateFor(
   actions: { onSync: () => void; onGoImportable: () => void },
 ): { message: string; action: { label: string; onClick: () => void } } {
   if (view === 'importable') {
-    return { message: '没有待入账的流水', action: { label: '同步邮件', onClick: actions.onSync } }
+    return { message: '没有待入账的流水', action: { label: '检查新邮件', onClick: actions.onSync } }
   }
   if (view === 'attention') {
     return { message: '没有待确认的流水', action: { label: '看待入账的', onClick: actions.onGoImportable } }

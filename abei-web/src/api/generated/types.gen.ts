@@ -106,6 +106,2443 @@ export type AccountsListResponses = {
 
 export type AccountsListResponse = AccountsListResponses[keyof AccountsListResponses];
 
+export type AdminFeedbackItemsListData = {
+    body?: never;
+    path?: never;
+    query?: {
+        archived?: boolean;
+        kind?: 'bug' | 'experience' | 'suggestion';
+        target?: 'cli' | 'app' | 'web';
+        status?: string;
+        severity?: 'critical' | 'high' | 'normal' | 'low';
+        limit?: number;
+        offset?: number;
+    };
+    url: '/v1/admin/feedback/items';
+};
+
+export type AdminFeedbackItemsListErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    403: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type AdminFeedbackItemsListError = AdminFeedbackItemsListErrors[keyof AdminFeedbackItemsListErrors];
+
+export type AdminFeedbackItemsListResponses = {
+    /**
+     * 查看反馈事项
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type AdminFeedbackItemsListResponse = AdminFeedbackItemsListResponses[keyof AdminFeedbackItemsListResponses];
+
+export type AdminFeedbackItemsGetData = {
+    body?: never;
+    path: {
+        id: number;
+    };
+    query?: never;
+    url: '/v1/admin/feedback/items/{id}';
+};
+
+export type AdminFeedbackItemsGetErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    403: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type AdminFeedbackItemsGetError = AdminFeedbackItemsGetErrors[keyof AdminFeedbackItemsGetErrors];
+
+export type AdminFeedbackItemsGetResponses = {
+    /**
+     * 查看反馈事项详情
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type AdminFeedbackItemsGetResponse = AdminFeedbackItemsGetResponses[keyof AdminFeedbackItemsGetResponses];
+
+export type AdminFeedbackItemsUpdateData = {
+    body: {
+        close_reason?: string | null;
+        kind?: 'bug' | 'experience' | 'suggestion';
+        public_summary?: string;
+        severity?: 'critical' | 'high' | 'normal' | 'low' | null;
+        status?: 'open' | 'reviewing' | 'planned' | 'in_progress' | 'completed' | 'closed';
+        target?: 'cli' | 'app' | 'web';
+        title?: string;
+        update?: string | null;
+    };
+    path: {
+        id: number;
+    };
+    query?: never;
+    url: '/v1/admin/feedback/items/{id}';
+};
+
+export type AdminFeedbackItemsUpdateErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    403: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type AdminFeedbackItemsUpdateError = AdminFeedbackItemsUpdateErrors[keyof AdminFeedbackItemsUpdateErrors];
+
+export type AdminFeedbackItemsUpdateResponses = {
+    /**
+     * 修改反馈事项
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type AdminFeedbackItemsUpdateResponse = AdminFeedbackItemsUpdateResponses[keyof AdminFeedbackItemsUpdateResponses];
+
+export type AdminFeedbackItemsArchiveData = {
+    body: {
+        reason: string;
+    };
+    path: {
+        id: number;
+    };
+    query?: never;
+    url: '/v1/admin/feedback/items/{id}/archive';
+};
+
+export type AdminFeedbackItemsArchiveErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    403: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type AdminFeedbackItemsArchiveError = AdminFeedbackItemsArchiveErrors[keyof AdminFeedbackItemsArchiveErrors];
+
+export type AdminFeedbackItemsArchiveResponses = {
+    /**
+     * 归档反馈事项
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type AdminFeedbackItemsArchiveResponse = AdminFeedbackItemsArchiveResponses[keyof AdminFeedbackItemsArchiveResponses];
+
+export type AdminFeedbackItemsMergeData = {
+    body: {
+        reason: string;
+        target_id: number;
+    };
+    path: {
+        id: number;
+    };
+    query?: never;
+    url: '/v1/admin/feedback/items/{id}/merge';
+};
+
+export type AdminFeedbackItemsMergeErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    403: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type AdminFeedbackItemsMergeError = AdminFeedbackItemsMergeErrors[keyof AdminFeedbackItemsMergeErrors];
+
+export type AdminFeedbackItemsMergeResponses = {
+    /**
+     * 合并重复反馈事项
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type AdminFeedbackItemsMergeResponse = AdminFeedbackItemsMergeResponses[keyof AdminFeedbackItemsMergeResponses];
+
+export type AdminFeedbackItemsRestoreData = {
+    body: {
+        reason: string;
+    };
+    path: {
+        id: number;
+    };
+    query?: never;
+    url: '/v1/admin/feedback/items/{id}/restore';
+};
+
+export type AdminFeedbackItemsRestoreErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    403: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type AdminFeedbackItemsRestoreError = AdminFeedbackItemsRestoreErrors[keyof AdminFeedbackItemsRestoreErrors];
+
+export type AdminFeedbackItemsRestoreResponses = {
+    /**
+     * 恢复反馈事项
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type AdminFeedbackItemsRestoreResponse = AdminFeedbackItemsRestoreResponses[keyof AdminFeedbackItemsRestoreResponses];
+
+export type AdminFeedbackItemsPublishUpdateData = {
+    body: {
+        body: string;
+    };
+    path: {
+        id: number;
+    };
+    query?: never;
+    url: '/v1/admin/feedback/items/{id}/updates';
+};
+
+export type AdminFeedbackItemsPublishUpdateErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    403: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type AdminFeedbackItemsPublishUpdateError = AdminFeedbackItemsPublishUpdateErrors[keyof AdminFeedbackItemsPublishUpdateErrors];
+
+export type AdminFeedbackItemsPublishUpdateResponses = {
+    /**
+     * 发布反馈处理进展
+     */
+    200: {
+        [key: string]: unknown;
+    };
+    /**
+     * 发布反馈处理进展
+     */
+    201: {
+        [key: string]: unknown;
+    };
+};
+
+export type AdminFeedbackItemsPublishUpdateResponse = AdminFeedbackItemsPublishUpdateResponses[keyof AdminFeedbackItemsPublishUpdateResponses];
+
+export type AdminFeedbackSubmissionsListData = {
+    body?: never;
+    path?: never;
+    query?: {
+        state?: string;
+        kind?: 'bug' | 'experience' | 'suggestion';
+        target?: 'cli' | 'app' | 'web';
+        item_id?: number;
+        limit?: number;
+        offset?: number;
+    };
+    url: '/v1/admin/feedback/submissions';
+};
+
+export type AdminFeedbackSubmissionsListErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    403: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type AdminFeedbackSubmissionsListError = AdminFeedbackSubmissionsListErrors[keyof AdminFeedbackSubmissionsListErrors];
+
+export type AdminFeedbackSubmissionsListResponses = {
+    /**
+     * 查看反馈收件箱
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type AdminFeedbackSubmissionsListResponse = AdminFeedbackSubmissionsListResponses[keyof AdminFeedbackSubmissionsListResponses];
+
+export type AdminFeedbackSubmissionsGetData = {
+    body?: never;
+    path: {
+        id: number;
+    };
+    query?: never;
+    url: '/v1/admin/feedback/submissions/{id}';
+};
+
+export type AdminFeedbackSubmissionsGetErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    403: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type AdminFeedbackSubmissionsGetError = AdminFeedbackSubmissionsGetErrors[keyof AdminFeedbackSubmissionsGetErrors];
+
+export type AdminFeedbackSubmissionsGetResponses = {
+    /**
+     * 查看反馈提交详情
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type AdminFeedbackSubmissionsGetResponse = AdminFeedbackSubmissionsGetResponses[keyof AdminFeedbackSubmissionsGetResponses];
+
+export type AdminFeedbackSubmissionsUpdateData = {
+    body: {
+        reason: string;
+        state: 'dismissed' | 'redacted';
+    };
+    path: {
+        id: number;
+    };
+    query?: never;
+    url: '/v1/admin/feedback/submissions/{id}';
+};
+
+export type AdminFeedbackSubmissionsUpdateErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    403: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type AdminFeedbackSubmissionsUpdateError = AdminFeedbackSubmissionsUpdateErrors[keyof AdminFeedbackSubmissionsUpdateErrors];
+
+export type AdminFeedbackSubmissionsUpdateResponses = {
+    /**
+     * 驳回或脱敏反馈提交
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type AdminFeedbackSubmissionsUpdateResponse = AdminFeedbackSubmissionsUpdateResponses[keyof AdminFeedbackSubmissionsUpdateResponses];
+
+export type AdminFeedbackSubmissionsLinkData = {
+    body: {
+        item_id?: number | null;
+        new?: boolean;
+        reason: string;
+        title?: string | null;
+    };
+    path: {
+        id: number;
+    };
+    query?: never;
+    url: '/v1/admin/feedback/submissions/{id}/link';
+};
+
+export type AdminFeedbackSubmissionsLinkErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    403: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type AdminFeedbackSubmissionsLinkError = AdminFeedbackSubmissionsLinkErrors[keyof AdminFeedbackSubmissionsLinkErrors];
+
+export type AdminFeedbackSubmissionsLinkResponses = {
+    /**
+     * 关联或重新关联反馈提交
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type AdminFeedbackSubmissionsLinkResponse = AdminFeedbackSubmissionsLinkResponses[keyof AdminFeedbackSubmissionsLinkResponses];
+
+export type AdminFeedbackSubmissionsMessageData = {
+    body: {
+        message: string;
+    };
+    path: {
+        id: number;
+    };
+    query?: never;
+    url: '/v1/admin/feedback/submissions/{id}/messages';
+};
+
+export type AdminFeedbackSubmissionsMessageErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    403: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type AdminFeedbackSubmissionsMessageError = AdminFeedbackSubmissionsMessageErrors[keyof AdminFeedbackSubmissionsMessageErrors];
+
+export type AdminFeedbackSubmissionsMessageResponses = {
+    /**
+     * 向反馈提交者追问
+     */
+    200: {
+        [key: string]: unknown;
+    };
+    /**
+     * 向反馈提交者追问
+     */
+    201: {
+        [key: string]: unknown;
+    };
+};
+
+export type AdminFeedbackSubmissionsMessageResponse = AdminFeedbackSubmissionsMessageResponses[keyof AdminFeedbackSubmissionsMessageResponses];
+
+export type BillAccountMappingsListData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * 只看某个账单渠道。
+         */
+        channel?: string | null;
+    };
+    url: '/v1/bill-account-mappings';
+};
+
+export type BillAccountMappingsListErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type BillAccountMappingsListError = BillAccountMappingsListErrors[keyof BillAccountMappingsListErrors];
+
+export type BillAccountMappingsListResponses = {
+    /**
+     * 列出账单来源名称到 Firefly 账户的映射。
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type BillAccountMappingsListResponse = BillAccountMappingsListResponses[keyof BillAccountMappingsListResponses];
+
+export type BillAccountMappingsUpdateData = {
+    /**
+     * BillAccountMappingUpdateParams
+     *
+     * `bill-account-mappings update` 的参数。
+     */
+    body: {
+        /**
+         * 账单中出现的原始账户名称或别名。
+         */
+        account_hint: string;
+        /**
+         * 账单渠道。
+         */
+        channel_key: string;
+        /**
+         * Firefly 资产、现金或负债账户 id。
+         */
+        firefly_account_id: string;
+    };
+    path: {
+        /**
+         * 对象标识。
+         */
+        id: string;
+    };
+    query?: {
+        /**
+         * 只跑校验和预览，不落库。响应会带 dry_run: true。
+         */
+        dry_run?: boolean;
+        /**
+         * 显式确认。这条能力是 draft 档，不带也能执行。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/bill-account-mappings';
+};
+
+export type BillAccountMappingsUpdateErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type BillAccountMappingsUpdateError = BillAccountMappingsUpdateErrors[keyof BillAccountMappingsUpdateErrors];
+
+export type BillAccountMappingsUpdateResponses = {
+    /**
+     * 把账单中的原始账户名或别名映射到已验证的 Firefly 账户。
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type BillAccountMappingsUpdateResponse = BillAccountMappingsUpdateResponses[keyof BillAccountMappingsUpdateResponses];
+
+export type BillAccountMappingsDeleteData = {
+    /**
+     * IdParams
+     *
+     * 只按 id 取一个对象的能力共用这一个参数类型。
+     */
+    body?: {
+        [key: string]: never;
+    };
+    path: {
+        /**
+         * 对象 id，正整数。
+         */
+        id: string;
+    };
+    query?: {
+        /**
+         * 只跑校验和预览，不落库。响应会带 dry_run: true。
+         */
+        dry_run?: boolean;
+        /**
+         * 显式确认。这条能力是 confirm 档，不带它也不带 dry_run 就是 409。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/bill-account-mappings/{id}';
+};
+
+export type BillAccountMappingsDeleteErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type BillAccountMappingsDeleteError = BillAccountMappingsDeleteErrors[keyof BillAccountMappingsDeleteErrors];
+
+export type BillAccountMappingsDeleteResponses = {
+    /**
+     * 删除一条账户映射并让受影响流水重新进入人工确认。
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type BillAccountMappingsDeleteResponse = BillAccountMappingsDeleteResponses[keyof BillAccountMappingsDeleteResponses];
+
+export type RowsDismissData = {
+    /**
+     * RowsBulkParams
+     *
+     * `rows dismiss/restore` 的参数。
+     */
+    body?: {
+        /**
+         * dismiss 的机器重复过滤器。
+         */
+        filter?: string | null;
+        /**
+         * dismiss 的人工原因；restore 会忽略该字段。
+         */
+        reason?: string | null;
+        /**
+         * 要操作的流水 id，最多 500 条；dismiss 可配合 filter。
+         */
+        row_ids?: Array<number>;
+    };
+    path?: never;
+    query?: {
+        /**
+         * 只跑校验和预览，不落库。响应会带 dry_run: true。
+         */
+        dry_run?: boolean;
+        /**
+         * 显式确认。这条能力是 confirm 档，不带它也不带 dry_run 就是 409。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/bill-rows/dismiss';
+};
+
+export type RowsDismissErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type RowsDismissError = RowsDismissErrors[keyof RowsDismissErrors];
+
+export type RowsDismissResponses = {
+    /**
+     * 批量把账单流水标记为忽略；可按 id 或自动重复过滤器操作。
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type RowsDismissResponse = RowsDismissResponses[keyof RowsDismissResponses];
+
+export type RowsRestoreData = {
+    /**
+     * RowsBulkParams
+     *
+     * `rows dismiss/restore` 的参数。
+     */
+    body?: {
+        /**
+         * dismiss 的机器重复过滤器。
+         */
+        filter?: string | null;
+        /**
+         * dismiss 的人工原因；restore 会忽略该字段。
+         */
+        reason?: string | null;
+        /**
+         * 要操作的流水 id，最多 500 条；dismiss 可配合 filter。
+         */
+        row_ids?: Array<number>;
+    };
+    path?: never;
+    query?: {
+        /**
+         * 只跑校验和预览，不落库。响应会带 dry_run: true。
+         */
+        dry_run?: boolean;
+        /**
+         * 显式确认。这条能力是 draft 档，不带也能执行。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/bill-rows/restore';
+};
+
+export type RowsRestoreErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type RowsRestoreError = RowsRestoreErrors[keyof RowsRestoreErrors];
+
+export type RowsRestoreResponses = {
+    /**
+     * 批量把已忽略的账单流水恢复为待处理。
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type RowsRestoreResponse = RowsRestoreResponses[keyof RowsRestoreResponses];
+
+export type RowsUpdateManyData = {
+    /**
+     * RowsBatchUpdateParams
+     *
+     * `rows update-many` 的参数。
+     */
+    body: {
+        category_name?: string | null;
+        destination_account_id?: number | null;
+        destination_name?: string | null;
+        firefly_amount?: string | null;
+        firefly_date?: string | null;
+        firefly_description?: string | null;
+        firefly_type?: string | null;
+        notes?: string | null;
+        /**
+         * 要更新的待处理流水 id，最多 500 条。
+         */
+        row_ids: Array<number>;
+        source_account_id?: number | null;
+        source_name?: string | null;
+        tags?: Array<string> | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * 只跑校验和预览，不落库。响应会带 dry_run: true。
+         */
+        dry_run?: boolean;
+        /**
+         * 显式确认。这条能力是 draft 档，不带也能执行。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/bill-rows/update-many';
+};
+
+export type RowsUpdateManyErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type RowsUpdateManyError = RowsUpdateManyErrors[keyof RowsUpdateManyErrors];
+
+export type RowsUpdateManyResponses = {
+    /**
+     * 把同一组账本字段作为 AI 建议写入多条待处理流水；已有人工修改不会被覆盖。
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type RowsUpdateManyResponse = RowsUpdateManyResponses[keyof RowsUpdateManyResponses];
+
+export type RowsUpdateData = {
+    /**
+     * RowsUpdateParams
+     *
+     * `rows update` 的参数。
+     *
+     * 只开放「这笔该记成什么」这一组字段：银行原文（交易时间、对方、订单号等）不给改，
+     * 那是账单本身说的话。写入一律记成 AI 建议，由人在收件箱确认。
+     */
+    body?: {
+        /**
+         * 分类名。
+         */
+        category_name?: string | null;
+        /**
+         * 收款 Firefly 账户 id。
+         */
+        destination_account_id?: number | null;
+        /**
+         * 收款账户名。
+         */
+        destination_name?: string | null;
+        /**
+         * 记账金额，正数。
+         */
+        firefly_amount?: string | null;
+        /**
+         * 记账日期，格式 YYYY-MM-DD。
+         */
+        firefly_date?: string | null;
+        /**
+         * 记账摘要。
+         */
+        firefly_description?: string | null;
+        /**
+         * 记账类型：withdrawal 支出、deposit 收入、transfer 转账。
+         */
+        firefly_type?: string | null;
+        /**
+         * 备注。
+         */
+        notes?: string | null;
+        /**
+         * 付款 Firefly 账户 id。
+         */
+        source_account_id?: number | null;
+        /**
+         * 付款账户名。
+         */
+        source_name?: string | null;
+        /**
+         * 标签。
+         */
+        tags?: Array<string> | null;
+    };
+    path: {
+        /**
+         * 流水行 id，正整数。
+         */
+        id: string;
+    };
+    query?: {
+        /**
+         * 只跑校验和预览，不落库。响应会带 dry_run: true。
+         */
+        dry_run?: boolean;
+        /**
+         * 显式确认。这条能力是 draft 档，不带也能执行。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/bill-rows/{id}';
+};
+
+export type RowsUpdateErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type RowsUpdateError = RowsUpdateErrors[keyof RowsUpdateErrors];
+
+export type RowsUpdateResponses = {
+    /**
+     * 填一条流水该记成什么：类型、日期、金额、摘要、账户、分类、标签。写入一律记成 AI 建议，等人在收件箱确认；银行原文不给改。
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type RowsUpdateResponse = RowsUpdateResponses[keyof RowsUpdateResponses];
+
+export type RowsSplitData = {
+    /**
+     * RowsSplitParams
+     *
+     * `rows split` 的参数。
+     */
+    body: {
+        /**
+         * 拆成哪几笔，至少两笔，最多二十笔。
+         */
+        splits: Array<{
+            /**
+             * 这一笔的金额，正数。
+             */
+            amount: string;
+            /**
+             * 这一笔的分类名。
+             */
+            category_name?: string | null;
+            /**
+             * 这一笔的摘要，必填——拆出来的每笔都得说清楚是什么。
+             */
+            description: string;
+            /**
+             * 这一笔的收/付款方式。
+             */
+            payment_method?: string | null;
+            /**
+             * 这一笔的付款账户名。
+             */
+            source_name?: string | null;
+        }>;
+    };
+    path: {
+        /**
+         * 流水行 id，正整数。
+         */
+        id: string;
+    };
+    query?: {
+        /**
+         * 只跑校验和预览，不落库。响应会带 dry_run: true。
+         */
+        dry_run?: boolean;
+        /**
+         * 显式确认。这条能力是 draft 档，不带也能执行。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/bill-rows/{id}/split';
+};
+
+export type RowsSplitErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type RowsSplitError = RowsSplitErrors[keyof RowsSplitErrors];
+
+export type RowsSplitResponses = {
+    /**
+     * 把一条组合支付的流水拆成两笔以上的草稿，比如一半余额一半银行卡。
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type RowsSplitResponse = RowsSplitResponses[keyof RowsSplitResponses];
+
 export type BillsListData = {
     body?: never;
     path?: never;
@@ -194,123 +2631,25 @@ export type BillsListResponses = {
 
 export type BillsListResponse = BillsListResponses[keyof BillsListResponses];
 
-export type BillsProcessData = {
-    /**
-     * BillsBatchParams
-     *
-     * `bills sync` 与 `bills process` 的参数。
-     */
-    body?: {
-        /**
-         * 这一轮最多处理多少封，默认 100。
-         */
-        limit?: number | null;
-    };
-    path?: never;
-    query?: {
-        /**
-         * 只跑校验和预览，不落库。响应会带 dry_run: true。
-         */
-        dry_run?: boolean;
-        /**
-         * 显式确认。这条能力是 draft 档，不带也能执行。
-         */
-        confirm?: boolean;
-    };
-    url: '/v1/bills/process';
-};
-
-export type BillsProcessErrors = {
-    /**
-     * RFC 9457 problem+json。reason 是机读驼峰码。
-     */
-    400: {
-        detail?: string;
-        /**
-         * 机读错误码，驼峰。
-         */
-        reason: string;
-        resource?: string;
-        status: number;
-        title: string;
-        type: string;
-        upstream?: unknown;
-        verb?: string;
-    };
-    /**
-     * RFC 9457 problem+json。reason 是机读驼峰码。
-     */
-    401: {
-        detail?: string;
-        /**
-         * 机读错误码，驼峰。
-         */
-        reason: string;
-        resource?: string;
-        status: number;
-        title: string;
-        type: string;
-        upstream?: unknown;
-        verb?: string;
-    };
-    /**
-     * RFC 9457 problem+json。reason 是机读驼峰码。
-     */
-    409: {
-        detail?: string;
-        /**
-         * 机读错误码，驼峰。
-         */
-        reason: string;
-        resource?: string;
-        status: number;
-        title: string;
-        type: string;
-        upstream?: unknown;
-        verb?: string;
-    };
-    /**
-     * RFC 9457 problem+json。reason 是机读驼峰码。
-     */
-    502: {
-        detail?: string;
-        /**
-         * 机读错误码，驼峰。
-         */
-        reason: string;
-        resource?: string;
-        status: number;
-        title: string;
-        type: string;
-        upstream?: unknown;
-        verb?: string;
-    };
-};
-
-export type BillsProcessError = BillsProcessErrors[keyof BillsProcessErrors];
-
-export type BillsProcessResponses = {
-    /**
-     * 立刻推进一轮账单解析，把待处理的任务往前走一步。
-     */
-    200: {
-        [key: string]: unknown;
-    };
-};
-
-export type BillsProcessResponse = BillsProcessResponses[keyof BillsProcessResponses];
-
 export type BillsSyncData = {
     /**
      * BillsBatchParams
      *
-     * `bills sync` 与 `bills process` 的参数。
+     * `bills sync` 的参数。
      */
     body?: {
         /**
          * 这一轮最多处理多少封，默认 100。
          */
         limit?: number | null;
+        /**
+         * wait=true 时最多等待多少秒，默认 120，最大 600。
+         */
+        timeout_seconds?: number | null;
+        /**
+         * 等待这次同步运行结束并返回最终统计。
+         */
+        wait?: boolean | null;
     };
     path?: never;
     query?: {
@@ -618,7 +2957,7 @@ export type BillsImportData = {
     };
     path: {
         /**
-         * 对象 id，正整数。
+         * 账单任务 id，正整数。
          */
         id: string;
     };
@@ -913,7 +3252,7 @@ export type BillsUnlockData = {
     };
     path: {
         /**
-         * 对象 id，正整数。
+         * 账单任务 id，正整数。
          */
         id: string;
     };
@@ -1054,7 +3393,7 @@ export type FeedbackListData = {
     path?: never;
     query?: {
         /**
-         * 按反馈类型筛选：bug、friction 或 idea。
+         * 按反馈类型筛选：bug、experience 或 suggestion。
          */
         kind?: string | null;
         /**
@@ -1068,11 +3407,11 @@ export type FeedbackListData = {
         /**
          * 按业务状态筛选。
          */
-        status?: 'open' | 'planned' | 'started' | 'completed' | 'declined' | 'duplicate' | null;
+        status?: string | null;
         /**
-         * 按同步状态筛选：local、synced 或 failed。
+         * 按产品面筛选：cli、app 或 web。
          */
-        sync_status?: string | null;
+        target?: string | null;
     };
     url: '/v1/feedback';
 };
@@ -1132,7 +3471,7 @@ export type FeedbackListError = FeedbackListErrors[keyof FeedbackListErrors];
 
 export type FeedbackListResponses = {
     /**
-     * 倒序列出反馈，可按类型、业务状态和同步状态筛选。
+     * 只列出当前用户的待确认 Submission 和已关联 Feedback Item。
      */
     200: {
         [key: string]: unknown;
@@ -1145,33 +3484,55 @@ export type FeedbackCreateData = {
     /**
      * FeedbackCreateParams
      *
-     * `feedback create` 的参数。CLI 会把 source 固定成 cli。
+     * `feedback create` 的 AI 输入。幂等 key 与安全运行上下文由 CLI 自动注入。
      */
     body: {
         /**
-         * Markdown 正文，分为现象、期望、复现、环境。
+         * bug 且 message 没有表达实际结果时填写。
          */
-        body: string;
+        actual?: string | null;
         /**
-         * 反馈类型：bug、friction 或 idea。
+         * 客户端自动采集的受限运行上下文；不得放入命令参数、令牌、财务正文或工具输出。
+         */
+        context?: {
+            arch?: string;
+            cli_version?: string;
+            os?: string;
+            recent?: {
+                capability_id?: string;
+                error_code?: string | null;
+                error_reason?: string | null;
+                exit_code?: number;
+                recorded_at?: string;
+                request_id?: string | null;
+                result?: 'success' | 'error';
+            };
+            recorded_at?: string;
+        };
+        /**
+         * bug 且用户明确说出预期时填写。
+         */
+        expected?: string | null;
+        /**
+         * 客户端为一次提交生成并在重试时复用。
+         */
+        idempotency_key: string;
+        /**
+         * 1/bug=已有行为失败或结果错误；2/experience=能完成但难用、慢或提示不清；3/suggestion=希望增加不存在的能力。
          */
         kind: string;
         /**
-         * 标签，可重复；优先参考 bug、friction、idea。
+         * 直接描述现象或诉求，1 到 4000 字纯文本；不要粘贴 Token、财务正文或完整工具输出。
          */
-        labels?: Array<string> | null;
+        message: string;
         /**
-         * 来源：cli 或 web。CLI 固定填 cli。
+         * 实际提交入口。
          */
-        source: string;
+        submitted_via: 'cli' | 'app' | 'web';
         /**
-         * 提交者的 AI 名字或人名。
+         * 可选目标面：1/cli、2/app、3/web；省略时 CLI 自动设为 cli。
          */
-        submitted_by: string;
-        /**
-         * 一句话说清问题，最多 120 字。
-         */
-        title: string;
+        target?: string | null;
     };
     path?: never;
     query?: {
@@ -1180,7 +3541,7 @@ export type FeedbackCreateData = {
          */
         dry_run?: boolean;
         /**
-         * 显式确认。这条能力是 confirm 档，不带它也不带 dry_run 就是 409。
+         * 显式确认。这条能力是 draft 档，不带也能执行。
          */
         confirm?: boolean;
     };
@@ -1258,36 +3619,46 @@ export type FeedbackCreateError = FeedbackCreateErrors[keyof FeedbackCreateError
 
 export type FeedbackCreateResponses = {
     /**
-     * 标题一句话说清问题；正文分 现象/期望/复现/环境。确认后写入本地，并按配置同步 GitHub issue。
+     * kind 选择：1 bug=已有行为失败、报错或结果不正确；2 experience=可以完成，但流程、速度或提示令人困惑；3 suggestion=希望增加当前不存在的能力。只需填写 kind 和 message。target、CLI 版本、系统和最近运行信息会自动补充。不要在 message 中粘贴 Token、完整命令参数、财务正文或完整工具输出。若响应 state=needs_confirmation，必须向用户展示候选标题和状态并询问是否相同；不得自行 confirm。
      */
     200: {
         [key: string]: unknown;
     };
     /**
-     * 标题一句话说清问题；正文分 现象/期望/复现/环境。确认后写入本地，并按配置同步 GitHub issue。
+     * kind 选择：1 bug=已有行为失败、报错或结果不正确；2 experience=可以完成，但流程、速度或提示令人困惑；3 suggestion=希望增加当前不存在的能力。只需填写 kind 和 message。target、CLI 版本、系统和最近运行信息会自动补充。不要在 message 中粘贴 Token、完整命令参数、财务正文或完整工具输出。若响应 state=needs_confirmation，必须向用户展示候选标题和状态并询问是否相同；不得自行 confirm。
      */
     201: {
+        [key: string]: unknown;
+    };
+    /**
+     * kind 选择：1 bug=已有行为失败、报错或结果不正确；2 experience=可以完成，但流程、速度或提示令人困惑；3 suggestion=希望增加当前不存在的能力。只需填写 kind 和 message。target、CLI 版本、系统和最近运行信息会自动补充。不要在 message 中粘贴 Token、完整命令参数、财务正文或完整工具输出。若响应 state=needs_confirmation，必须向用户展示候选标题和状态并询问是否相同；不得自行 confirm。
+     */
+    202: {
         [key: string]: unknown;
     };
 };
 
 export type FeedbackCreateResponse = FeedbackCreateResponses[keyof FeedbackCreateResponses];
 
-export type FeedbackDeleteData = {
+export type FeedbackConfirmData = {
     /**
-     * FeedbackDeleteParams
+     * FeedbackConfirmParams
      *
-     * `feedback delete` 的参数。服务端采用可审计的软删除。
+     * `feedback confirm` 的参数。same_as 与 new 必须且只能选一个。
      */
-    body: {
+    body?: {
         /**
-         * 删除原因，供审计与误删排查。
+         * 用户确认不是同一事项时使用 --new。
          */
-        reason: string;
+        new?: boolean | null;
+        /**
+         * 用户确认相同时，填写 create 候选中的 feedback_id。
+         */
+        same_as?: number | null;
     };
     path: {
         /**
-         * 对象 id，正整数。
+         * create 返回的 submission_id，正整数。
          */
         id: string;
     };
@@ -1297,14 +3668,14 @@ export type FeedbackDeleteData = {
          */
         dry_run?: boolean;
         /**
-         * 显式确认。这条能力是 confirm 档，不带它也不带 dry_run 就是 409。
+         * 显式确认。这条能力是 draft 档，不带也能执行。
          */
         confirm?: boolean;
     };
-    url: '/v1/feedback/{id}';
+    url: '/v1/feedback/submissions/{id}/confirm';
 };
 
-export type FeedbackDeleteErrors = {
+export type FeedbackConfirmErrors = {
     /**
      * RFC 9457 problem+json。reason 是机读驼峰码。
      */
@@ -1371,18 +3742,129 @@ export type FeedbackDeleteErrors = {
     };
 };
 
-export type FeedbackDeleteError = FeedbackDeleteErrors[keyof FeedbackDeleteErrors];
+export type FeedbackConfirmError = FeedbackConfirmErrors[keyof FeedbackConfirmErrors];
 
-export type FeedbackDeleteResponses = {
+export type FeedbackConfirmResponses = {
     /**
-     * 从反馈列表中删除一条反馈；必须说明原因，服务端保留审计记录。
+     * AI 把候选标题和状态告诉用户后调用。same-as 与 new 必须且只能选一个；重复调用不会再次增加出现次数。
      */
     200: {
         [key: string]: unknown;
     };
 };
 
-export type FeedbackDeleteResponse = FeedbackDeleteResponses[keyof FeedbackDeleteResponses];
+export type FeedbackConfirmResponse = FeedbackConfirmResponses[keyof FeedbackConfirmResponses];
+
+export type FeedbackReplyData = {
+    /**
+     * FeedbackReplyParams
+     *
+     * `feedback reply` 的参数。回复只属于本次 Submission，不广播给其他用户。
+     */
+    body: {
+        /**
+         * 补充说明，1 到 4000 字纯文本。
+         */
+        message: string;
+    };
+    path: {
+        /**
+         * 要回复的 submission_id，正整数。
+         */
+        id: string;
+    };
+    query?: {
+        /**
+         * 只跑校验和预览，不落库。响应会带 dry_run: true。
+         */
+        dry_run?: boolean;
+        /**
+         * 显式确认。这条能力是 draft 档，不带也能执行。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/feedback/submissions/{id}/messages';
+};
+
+export type FeedbackReplyErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type FeedbackReplyError = FeedbackReplyErrors[keyof FeedbackReplyErrors];
+
+export type FeedbackReplyResponses = {
+    /**
+     * 针对一次 Submission 回复管理员追问；内容只对提交者和 owner 可见。
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type FeedbackReplyResponse = FeedbackReplyResponses[keyof FeedbackReplyResponses];
 
 export type FeedbackGetData = {
     body?: never;
@@ -1451,7 +3933,7 @@ export type FeedbackGetError = FeedbackGetErrors[keyof FeedbackGetErrors];
 
 export type FeedbackGetResponses = {
     /**
-     * 按 id 查看一条反馈及其 GitHub 同步结果。
+     * 按 feedback_id 查看公开状态、更新和自己这次提交的对话。
      */
     200: {
         [key: string]: unknown;
@@ -1460,46 +3942,14 @@ export type FeedbackGetResponses = {
 
 export type FeedbackGetResponse = FeedbackGetResponses[keyof FeedbackGetResponses];
 
-export type FeedbackUpdateData = {
-    /**
-     * FeedbackUpdateParams
-     *
-     * `feedback update` 的参数。把状态改回 open 就是重开。
-     */
-    body: {
-        /**
-         * 原反馈 id；status=duplicate 时必填，其余状态不能填写。
-         */
-        duplicate_of?: number | null;
-        /**
-         * 给提交者看的处理说明。completed 与 declined 必填。
-         */
-        response?: string | null;
-        /**
-         * 新状态：open、planned、started、completed、declined 或 duplicate。
-         */
-        status: 'open' | 'planned' | 'started' | 'completed' | 'declined' | 'duplicate';
-    };
-    path: {
-        /**
-         * 对象 id，正整数。
-         */
-        id: string;
-    };
-    query?: {
-        /**
-         * 只跑校验和预览，不落库。响应会带 dry_run: true。
-         */
-        dry_run?: boolean;
-        /**
-         * 显式确认。这条能力是 confirm 档，不带它也不带 dry_run 就是 409。
-         */
-        confirm?: boolean;
-    };
-    url: '/v1/feedback/{id}';
+export type MailMessagesListData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v1/mail-messages';
 };
 
-export type FeedbackUpdateErrors = {
+export type MailMessagesListErrors = {
     /**
      * RFC 9457 problem+json。reason 是机读驼峰码。
      */
@@ -1535,7 +3985,7 @@ export type FeedbackUpdateErrors = {
     /**
      * RFC 9457 problem+json。reason 是机读驼峰码。
      */
-    409: {
+    404: {
         detail?: string;
         /**
          * 机读错误码，驼峰。
@@ -1566,48 +4016,129 @@ export type FeedbackUpdateErrors = {
     };
 };
 
-export type FeedbackUpdateError = FeedbackUpdateErrors[keyof FeedbackUpdateErrors];
+export type MailMessagesListError = MailMessagesListErrors[keyof MailMessagesListErrors];
 
-export type FeedbackUpdateResponses = {
+export type MailMessagesListResponses = {
     /**
-     * 更新业务状态并留下处理说明；改回 open 表示重开，duplicate 必须指定原反馈。
+     * 查看邮件索引
      */
     200: {
         [key: string]: unknown;
     };
 };
 
-export type FeedbackUpdateResponse = FeedbackUpdateResponses[keyof FeedbackUpdateResponses];
+export type MailMessagesListResponse = MailMessagesListResponses[keyof MailMessagesListResponses];
 
-export type FeedbackRetryData = {
+export type MailMessagesGetData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/v1/mail-messages/{id}';
+};
+
+export type MailMessagesGetErrors = {
     /**
-     * IdParams
-     *
-     * 只按 id 取一个对象的能力共用这一个参数类型。
+     * RFC 9457 problem+json。reason 是机读驼峰码。
      */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailMessagesGetError = MailMessagesGetErrors[keyof MailMessagesGetErrors];
+
+export type MailMessagesGetResponses = {
+    /**
+     * 查看邮件详情
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailMessagesGetResponse = MailMessagesGetResponses[keyof MailMessagesGetResponses];
+
+export type MailMessagesCacheData = {
     body?: {
-        [key: string]: never;
+        [key: string]: unknown;
     };
     path: {
-        /**
-         * 对象 id，正整数。
-         */
         id: string;
     };
     query?: {
         /**
-         * 只跑校验和预览，不落库。响应会带 dry_run: true。
+         * 只校验和预览，不写入。
          */
         dry_run?: boolean;
         /**
-         * 显式确认。这条能力是 confirm 档，不带它也不带 dry_run 就是 409。
+         * 可选确认标记。
          */
         confirm?: boolean;
     };
-    url: '/v1/feedback/{id}/retry';
+    url: '/v1/mail-messages/{id}/cache';
 };
 
-export type FeedbackRetryErrors = {
+export type MailMessagesCacheErrors = {
     /**
      * RFC 9457 problem+json。reason 是机读驼峰码。
      */
@@ -1628,6 +4159,683 @@ export type FeedbackRetryErrors = {
      * RFC 9457 problem+json。reason 是机读驼峰码。
      */
     401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailMessagesCacheError = MailMessagesCacheErrors[keyof MailMessagesCacheErrors];
+
+export type MailMessagesCacheResponses = {
+    /**
+     * 缓存邮件内容
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailMessagesCacheResponse = MailMessagesCacheResponses[keyof MailMessagesCacheResponses];
+
+export type MailMessagesRawData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/v1/mail-messages/{id}/raw';
+};
+
+export type MailMessagesRawErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailMessagesRawError = MailMessagesRawErrors[keyof MailMessagesRawErrors];
+
+export type MailMessagesRawResponses = {
+    /**
+     * 原始 RFC 822 邮件。
+     */
+    200: Blob | File;
+};
+
+export type MailMessagesRawResponse = MailMessagesRawResponses[keyof MailMessagesRawResponses];
+
+export type MailMessagesRerouteData = {
+    body?: {
+        [key: string]: unknown;
+    };
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 可选确认标记。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/mail-messages/{id}/reroute';
+};
+
+export type MailMessagesRerouteErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailMessagesRerouteError = MailMessagesRerouteErrors[keyof MailMessagesRerouteErrors];
+
+export type MailMessagesRerouteResponses = {
+    /**
+     * 重新归类邮件
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailMessagesRerouteResponse = MailMessagesRerouteResponses[keyof MailMessagesRerouteResponses];
+
+export type MailRulesListData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v1/mail-rules';
+};
+
+export type MailRulesListErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailRulesListError = MailRulesListErrors[keyof MailRulesListErrors];
+
+export type MailRulesListResponses = {
+    /**
+     * 查看邮件规则
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailRulesListResponse = MailRulesListResponses[keyof MailRulesListResponses];
+
+export type MailRulesCreateData = {
+    body?: {
+        [key: string]: unknown;
+    };
+    path?: never;
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 可选确认标记。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/mail-rules';
+};
+
+export type MailRulesCreateErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailRulesCreateError = MailRulesCreateErrors[keyof MailRulesCreateErrors];
+
+export type MailRulesCreateResponses = {
+    /**
+     * 创建邮件规则草稿
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailRulesCreateResponse = MailRulesCreateResponses[keyof MailRulesCreateResponses];
+
+export type MailRulesTestData = {
+    body?: {
+        [key: string]: unknown;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/mail-rules/test';
+};
+
+export type MailRulesTestErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailRulesTestError = MailRulesTestErrors[keyof MailRulesTestErrors];
+
+export type MailRulesTestResponses = {
+    /**
+     * 测试邮件规则
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailRulesTestResponse = MailRulesTestResponses[keyof MailRulesTestResponses];
+
+export type MailRulesUpdateData = {
+    body?: {
+        [key: string]: unknown;
+    };
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 可选确认标记。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/mail-rules/{id}';
+};
+
+export type MailRulesUpdateErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailRulesUpdateError = MailRulesUpdateErrors[keyof MailRulesUpdateErrors];
+
+export type MailRulesUpdateResponses = {
+    /**
+     * 更新邮件规则草稿
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailRulesUpdateResponse = MailRulesUpdateResponses[keyof MailRulesUpdateResponses];
+
+export type MailRulesPublishData = {
+    body?: {
+        [key: string]: unknown;
+    };
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 必须显式确认。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/mail-rules/{id}/publish';
+};
+
+export type MailRulesPublishErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
         detail?: string;
         /**
          * 机读错误码，驼峰。
@@ -1674,18 +4882,1215 @@ export type FeedbackRetryErrors = {
     };
 };
 
-export type FeedbackRetryError = FeedbackRetryErrors[keyof FeedbackRetryErrors];
+export type MailRulesPublishError = MailRulesPublishErrors[keyof MailRulesPublishErrors];
 
-export type FeedbackRetryResponses = {
+export type MailRulesPublishResponses = {
     /**
-     * 重新把当前反馈内容和状态同步到 GitHub。
+     * 发布邮件规则
      */
     200: {
         [key: string]: unknown;
     };
 };
 
-export type FeedbackRetryResponse = FeedbackRetryResponses[keyof FeedbackRetryResponses];
+export type MailRulesPublishResponse = MailRulesPublishResponses[keyof MailRulesPublishResponses];
+
+export type MailRulesRollbackData = {
+    body?: {
+        [key: string]: unknown;
+    };
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 必须显式确认。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/mail-rules/{id}/rollback';
+};
+
+export type MailRulesRollbackErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailRulesRollbackError = MailRulesRollbackErrors[keyof MailRulesRollbackErrors];
+
+export type MailRulesRollbackResponses = {
+    /**
+     * 回滚邮件规则
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailRulesRollbackResponse = MailRulesRollbackResponses[keyof MailRulesRollbackResponses];
+
+export type MailSamplesListData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v1/mail-samples';
+};
+
+export type MailSamplesListErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailSamplesListError = MailSamplesListErrors[keyof MailSamplesListErrors];
+
+export type MailSamplesListResponses = {
+    /**
+     * 查看固定样本
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailSamplesListResponse = MailSamplesListResponses[keyof MailSamplesListResponses];
+
+export type MailSamplesCreateData = {
+    body?: {
+        [key: string]: unknown;
+    };
+    path?: never;
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 可选确认标记。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/mail-samples';
+};
+
+export type MailSamplesCreateErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailSamplesCreateError = MailSamplesCreateErrors[keyof MailSamplesCreateErrors];
+
+export type MailSamplesCreateResponses = {
+    /**
+     * 固定邮件样本
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailSamplesCreateResponse = MailSamplesCreateResponses[keyof MailSamplesCreateResponses];
+
+export type MailSamplesDeleteData = {
+    body?: {
+        [key: string]: unknown;
+    };
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 必须显式确认。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/mail-samples/{id}';
+};
+
+export type MailSamplesDeleteErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailSamplesDeleteError = MailSamplesDeleteErrors[keyof MailSamplesDeleteErrors];
+
+export type MailSamplesDeleteResponses = {
+    /**
+     * 删除固定样本
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailSamplesDeleteResponse = MailSamplesDeleteResponses[keyof MailSamplesDeleteResponses];
+
+export type MailSyncRunsListData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v1/mail-sync-runs';
+};
+
+export type MailSyncRunsListErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailSyncRunsListError = MailSyncRunsListErrors[keyof MailSyncRunsListErrors];
+
+export type MailSyncRunsListResponses = {
+    /**
+     * 查看同步记录
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailSyncRunsListResponse = MailSyncRunsListResponses[keyof MailSyncRunsListResponses];
+
+export type MailSyncRunsGetData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/v1/mail-sync-runs/{id}';
+};
+
+export type MailSyncRunsGetErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailSyncRunsGetError = MailSyncRunsGetErrors[keyof MailSyncRunsGetErrors];
+
+export type MailSyncRunsGetResponses = {
+    /**
+     * 查看同步进度
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailSyncRunsGetResponse = MailSyncRunsGetResponses[keyof MailSyncRunsGetResponses];
+
+export type MailSyncRunsCancelData = {
+    body?: {
+        [key: string]: unknown;
+    };
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 可选确认标记。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/mail-sync-runs/{id}/cancel';
+};
+
+export type MailSyncRunsCancelErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailSyncRunsCancelError = MailSyncRunsCancelErrors[keyof MailSyncRunsCancelErrors];
+
+export type MailSyncRunsCancelResponses = {
+    /**
+     * 取消邮箱同步
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailSyncRunsCancelResponse = MailSyncRunsCancelResponses[keyof MailSyncRunsCancelResponses];
+
+export type MailboxesListData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v1/mailboxes';
+};
+
+export type MailboxesListErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailboxesListError = MailboxesListErrors[keyof MailboxesListErrors];
+
+export type MailboxesListResponses = {
+    /**
+     * 查看邮箱连接
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailboxesListResponse = MailboxesListResponses[keyof MailboxesListResponses];
+
+export type MailboxesGetData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/v1/mailboxes/{id}';
+};
+
+export type MailboxesGetErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailboxesGetError = MailboxesGetErrors[keyof MailboxesGetErrors];
+
+export type MailboxesGetResponses = {
+    /**
+     * 查看邮箱连接
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailboxesGetResponse = MailboxesGetResponses[keyof MailboxesGetResponses];
+
+export type MailboxesUpdateData = {
+    body?: {
+        [key: string]: unknown;
+    };
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 可选确认标记。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/mailboxes/{id}';
+};
+
+export type MailboxesUpdateErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailboxesUpdateError = MailboxesUpdateErrors[keyof MailboxesUpdateErrors];
+
+export type MailboxesUpdateResponses = {
+    /**
+     * 更新邮箱连接
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailboxesUpdateResponse = MailboxesUpdateResponses[keyof MailboxesUpdateResponses];
+
+export type MailboxesRescanData = {
+    body?: {
+        [key: string]: unknown;
+    };
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 必须显式确认。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/mailboxes/{id}/rescan';
+};
+
+export type MailboxesRescanErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailboxesRescanError = MailboxesRescanErrors[keyof MailboxesRescanErrors];
+
+export type MailboxesRescanResponses = {
+    /**
+     * 扫描历史邮件
+     */
+    200: {
+        [key: string]: unknown;
+    };
+    /**
+     * 同步任务已创建。
+     */
+    202: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailboxesRescanResponse = MailboxesRescanResponses[keyof MailboxesRescanResponses];
+
+export type MailboxesSyncData = {
+    body?: {
+        [key: string]: unknown;
+    };
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 可选确认标记。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/mailboxes/{id}/sync';
+};
+
+export type MailboxesSyncErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailboxesSyncError = MailboxesSyncErrors[keyof MailboxesSyncErrors];
+
+export type MailboxesSyncResponses = {
+    /**
+     * 同步新邮件
+     */
+    200: {
+        [key: string]: unknown;
+    };
+    /**
+     * 同步任务已创建。
+     */
+    202: {
+        [key: string]: unknown;
+    };
+};
+
+export type MailboxesSyncResponse = MailboxesSyncResponses[keyof MailboxesSyncResponses];
 
 export type OpenapiData = {
     body?: never;
@@ -1705,73 +6110,14 @@ export type OpenapiResponses = {
 
 export type OpenapiResponse = OpenapiResponses[keyof OpenapiResponses];
 
-export type RowsUpdateData = {
-    /**
-     * RowsUpdateParams
-     *
-     * `rows update` 的参数。
-     *
-     * 只开放「这笔该记成什么」这一组字段：银行原文（交易时间、对方、订单号等）不给改，
-     * 那是账单本身说的话。写入一律记成 AI 建议，由人在收件箱确认。
-     */
-    body?: {
-        /**
-         * 分类名。
-         */
-        category_name?: string | null;
-        /**
-         * 收款账户名。
-         */
-        destination_name?: string | null;
-        /**
-         * 记账金额，正数。
-         */
-        firefly_amount?: string | null;
-        /**
-         * 记账日期，格式 YYYY-MM-DD。
-         */
-        firefly_date?: string | null;
-        /**
-         * 记账摘要。
-         */
-        firefly_description?: string | null;
-        /**
-         * 记账类型：withdrawal 支出、deposit 收入、transfer 转账。
-         */
-        firefly_type?: string | null;
-        /**
-         * 备注。
-         */
-        notes?: string | null;
-        /**
-         * 付款账户名。
-         */
-        source_name?: string | null;
-        /**
-         * 标签。
-         */
-        tags?: Array<string> | null;
-    };
-    path: {
-        /**
-         * 对象 id，正整数。
-         */
-        id: string;
-    };
-    query?: {
-        /**
-         * 只跑校验和预览，不落库。响应会带 dry_run: true。
-         */
-        dry_run?: boolean;
-        /**
-         * 显式确认。这条能力是 draft 档，不带也能执行。
-         */
-        confirm?: boolean;
-    };
-    url: '/v1/rows/{id}';
+export type ParserFlowsListData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v1/parser-flows';
 };
 
-export type RowsUpdateErrors = {
+export type ParserFlowsListErrors = {
     /**
      * RFC 9457 problem+json。reason 是机读驼峰码。
      */
@@ -1792,6 +6138,704 @@ export type RowsUpdateErrors = {
      * RFC 9457 problem+json。reason 是机读驼峰码。
      */
     401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ParserFlowsListError = ParserFlowsListErrors[keyof ParserFlowsListErrors];
+
+export type ParserFlowsListResponses = {
+    /**
+     * 查看解析流程
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ParserFlowsListResponse = ParserFlowsListResponses[keyof ParserFlowsListResponses];
+
+export type ParserFlowsCreateData = {
+    body: {
+        [key: string]: unknown;
+    };
+    path?: never;
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 可选确认标记。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/parser-flows';
+};
+
+export type ParserFlowsCreateErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ParserFlowsCreateError = ParserFlowsCreateErrors[keyof ParserFlowsCreateErrors];
+
+export type ParserFlowsCreateResponses = {
+    /**
+     * 创建解析流程草稿
+     */
+    200: {
+        [key: string]: unknown;
+    };
+    /**
+     * 创建解析流程草稿
+     */
+    201: {
+        [key: string]: unknown;
+    };
+};
+
+export type ParserFlowsCreateResponse = ParserFlowsCreateResponses[keyof ParserFlowsCreateResponses];
+
+export type ParserFlowsTestEmlSourceData = {
+    body: {
+        eml: Blob | File;
+        /**
+         * JSON 字符串映射。
+         */
+        secrets?: string;
+        source_yaml: string;
+        timezone?: string;
+        version?: number;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/parser-flows/test-eml';
+};
+
+export type ParserFlowsTestEmlSourceErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ParserFlowsTestEmlSourceError = ParserFlowsTestEmlSourceErrors[keyof ParserFlowsTestEmlSourceErrors];
+
+export type ParserFlowsTestEmlSourceResponses = {
+    /**
+     * 用本地 EML 测试解析定义
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ParserFlowsTestEmlSourceResponse = ParserFlowsTestEmlSourceResponses[keyof ParserFlowsTestEmlSourceResponses];
+
+export type ParserFlowsValidateData = {
+    body: {
+        [key: string]: unknown;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/parser-flows/validate';
+};
+
+export type ParserFlowsValidateErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ParserFlowsValidateError = ParserFlowsValidateErrors[keyof ParserFlowsValidateErrors];
+
+export type ParserFlowsValidateResponses = {
+    /**
+     * 校验解析流程
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ParserFlowsValidateResponse = ParserFlowsValidateResponses[keyof ParserFlowsValidateResponses];
+
+export type ParserFlowsGetData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/v1/parser-flows/{id}';
+};
+
+export type ParserFlowsGetErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ParserFlowsGetError = ParserFlowsGetErrors[keyof ParserFlowsGetErrors];
+
+export type ParserFlowsGetResponses = {
+    /**
+     * 查看解析流程
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ParserFlowsGetResponse = ParserFlowsGetResponses[keyof ParserFlowsGetResponses];
+
+export type ParserFlowsUpdateData = {
+    body: {
+        [key: string]: unknown;
+    };
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 可选确认标记。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/parser-flows/{id}';
+};
+
+export type ParserFlowsUpdateErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ParserFlowsUpdateError = ParserFlowsUpdateErrors[keyof ParserFlowsUpdateErrors];
+
+export type ParserFlowsUpdateResponses = {
+    /**
+     * 更新解析流程草稿
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ParserFlowsUpdateResponse = ParserFlowsUpdateResponses[keyof ParserFlowsUpdateResponses];
+
+export type ParserFlowsCloneData = {
+    body: {
+        [key: string]: unknown;
+    };
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 可选确认标记。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/parser-flows/{id}/clone';
+};
+
+export type ParserFlowsCloneErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ParserFlowsCloneError = ParserFlowsCloneErrors[keyof ParserFlowsCloneErrors];
+
+export type ParserFlowsCloneResponses = {
+    /**
+     * 复制解析流程
+     */
+    200: {
+        [key: string]: unknown;
+    };
+    /**
+     * 复制解析流程
+     */
+    201: {
+        [key: string]: unknown;
+    };
+};
+
+export type ParserFlowsCloneResponse = ParserFlowsCloneResponses[keyof ParserFlowsCloneResponses];
+
+export type ParserFlowsPublishData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 必须显式确认。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/parser-flows/{id}/publish';
+};
+
+export type ParserFlowsPublishErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
         detail?: string;
         /**
          * 机读错误码，驼峰。
@@ -1838,72 +6882,1136 @@ export type RowsUpdateErrors = {
     };
 };
 
-export type RowsUpdateError = RowsUpdateErrors[keyof RowsUpdateErrors];
+export type ParserFlowsPublishError = ParserFlowsPublishErrors[keyof ParserFlowsPublishErrors];
 
-export type RowsUpdateResponses = {
+export type ParserFlowsPublishResponses = {
     /**
-     * 填一条流水该记成什么：类型、日期、金额、摘要、账户、分类、标签。写入一律记成 AI 建议，等人在收件箱确认；银行原文不给改。
+     * 发布解析流程
      */
     200: {
         [key: string]: unknown;
     };
 };
 
-export type RowsUpdateResponse = RowsUpdateResponses[keyof RowsUpdateResponses];
+export type ParserFlowsPublishResponse = ParserFlowsPublishResponses[keyof ParserFlowsPublishResponses];
 
-export type RowsSplitData = {
+export type ParserFlowsRetireData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 必须显式确认。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/parser-flows/{id}/retire';
+};
+
+export type ParserFlowsRetireErrors = {
     /**
-     * RowsSplitParams
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ParserFlowsRetireError = ParserFlowsRetireErrors[keyof ParserFlowsRetireErrors];
+
+export type ParserFlowsRetireResponses = {
+    /**
+     * 停用解析流程
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ParserFlowsRetireResponse = ParserFlowsRetireResponses[keyof ParserFlowsRetireResponses];
+
+export type ParserFlowsRollbackData = {
+    body: {
+        [key: string]: unknown;
+    };
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 必须显式确认。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/parser-flows/{id}/rollback';
+};
+
+export type ParserFlowsRollbackErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ParserFlowsRollbackError = ParserFlowsRollbackErrors[keyof ParserFlowsRollbackErrors];
+
+export type ParserFlowsRollbackResponses = {
+    /**
+     * 回滚解析流程
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ParserFlowsRollbackResponse = ParserFlowsRollbackResponses[keyof ParserFlowsRollbackResponses];
+
+export type ParserFlowsTestData = {
+    body: {
+        [key: string]: unknown;
+    };
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/v1/parser-flows/{id}/test';
+};
+
+export type ParserFlowsTestErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ParserFlowsTestError = ParserFlowsTestErrors[keyof ParserFlowsTestErrors];
+
+export type ParserFlowsTestResponses = {
+    /**
+     * 测试解析流程
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ParserFlowsTestResponse = ParserFlowsTestResponses[keyof ParserFlowsTestResponses];
+
+export type ParserTestCasesCreateData = {
+    body: {
+        [key: string]: unknown;
+    };
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 可选确认标记。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/parser-flows/{id}/test-cases';
+};
+
+export type ParserTestCasesCreateErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ParserTestCasesCreateError = ParserTestCasesCreateErrors[keyof ParserTestCasesCreateErrors];
+
+export type ParserTestCasesCreateResponses = {
+    /**
+     * 创建解析测试用例
+     */
+    200: {
+        [key: string]: unknown;
+    };
+    /**
+     * 创建解析测试用例
+     */
+    201: {
+        [key: string]: unknown;
+    };
+};
+
+export type ParserTestCasesCreateResponse = ParserTestCasesCreateResponses[keyof ParserTestCasesCreateResponses];
+
+export type ParserFlowsTestEmlData = {
+    body: {
+        eml: Blob | File;
+        /**
+         * JSON 字符串映射。
+         */
+        secrets?: string;
+        source_yaml?: string;
+        timezone?: string;
+        version?: number;
+    };
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/v1/parser-flows/{id}/test-eml';
+};
+
+export type ParserFlowsTestEmlErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ParserFlowsTestEmlError = ParserFlowsTestEmlErrors[keyof ParserFlowsTestEmlErrors];
+
+export type ParserFlowsTestEmlResponses = {
+    /**
+     * 上传 EML 测试解析流程
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ParserFlowsTestEmlResponse = ParserFlowsTestEmlResponses[keyof ParserFlowsTestEmlResponses];
+
+export type ParserFlowsVersionsData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/v1/parser-flows/{id}/versions';
+};
+
+export type ParserFlowsVersionsErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ParserFlowsVersionsError = ParserFlowsVersionsErrors[keyof ParserFlowsVersionsErrors];
+
+export type ParserFlowsVersionsResponses = {
+    /**
+     * 查看解析流程版本
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ParserFlowsVersionsResponse = ParserFlowsVersionsResponses[keyof ParserFlowsVersionsResponses];
+
+export type ParserFlowsVersionData = {
+    body?: never;
+    path: {
+        id: string;
+        version: number;
+    };
+    query?: never;
+    url: '/v1/parser-flows/{id}/versions/{version}';
+};
+
+export type ParserFlowsVersionErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ParserFlowsVersionError = ParserFlowsVersionErrors[keyof ParserFlowsVersionErrors];
+
+export type ParserFlowsVersionResponses = {
+    /**
+     * 查看解析流程版本
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ParserFlowsVersionResponse = ParserFlowsVersionResponses[keyof ParserFlowsVersionResponses];
+
+export type ParserTestCasesDeleteData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 必须显式确认。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/parser-test-cases/{id}';
+};
+
+export type ParserTestCasesDeleteErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ParserTestCasesDeleteError = ParserTestCasesDeleteErrors[keyof ParserTestCasesDeleteErrors];
+
+export type ParserTestCasesDeleteResponses = {
+    /**
+     * 删除解析测试用例
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ParserTestCasesDeleteResponse = ParserTestCasesDeleteResponses[keyof ParserTestCasesDeleteResponses];
+
+export type ParserTestCasesUpdateData = {
+    body: {
+        [key: string]: unknown;
+    };
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 可选确认标记。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/parser-test-cases/{id}';
+};
+
+export type ParserTestCasesUpdateErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ParserTestCasesUpdateError = ParserTestCasesUpdateErrors[keyof ParserTestCasesUpdateErrors];
+
+export type ParserTestCasesUpdateResponses = {
+    /**
+     * 更新解析测试用例
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ParserTestCasesUpdateResponse = ParserTestCasesUpdateResponses[keyof ParserTestCasesUpdateResponses];
+
+export type ParserTestRunsGetData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/v1/parser-test-runs/{id}';
+};
+
+export type ParserTestRunsGetErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ParserTestRunsGetError = ParserTestRunsGetErrors[keyof ParserTestRunsGetErrors];
+
+export type ParserTestRunsGetResponses = {
+    /**
+     * 查看解析测试运行
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ParserTestRunsGetResponse = ParserTestRunsGetResponses[keyof ParserTestRunsGetResponses];
+
+export type ProfileDocListData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v1/profile-doc';
+};
+
+export type ProfileDocListErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ProfileDocListError = ProfileDocListErrors[keyof ProfileDocListErrors];
+
+export type ProfileDocListResponses = {
+    /**
+     * 列出当前用户的全部资料文档，不返回 Markdown 正文。
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ProfileDocListResponse = ProfileDocListResponses[keyof ProfileDocListResponses];
+
+export type ProfileDocCreateData = {
+    /**
+     * ProfileDocCreateParams
      *
-     * `rows split` 的参数。
+     * `profile-doc create` 的参数。Markdown 按原字节内容保存，CLI 固定 source=cli。
      */
     body: {
         /**
-         * 拆成哪几笔，至少两笔，最多二十笔。
+         * Markdown 正文，最多 1 MiB。
          */
-        splits: Array<{
-            /**
-             * 这一笔的金额，正数。
-             */
-            amount: string;
-            /**
-             * 这一笔的分类名。
-             */
-            category_name?: string | null;
-            /**
-             * 这一笔的摘要，必填——拆出来的每笔都得说清楚是什么。
-             */
-            description: string;
-            /**
-             * 这一笔的收/付款方式。
-             */
-            payment_method?: string | null;
-            /**
-             * 这一笔的付款账户名。
-             */
-            source_name?: string | null;
-        }>;
-    };
-    path: {
+        content_md: string;
         /**
-         * 对象 id，正整数。
+         * 小写字母、数字和中划线组成的 slug，最多 64 个字符。
          */
-        id: string;
+        slug: string;
+        /**
+         * 来源：cli 或 web。CLI 固定填 cli。
+         */
+        source: string;
+        /**
+         * 文档标题，最多 200 字。
+         */
+        title: string;
     };
+    path?: never;
     query?: {
         /**
          * 只跑校验和预览，不落库。响应会带 dry_run: true。
          */
         dry_run?: boolean;
         /**
-         * 显式确认。这条能力是 draft 档，不带也能执行。
+         * 显式确认。这条能力是 confirm 档，不带它也不带 dry_run 就是 409。
          */
         confirm?: boolean;
     };
-    url: '/v1/rows/{id}/split';
+    url: '/v1/profile-doc';
 };
 
-export type RowsSplitErrors = {
+export type ProfileDocCreateErrors = {
     /**
      * RFC 9457 problem+json。reason 是机读驼峰码。
      */
@@ -1970,18 +8078,378 @@ export type RowsSplitErrors = {
     };
 };
 
-export type RowsSplitError = RowsSplitErrors[keyof RowsSplitErrors];
+export type ProfileDocCreateError = ProfileDocCreateErrors[keyof ProfileDocCreateErrors];
 
-export type RowsSplitResponses = {
+export type ProfileDocCreateResponses = {
     /**
-     * 把一条组合支付的流水拆成两笔以上的草稿，比如一半余额一半银行卡。
+     * 创建一份 Markdown 用户资料；先干跑预览，确认后保存版本 1。
+     */
+    200: {
+        [key: string]: unknown;
+    };
+    /**
+     * 创建一份 Markdown 用户资料；先干跑预览，确认后保存版本 1。
+     */
+    201: {
+        [key: string]: unknown;
+    };
+};
+
+export type ProfileDocCreateResponse = ProfileDocCreateResponses[keyof ProfileDocCreateResponses];
+
+export type ProfileDocDeleteData = {
+    /**
+     * ProfileDocDeleteParams
+     *
+     * `profile-doc delete` 的参数。expected_version 防止删除别人刚更新的版本。
+     */
+    body: {
+        /**
+         * 当前读到的版本号；服务端不匹配时返回 409。
+         */
+        expected_version: number;
+    };
+    path: {
+        /**
+         * 小写字母、数字和中划线组成的 slug，最多 64 个字符。
+         */
+        slug: string;
+    };
+    query?: {
+        /**
+         * 只跑校验和预览，不落库。响应会带 dry_run: true。
+         */
+        dry_run?: boolean;
+        /**
+         * 显式确认。这条能力是 confirm 档，不带它也不带 dry_run 就是 409。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/profile-doc/{slug}';
+};
+
+export type ProfileDocDeleteErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ProfileDocDeleteError = ProfileDocDeleteErrors[keyof ProfileDocDeleteErrors];
+
+export type ProfileDocDeleteResponses = {
+    /**
+     * 基于 expected_version 永久删除一份用户资料及其全部历史版本。
      */
     200: {
         [key: string]: unknown;
     };
 };
 
-export type RowsSplitResponse = RowsSplitResponses[keyof RowsSplitResponses];
+export type ProfileDocDeleteResponse = ProfileDocDeleteResponses[keyof ProfileDocDeleteResponses];
+
+export type ProfileDocGetData = {
+    body?: never;
+    path: {
+        /**
+         * 小写字母、数字和中划线组成的 slug，最多 64 个字符。
+         */
+        slug: string;
+    };
+    query?: never;
+    url: '/v1/profile-doc/{slug}';
+};
+
+export type ProfileDocGetErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ProfileDocGetError = ProfileDocGetErrors[keyof ProfileDocGetErrors];
+
+export type ProfileDocGetResponses = {
+    /**
+     * 按 slug 读取一份用户资料及其完整 Markdown 正文。
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ProfileDocGetResponse = ProfileDocGetResponses[keyof ProfileDocGetResponses];
+
+export type ProfileDocUpdateData = {
+    /**
+     * ProfileDocUpdateParams
+     *
+     * `profile-doc update` 的参数。expected_version 防止覆盖别人刚保存的版本。
+     */
+    body: {
+        /**
+         * 新 Markdown 正文；不提供就保持原值，最多 1 MiB。
+         */
+        content_md?: string | null;
+        /**
+         * 当前读到的版本号；服务端不匹配时返回 409。
+         */
+        expected_version: number;
+        /**
+         * 来源：cli 或 web。CLI 固定填 cli。
+         */
+        source: string;
+        /**
+         * 新标题；不提供就保持原值。
+         */
+        title?: string | null;
+    };
+    path: {
+        /**
+         * 小写字母、数字和中划线组成的 slug，最多 64 个字符。
+         */
+        slug: string;
+    };
+    query?: {
+        /**
+         * 只跑校验和预览，不落库。响应会带 dry_run: true。
+         */
+        dry_run?: boolean;
+        /**
+         * 显式确认。这条能力是 confirm 档，不带它也不带 dry_run 就是 409。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/profile-doc/{slug}';
+};
+
+export type ProfileDocUpdateErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type ProfileDocUpdateError = ProfileDocUpdateErrors[keyof ProfileDocUpdateErrors];
+
+export type ProfileDocUpdateResponses = {
+    /**
+     * 基于 expected_version 更新 Markdown 用户资料；版本冲突时不会覆盖。
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ProfileDocUpdateResponse = ProfileDocUpdateResponses[keyof ProfileDocUpdateResponses];
+
+export type SessionGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v1/session';
+};
+
+export type SessionGetErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type SessionGetError = SessionGetErrors[keyof SessionGetErrors];
+
+export type SessionGetResponses = {
+    /**
+     * 当前令牌对应的用户和角色。
+     */
+    200: {
+        data: {
+            actor: string;
+            is_owner: boolean;
+            role: string;
+            user_id: number;
+        };
+    };
+};
+
+export type SessionGetResponse = SessionGetResponses[keyof SessionGetResponses];
 
 export type TransactionsListData = {
     body?: never;
@@ -2247,7 +8715,7 @@ export type TransactionsShowData = {
     body?: never;
     path: {
         /**
-         * 对象 id，正整数。
+         * 交易组 id，正整数。
          */
         id: string;
     };

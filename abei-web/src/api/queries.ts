@@ -22,7 +22,6 @@ import {
   createTransactionAttachment,
   createTransaction,
   createTransactionSplits,
-  cleanupBillInbox,
   disconnectGoogleMailbox,
   countTransactions,
   deleteTransaction,
@@ -50,6 +49,11 @@ import {
   dismissBillRows,
   restoreBillRows,
   importBillRows,
+  getBillAccountMappings,
+  upsertBillAccountMapping,
+  deleteBillAccountMapping,
+  reconcileBillImportAttempt,
+  retryBillImportAttempt,
   getNetWorthAccounts,
   createBudget,
   createBudgetLimit,
@@ -74,7 +78,6 @@ import {
   getTransactionAttachments,
   ignoreBillTask,
   importBillTaskRows,
-  processBillInbox,
   retryBillTask,
   revokeApiToken,
   searchTransactions,
@@ -391,22 +394,6 @@ export function useDisconnectGoogleMailbox() {
   })
 }
 
-export function useProcessBillInbox() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (limit?: number) => processBillInbox(limit),
-    onSuccess: () => invalidateBillInbox(queryClient),
-  })
-}
-
-export function useCleanupBillInbox() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: () => cleanupBillInbox(),
-    onSuccess: () => invalidateBillInbox(queryClient),
-  })
-}
-
 /**
  * GET /api/v1/bill-rows —— 收件箱队列的主数据源。
  * group 一次只读一组：三组各自的分页、空态、加载态互不牵连。
@@ -472,6 +459,59 @@ export function useImportBillRows() {
       importBillRows({ row_ids: rowIds, confirm }),
     onSuccess: (_data, variables) => {
       if (!variables.confirm) return
+      invalidateBillInbox(queryClient)
+      invalidateTransactionCaches(queryClient)
+    },
+  })
+}
+
+export function useBillAccountMappings(opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: ['bill-account-mappings'],
+    queryFn: () => getBillAccountMappings(),
+    enabled: opts.enabled ?? true,
+    staleTime: 30_000,
+  })
+}
+
+export function useUpsertBillAccountMapping() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: upsertBillAccountMapping,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bill-account-mappings'] })
+      invalidateBillInbox(queryClient)
+    },
+  })
+}
+
+export function useDeleteBillAccountMapping() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: deleteBillAccountMapping,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bill-account-mappings'] })
+      invalidateBillInbox(queryClient)
+    },
+  })
+}
+
+export function useReconcileBillImportAttempt() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: reconcileBillImportAttempt,
+    onSuccess: () => {
+      invalidateBillInbox(queryClient)
+      invalidateTransactionCaches(queryClient)
+    },
+  })
+}
+
+export function useRetryBillImportAttempt() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: retryBillImportAttempt,
+    onSuccess: () => {
       invalidateBillInbox(queryClient)
       invalidateTransactionCaches(queryClient)
     },
@@ -560,7 +600,7 @@ function invalidateBillRow(queryClient: ReturnType<typeof useQueryClient>, taskI
 }
 
 /**
- * PATCH /v1/rows/{id}：填一条流水该记成什么。
+ * PATCH /v1/bill-rows/{id}：填一条流水该记成什么。
  *
  * 服务端强制 `as_suggestion: true`——从这里写进去的一律是建议，行上会带 `suggested_by`，
  * 页面得把它显示成「等你确认」（见 QueueRow 的建议标记）。银行原文不在可写字段里。

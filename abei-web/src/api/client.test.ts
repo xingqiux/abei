@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   clearStoredToken,
   AbeiSessionChangedError,
+  apiDeleteJson,
   apiGet,
   setStoredToken,
 } from './client'
@@ -149,5 +150,20 @@ describe('apiGet', () => {
 
     expect(result.filename).toBe('2026-07-20-transactions.csv')
     expect(result.blob.type).toBe('text/csv;charset=utf-8')
+  })
+
+  it('sends JSON and gate parameters with a DELETE request', async () => {
+    setStoredToken('test-token')
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"data":{"deleted":true}}'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await apiDeleteJson('/v1/feedback/7', { reason: '包含隐私' }, { confirm: true })
+
+    const [rawUrl, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const url = new URL(rawUrl)
+    expect(url.pathname).toBe('/v1/feedback/7')
+    expect(url.searchParams.get('confirm')).toBe('true')
+    expect(init.method).toBe('DELETE')
+    expect(init.body).toBe(JSON.stringify({ reason: '包含隐私' }))
   })
 })

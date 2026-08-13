@@ -105,6 +105,9 @@ export function QueueRow({
   onEndEdit,
   onDismiss,
   onRestore,
+  onReconcile,
+  onRetryImport,
+  onMapAccount,
   busy = false,
 }: {
   row: BillQueueRow
@@ -122,6 +125,9 @@ export function QueueRow({
   onEndEdit: () => void
   onDismiss?: () => void
   onRestore?: () => void
+  onReconcile?: () => void
+  onRetryImport?: () => void
+  onMapAccount?: () => void
   busy?: boolean
 }) {
   const a = row.attributes
@@ -131,6 +137,8 @@ export function QueueRow({
   /** 立规则用的模式：优先对手方，退回商家 / 来源账户 */
   const counterparty = (asText(a.counterparty) || asText(a.destination_name) || asText(a.source_name)).trim()
   const reasons = a.reasons ?? []
+  const importAttempt = a.import_attempt
+  const needsAccountMapping = a.issues?.some((issue) => issue.code === 'account_mapping_required') ?? false
   const updateMutation = useUpdateBillStatementRow()
   const markUniqueMutation = useMarkBillRowUnique()
   const categoryFeedback = useCategoryFeedback()
@@ -250,7 +258,10 @@ export function QueueRow({
 
   // 这一格里有没有不靠悬停就该看见的东西（状态签 / 恢复 / 查看交易）。
   const alwaysVisible =
-    mode === 'dismissed' || mode === 'imported' || (badge != null && !editing)
+    mode === 'dismissed'
+    || mode === 'imported'
+    || (badge != null && !editing)
+    || (mode === 'attention' && (importAttempt != null || needsAccountMapping))
 
   return (
     <div
@@ -353,6 +364,34 @@ export function QueueRow({
           {(mode === 'importable' || mode === 'attention') && !editing && (
             <>
               {badge && <StatusChip label={badge.label} kind={badge.kind} />}
+              {mode === 'attention' && importAttempt?.status === 'uncertain' && (
+                <>
+                  <StatusChip label="结果待对账" kind="warn" />
+                  {onReconcile && (
+                    <Button size="xs" variant="soft" disabled={busy} onClick={onReconcile}>
+                      对账
+                    </Button>
+                  )}
+                </>
+              )}
+              {mode === 'attention' && importAttempt?.status === 'retryable' && (
+                <>
+                  <StatusChip label="可以重试" kind="warn" />
+                  {onRetryImport && (
+                    <Button size="xs" variant="soft" disabled={busy} onClick={onRetryImport}>
+                      重试
+                    </Button>
+                  )}
+                </>
+              )}
+              {mode === 'attention' && (importAttempt?.status === 'prepared' || importAttempt?.status === 'sending') && (
+                <StatusChip label="正在入账" kind="muted" />
+              )}
+              {mode === 'attention' && needsAccountMapping && onMapAccount && (
+                <Button size="xs" variant="soft" disabled={busy} onClick={onMapAccount}>
+                  映射账户
+                </Button>
+              )}
               {/*
                 悬停才显形，但键盘聚焦时必须现出来，否则 Tab 过去是几个隐形按钮。
                 用 opacity 而不是 hidden，正是为了让它们始终可聚焦。
@@ -481,6 +520,9 @@ export function QueueRow({
             {a.notes ? <Detail label="备注" value={a.notes} /> : null}
             {mode === 'dismissed' ? <Detail label="忽略原因" value={dismissReasonLabel(a.dismissed_reason)} /> : null}
             {a.error_message ? <Detail label="出错信息" value={a.error_message} /> : null}
+            {importAttempt?.status ? <Detail label="导入状态" value={importAttemptStatusLabel(importAttempt.status)} /> : null}
+            {importAttempt?.error_message ? <Detail label="导入错误" value={importAttempt.error_message} /> : null}
+            {importAttempt?.retry_after ? <Detail label="可重试时间" value={importAttempt.retry_after} mono /> : null}
           </dl>
 
           {reasons.length > 0 && (
@@ -498,6 +540,21 @@ export function QueueRow({
           */}
           {mode === 'attention' && (
             <div className="flex flex-wrap items-center gap-1.5">
+              {importAttempt?.status === 'uncertain' && onReconcile && (
+                <Button size="xs" variant="soft" disabled={busy} onClick={onReconcile}>
+                  按 external_id 对账
+                </Button>
+              )}
+              {importAttempt?.status === 'retryable' && onRetryImport && (
+                <Button size="xs" variant="soft" disabled={busy} onClick={onRetryImport}>
+                  重新发送到 Firefly
+                </Button>
+              )}
+              {needsAccountMapping && onMapAccount && (
+                <Button size="xs" variant="soft" disabled={busy} onClick={onMapAccount}>
+                  选择 Firefly 账户
+                </Button>
+              )}
               {attentionKind === 'transfer' && (
                 <>
                   <Button
@@ -579,4 +636,15 @@ function duplicateLabel(state: string, ofRowId: string | number | null | undefin
   if (state === 'duplicate') return `机器判定重复${suffix}`
   if (state === 'conflict') return `与已有交易冲突${suffix}`
   return '没有重复'
+}
+
+function importAttemptStatusLabel(status: string): string {
+  if (status === 'prepared') return '已准备，等待发送'
+  if (status === 'sending') return '正在发送'
+  if (status === 'uncertain') return '结果不确定，需要对账'
+  if (status === 'retryable') return '发送失败，可以重试'
+  if (status === 'rejected') return 'Firefly 已拒绝'
+  if (status === 'reconciled') return '已对账'
+  if (status === 'succeeded') return '已成功'
+  return status
 }

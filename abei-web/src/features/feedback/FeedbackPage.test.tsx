@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -7,88 +8,72 @@ import { FeedbackPage } from './FeedbackPage'
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   apiPost: vi.fn(),
-  apiPatch: vi.fn(),
-  apiDeleteJson: vi.fn(),
-  toast: vi.fn(),
 }))
 
 vi.mock('../../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../api/client')>()),
   apiGet: mocks.apiGet,
   apiPost: mocks.apiPost,
-  apiPatch: mocks.apiPatch,
-  apiDeleteJson: mocks.apiDeleteJson,
-}))
-vi.mock('../../store/toastStore', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../store/toastStore')>()),
-  showToast: mocks.toast,
 }))
 
-const feedback = [
-  {
-    id: 3,
-    title: 'GitHub 同步失败',
-    body: '重试时仍然失败',
-    labels: ['sync'],
-    kind: 'bug',
-    submitted_by: '测试用户',
-    source: 'web',
-    status: 'open',
-    response: null,
-    responded_by: null,
-    responded_at: null,
-    duplicate_of: null,
-    sync_status: 'failed',
-    github_issue_url: null,
-    github_issue_number: null,
-    sync_error: 'GitHub 返回 503',
-    created_at: '2026-08-09T10:00:00-07:00',
-    updated_at: '2026-08-09T10:00:00-07:00',
-  },
-  {
-    id: 2,
-    title: '已经同步',
-    body: '正文',
-    labels: [],
-    kind: 'idea',
-    submitted_by: 'abei-cli',
-    source: 'cli',
-    status: 'completed',
-    response: '已处理',
-    responded_by: 'owner@example.com',
-    responded_at: '2026-08-09T09:30:00-07:00',
-    duplicate_of: null,
-    sync_status: 'synced',
-    github_issue_url: 'https://github.com/example/abei/issues/42',
-    github_issue_number: 42,
-    sync_error: null,
-    created_at: '2026-08-09T09:00:00-07:00',
-    updated_at: '2026-08-09T09:00:00-07:00',
-  },
-  {
-    id: 1,
-    title: '只存本地',
-    body: '本地反馈',
-    labels: ['web'],
-    kind: 'friction',
-    submitted_by: 'AI',
-    source: 'cli',
-    status: 'open',
-    response: null,
-    responded_by: null,
-    responded_at: null,
-    duplicate_of: null,
-    sync_status: 'local',
-    github_issue_url: null,
-    github_issue_number: null,
-    sync_error: null,
-    created_at: '2026-08-09T08:00:00-07:00',
-    updated_at: '2026-08-09T08:00:00-07:00',
-  },
-] as const
+vi.mock('@tanstack/react-router', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@tanstack/react-router')>()),
+  Link: ({ to, children, ...props }: { to: string; children: ReactNode }) => <a href={to} {...props}>{children}</a>,
+}))
+
+const item = {
+  feedback_id: 3,
+  title: '邮箱同步失败',
+  kind: 'bug',
+  target: 'web',
+  status: 'open',
+  severity: null,
+  public_summary: '同步后没有看到新邮件。',
+  close_reason: null,
+  affected_users: 2,
+  occurrences: 3,
+  first_seen: '2026-08-09T08:00:00-07:00',
+  last_seen: '2026-08-11T08:00:00-07:00',
+  my_submission_ids: [91],
+  archived_at: null,
+  created_at: '2026-08-09T08:00:00-07:00',
+  updated_at: '2026-08-11T08:00:00-07:00',
+  completed_at: null,
+}
+
+const listResponse = {
+  data: [item],
+  pending: [],
+  pagination: { count: 1, limit: 100, offset: 0 },
+}
+
+const detailResponse = {
+  data: item,
+  updates: [],
+  submissions: [
+    {
+      submission_id: 91,
+      kind: 'bug',
+      target: 'web',
+      submitted_via: 'web',
+      message: '点同步后没有新邮件。',
+      expected: null,
+      actual: null,
+      state: 'linked',
+      created_at: '2026-08-11T08:00:00-07:00',
+      linked_at: '2026-08-11T08:00:01-07:00',
+      last_seen_at: '2026-08-11T08:00:00-07:00',
+    },
+  ],
+  messages: [],
+  audit: [],
+  permissions: { manage: false },
+}
 
 function renderPage() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
   return render(
     <QueryClientProvider client={queryClient}>
       <FeedbackPage />
@@ -97,98 +82,182 @@ function renderPage() {
 }
 
 beforeEach(() => {
-  localStorage.clear()
-  mocks.apiGet.mockReset().mockResolvedValue({
-    data: feedback,
-    pagination: { count: feedback.length, limit: 20, offset: 0 },
-    permissions: { manage: true },
+  mocks.apiGet.mockReset().mockImplementation((path: string) => {
+    if (path === '/v1/session') return Promise.resolve({ data: { user_id: 7, actor: 'demo', role: 'demo', is_owner: false } })
+    if (path === '/v1/feedback/3') return Promise.resolve(detailResponse)
+    return Promise.resolve(listResponse)
   })
-  mocks.apiPost.mockReset().mockResolvedValue({ data: feedback[0] })
-  mocks.apiPatch.mockReset().mockResolvedValue({ data: feedback[0] })
-  mocks.apiDeleteJson.mockReset().mockResolvedValue({ data: { id: 3, deleted: true } })
-  mocks.toast.mockReset()
+  mocks.apiPost.mockReset().mockResolvedValue({
+    submission_id: 92,
+    feedback_id: 3,
+    state: 'linked',
+    status: 'open',
+  })
 })
 
 describe('FeedbackPage', () => {
-  it('列表显示三种 GitHub 同步状态，并能查看失败原因', async () => {
+  it('owner 可以从用户反馈页进入管理端', async () => {
+    mocks.apiGet.mockImplementation((path: string) => {
+      if (path === '/v1/session') return Promise.resolve({ data: { user_id: 1, actor: 'owner', role: 'owner', is_owner: true } })
+      return Promise.resolve(listResponse)
+    })
+
     renderPage()
 
-    expect(await screen.findByText('GitHub 同步失败')).toBeInTheDocument()
-    expect(screen.getByText('仅本地')).toBeInTheDocument()
-    expect(screen.getByText('已同步')).toBeInTheDocument()
-    expect(screen.getByText('同步失败')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: /GitHub 同步失败/ }))
-    expect(screen.getByText(/GitHub 返回 503/)).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: '管理反馈' })).toHaveAttribute('href', '/admin/feedback')
   })
 
-  it("提交时调用 apiPost，并固定 source 为 'web'", async () => {
+  it('列出归一后的反馈并能查看自己的提交', async () => {
     renderPage()
-    await screen.findByText('只存本地')
 
-    fireEvent.change(screen.getByLabelText('标题'), { target: { value: '网页反馈' } })
-    fireEvent.change(screen.getByLabelText('正文'), { target: { value: '复现步骤' } })
-    fireEvent.change(screen.getByLabelText('标签'), { target: { value: 'web, ux' } })
-    fireEvent.change(screen.getByLabelText('提交人'), { target: { value: '小贝' } })
-    fireEvent.click(screen.getByRole('button', { name: '提交反馈' }))
+    fireEvent.click(await screen.findByRole('button', { name: /邮箱同步失败/ }))
+
+    expect(await screen.findByText('同步后没有看到新邮件。')).toBeInTheDocument()
+    expect(screen.getByText('点同步后没有新邮件。')).toBeInTheDocument()
+    expect(mocks.apiGet).toHaveBeenCalledWith('/v1/feedback/3')
+  })
+
+  it('提交当前反馈协议并固定来源为 web', async () => {
+    renderPage()
+    await screen.findByText('邮箱同步失败')
+
+    fireEvent.change(screen.getByLabelText('描述'), { target: { value: '新问题描述' } })
+    fireEvent.click(screen.getByRole('button', { name: '提交' }))
 
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith(
       '/v1/feedback',
-      {
-        title: '网页反馈',
-        body: '复现步骤',
+      expect.objectContaining({
         kind: 'bug',
-        labels: ['web', 'ux'],
-        submitted_by: '小贝',
-        source: 'web',
-      },
-      { confirm: true },
+        target: 'web',
+        message: '新问题描述',
+        submitted_via: 'web',
+        idempotency_key: expect.stringMatching(/^web:/),
+        context: { recorded_at: expect.any(String) },
+      }),
     ))
-    expect(localStorage.getItem('abei.feedback.submitted-by')).toBe('小贝')
-    expect(mocks.toast).toHaveBeenCalledWith({ kind: 'success', message: '反馈已提交' })
   })
 
-  it('展示 422 返回的 detail', async () => {
-    mocks.apiPost.mockRejectedValue(new AbeiApiError(422, '提交内容不合法', { detail: 'title 最多 120 字。' }))
+  it('展示服务端返回的 detail', async () => {
+    mocks.apiPost.mockRejectedValue(new AbeiApiError(400, '提交内容不合法', { detail: 'message 最多 4000 字。' }))
     renderPage()
-    await screen.findByText('只存本地')
+    await screen.findByText('邮箱同步失败')
 
-    fireEvent.change(screen.getByLabelText('标题'), { target: { value: '标题' } })
-    fireEvent.change(screen.getByLabelText('正文'), { target: { value: '正文' } })
-    fireEvent.change(screen.getByLabelText('提交人'), { target: { value: '测试用户' } })
-    fireEvent.click(screen.getByRole('button', { name: '提交反馈' }))
+    fireEvent.change(screen.getByLabelText('描述'), { target: { value: '问题' } })
+    const submit = screen.getByRole('button', { name: '提交' })
+    await waitFor(() => expect(submit).toBeEnabled())
+    fireEvent.submit(submit.closest('form') as HTMLFormElement)
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('title 最多 120 字。')
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalled())
+    expect(await screen.findByText('message 最多 4000 字。')).toBeInTheDocument()
   })
 
-  it('owner 可以处理、重试同步并删除反馈', async () => {
+  it('允许用户把待确认提交归一到已有反馈', async () => {
+    const response = {
+      ...listResponse,
+      pending: [
+        {
+          submission_id: 99,
+          kind: 'bug',
+          target: 'web',
+          submitted_via: 'web',
+          message: '邮件没有进来。',
+          expected: null,
+          actual: null,
+          state: 'needs_confirmation',
+          candidates: [
+            {
+              feedback_id: 3,
+              title: '邮箱同步失败',
+              kind: 'bug',
+              target: 'web',
+              status: 'open',
+              affected_users: 2,
+              occurrences: 3,
+              match: { reason: '文本相似', confidence: 'high', score: 0.92, algorithm_version: 1 },
+            },
+          ],
+          created_at: '2026-08-11T08:00:00-07:00',
+          last_seen_at: '2026-08-11T08:00:00-07:00',
+        },
+      ],
+    }
+    mocks.apiGet.mockImplementation((path: string) => path === '/v1/session'
+      ? Promise.resolve({ data: { user_id: 7, actor: 'demo', role: 'demo', is_owner: false } })
+      : Promise.resolve(response))
     renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /GitHub 同步失败/ }))
 
-    fireEvent.click(screen.getByRole('button', { name: '重试同步' }))
+    fireEvent.click(await screen.findByRole('button', { name: '确认相似项' }))
+    fireEvent.click(screen.getByRole('button', { name: '是同一问题' }))
+
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith(
-      '/v1/feedback/3/retry',
-      {},
-      { confirm: true },
+      '/v1/feedback/submissions/99/confirm',
+      { same_as: 3 },
     ))
+  })
 
-    fireEvent.click(screen.getByRole('button', { name: '处理' }))
-    fireEvent.change(screen.getByLabelText('处理状态'), { target: { value: 'completed' } })
-    fireEvent.change(screen.getByLabelText('处理说明'), { target: { value: '已修复' } })
-    fireEvent.click(screen.getByRole('button', { name: '保存处理结果' }))
-    await waitFor(() => expect(mocks.apiPatch).toHaveBeenCalledWith(
-      '/v1/feedback/3',
-      { status: 'completed', response: '已修复', duplicate_of: null },
-      { confirm: true },
-    ))
+  it('未归一的管理员追问在刷新后仍可见并可回复', async () => {
+    const response = {
+      ...listResponse,
+      pending: [
+        {
+          submission_id: 99,
+          kind: 'bug',
+          target: 'cli',
+          submitted_via: 'cli',
+          message: '导入后没有结果',
+          expected: null,
+          actual: null,
+          state: 'needs_information',
+          candidates: [candidateForTest()],
+          messages: [
+            {
+              id: 8,
+              submission_id: 99,
+              author_kind: 'admin',
+              body: '请补充 abei 版本',
+              created_at: '2026-08-11T09:00:00-07:00',
+            },
+          ],
+          created_at: '2026-08-11T08:00:00-07:00',
+          last_seen_at: '2026-08-11T09:00:00-07:00',
+        },
+      ],
+    }
+    mocks.apiGet.mockImplementation((path: string) => path === '/v1/session'
+      ? Promise.resolve({ data: { user_id: 7, actor: 'demo', role: 'demo', is_owner: false } })
+      : Promise.resolve(response))
+    mocks.apiPost.mockResolvedValue({
+      data: {
+        id: 9,
+        submission_id: 99,
+        author_kind: 'user',
+        body: '0.1.0',
+        created_at: '2026-08-11T09:01:00-07:00',
+      },
+    })
 
-    fireEvent.click(screen.getByRole('button', { name: '删除' }))
-    fireEvent.change(screen.getByLabelText('删除原因'), { target: { value: '包含隐私' } })
-    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
-    await waitFor(() => expect(mocks.apiDeleteJson).toHaveBeenCalledWith(
-      '/v1/feedback/3',
-      { reason: '包含隐私' },
-      { confirm: true },
+    renderPage()
+
+    expect(await screen.findByText('请补充 abei 版本')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('补充信息'), { target: { value: '0.1.0' } })
+    fireEvent.click(screen.getByRole('button', { name: '回复' }))
+
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith(
+      '/v1/feedback/submissions/99/messages',
+      { message: '0.1.0' },
     ))
   })
 })
+
+function candidateForTest() {
+  return {
+    feedback_id: 3,
+    title: '邮箱同步失败',
+    kind: 'bug',
+    target: 'web',
+    status: 'open',
+    affected_users: 2,
+    occurrences: 3,
+    match: { reason: '文本相似', confidence: 'high', score: 0.92, algorithm_version: 1 },
+  }
+}

@@ -84,7 +84,7 @@ describe('syncResultFeedback', () => {
   it('explains a successful sync with no matching mail', () => {
     expect(syncResultFeedback(base)).toEqual({
       kind: 'success',
-      message: '同步完成：未发现新的账单邮件',
+      message: '检查完成：没有新邮件',
     })
   })
 })

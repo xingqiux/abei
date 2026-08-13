@@ -99,17 +99,19 @@ export function dismissReasonLabel(reason: string | null | undefined): string {
 
 export function syncResultFeedback(
   attributes: BillMailboxSyncResult,
-): { kind: 'success' | 'error'; message: string } {
+): { kind: 'success' | 'inbox' | 'error'; message: string } {
   const error = attributes.errors?.find((value): value is string => typeof value === 'string' && value.trim() !== '')
   if (error) return { kind: 'error', message: error }
 
   const failed = attributes.failed + attributes.process_failed
   if (failed > 0) return { kind: 'error', message: `同步失败 ${attributes.failed}，解析失败 ${attributes.process_failed}` }
-  if (attributes.scanned === 0) return { kind: 'success', message: '同步完成：未发现新的账单邮件' }
+  if (attributes.scanned === 0) return { kind: 'success', message: '检查完成：没有新邮件' }
 
+  const matched = attributes.matched ?? attributes.created
+  const unclassified = attributes.unclassified ?? attributes.ignored
   return {
-    kind: 'success',
-    message: `同步完成：扫描 ${attributes.scanned}，新建 ${attributes.created}，处理 ${attributes.processed}`,
+    kind: unclassified > 0 ? 'inbox' : 'success',
+    message: `检查 ${attributes.scanned} 封，匹配账单 ${matched} 封，未归类 ${unclassified} 封`,
   }
 }
 
