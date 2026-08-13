@@ -422,47 +422,6 @@ Route::group(
     }
 );
 
-// Bill ingestion task API routes:
-Route::group(
-    [
-        'namespace' => 'FireflyIII\Api\V1\Controllers\Models\BillTask',
-        'prefix'    => 'v1/bill-tasks',
-        'as'        => 'api.v1.bill-tasks.',
-    ],
-    static function (): void {
-        Route::get('', ['uses' => 'ShowController@index', 'as' => 'index']);
-        Route::post('archive', ['uses' => 'ActionController@archiveMany', 'as' => 'archive-many']);
-        Route::get('inbox-summary', ['uses' => 'BillInboxController@inboxSummary', 'as' => 'inbox-summary']);
-        Route::post('rows/batch-book', ['uses' => 'ActionController@batchBook', 'as' => 'rows.batch-book']);
-        Route::post('rows/{billStatementRow}/resolve-transfer', ['uses' => 'ActionController@resolveTransfer', 'as' => 'rows.resolve-transfer']);
-        Route::post('rows/{billStatementRow}/resolve-duplicate', ['uses' => 'ActionController@resolveDuplicate', 'as' => 'rows.resolve-duplicate']);
-        Route::get('{billTask}', ['uses' => 'ShowController@show', 'as' => 'show']);
-        Route::get('{billTask}/artifacts', ['uses' => 'ListController@artifacts', 'as' => 'artifacts']);
-        Route::get('{billTask}/events', ['uses' => 'ListController@events', 'as' => 'events']);
-        Route::get('{billTask}/review', ['uses' => 'ListController@review', 'as' => 'review']);
-        Route::get('{billTask}/rows', ['uses' => 'ListController@rows', 'as' => 'rows']);
-        Route::post('{billTask}/secret', ['uses' => 'ActionController@secret', 'as' => 'secret']);
-        Route::post('{billTask}/retry', ['uses' => 'ActionController@retry', 'as' => 'retry']);
-        Route::post('{billTask}/ignore', ['uses' => 'ActionController@ignore', 'as' => 'ignore']);
-        Route::post('{billTask}/archive', ['uses' => 'ActionController@archive', 'as' => 'archive']);
-        Route::post('{billTask}/import', ['uses' => 'ActionController@import', 'as' => 'import']);
-        Route::delete('{billTask}', ['uses' => 'ActionController@destroy', 'as' => 'delete']);
-    }
-);
-
-Route::group(
-    [
-        'namespace' => 'FireflyIII\Api\V1\Controllers\Models\BillTask',
-        'prefix'    => 'v1/bill-inbox',
-        'as'        => 'api.v1.bill-inbox.',
-    ],
-    static function (): void {
-        Route::get('summary', ['uses' => 'BillInboxController@summary', 'as' => 'summary']);
-        Route::post('process', ['uses' => 'BillInboxController@process', 'as' => 'process']);
-        Route::post('cleanup-stale', ['uses' => 'BillInboxController@cleanupStale', 'as' => 'cleanup-stale']);
-    }
-);
-
 Route::group(
     [
         'namespace' => 'FireflyIII\Api\V1\Controllers\DailyReconciliation',
@@ -473,45 +432,6 @@ Route::group(
         Route::get('summary', ['uses' => 'SummaryController@summary', 'as' => 'summary']);
         Route::post('{reconciliationDate}/reconcile', ['uses' => 'ActionController@reconcile', 'as' => 'reconcile'])
             ->where('reconciliationDate', '(?:19|20)[0-9]{2}-[0-9]{2}-[0-9]{2}');
-    }
-);
-
-// 跨任务的流水队列：收件箱按「还有多少笔要处理」看，不按邮件看。
-Route::group(
-    [
-        'namespace' => 'FireflyIII\Api\V1\Controllers\Models\BillTask',
-        'prefix'    => 'v1/bill-rows',
-        'as'        => 'api.v1.bill-rows.',
-    ],
-    static function (): void {
-        Route::get('', ['uses' => 'RowQueueController@index', 'as' => 'index']);
-        Route::post('dismiss', ['uses' => 'RowQueueController@dismiss', 'as' => 'dismiss']);
-        Route::post('restore', ['uses' => 'RowQueueController@restore', 'as' => 'restore']);
-        Route::post('import', ['uses' => 'RowQueueController@import', 'as' => 'import']);
-    }
-);
-
-Route::group(
-    [
-        'namespace' => 'FireflyIII\Api\V1\Controllers\Models\BillTask',
-        'prefix'    => 'v1/bill-statement-rows',
-        'as'        => 'api.v1.bill-statement-rows.',
-    ],
-    static function (): void {
-        Route::get('{billStatementRow}', ['uses' => 'ActionController@showRow', 'as' => 'show']);
-        Route::patch('{billStatementRow}', ['uses' => 'ActionController@updateRow', 'as' => 'update']);
-        Route::post('{billStatementRow}/split', ['uses' => 'ActionController@splitRow', 'as' => 'split']);
-    }
-);
-
-Route::group(
-    [
-        'namespace' => 'FireflyIII\Api\V1\Controllers\Models\BillTask',
-        'prefix'    => 'v1/bill-artifacts',
-        'as'        => 'api.v1.bill-artifacts.',
-    ],
-    static function (): void {
-        Route::get('{billArtifact}/download', ['uses' => 'ArtifactController@download', 'as' => 'download']);
     }
 );
 

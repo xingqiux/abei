@@ -33,10 +33,6 @@ use FireflyIII\Models\Account;
 use FireflyIII\Models\Attachment;
 use FireflyIII\Models\AvailableBudget;
 use FireflyIII\Models\Bill;
-use FireflyIII\Models\BillMailMessage;
-use FireflyIII\Models\BillStatementImport;
-use FireflyIII\Models\BillStatementRow;
-use FireflyIII\Models\BillTask;
 use FireflyIII\Models\Budget;
 use FireflyIII\Models\Category;
 use FireflyIII\Models\CurrencyExchangeRate;
@@ -138,26 +134,6 @@ class User extends Authenticatable implements OAuthenticatable
     public function bills(): HasMany
     {
         return $this->hasMany(Bill::class);
-    }
-
-    public function billMailMessages(): HasMany
-    {
-        return $this->hasMany(BillMailMessage::class);
-    }
-
-    public function billStatementImports(): HasMany
-    {
-        return $this->hasMany(BillStatementImport::class);
-    }
-
-    public function billStatementRows(): HasMany
-    {
-        return $this->hasMany(BillStatementRow::class);
-    }
-
-    public function billTasks(): HasMany
-    {
-        return $this->hasMany(BillTask::class);
     }
 
     /**
