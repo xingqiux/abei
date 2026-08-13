@@ -1,6 +1,6 @@
 # Firefly AI Accounting Docker 部署
 
-这是给 JD `xkqq` 服务器准备的最小部署方案：Firefly、abei-api、阿贝前端、AI Agent、PostgreSQL、预算 cron 和账单邮箱 worker。
+这是给 JD `xkqq` 服务器准备的部署方案：Firefly、`abei-server`、abei-api、阿贝前端、AI Agent、PostgreSQL 和预算 cron。
 
 > **cron 容器只跑 `--create-auto-budgets`，不要改回不带参数的 `firefly-iii:cron`。**
 > 不带参数会执行全部六项，其中 `--create-recurring` 会自动生成定期交易。本项目的
@@ -8,8 +8,9 @@
 > 保持 `active=true` 才允许手动触发，所以一旦自动生成打开，每笔订阅会变成一天两条。
 > 详见 `docs/implementation-plan.md` 的「阶段 0 验证结论」第 2 条。
 
-`bill-worker` 每 5 分钟执行一次邮箱同步和任务解析。它只读取已启用用户的账单邮箱设置，
-并与 `app` 共用 `storage`；不需要在浏览器里保持页面打开。
+邮箱同步、MIME 处理、ParserFlow 和账单任务由 `abei-server` 的持久任务 worker 执行。
+`abei-server` 与 `app` 共用 `storage`，并把业务数据写入 PostgreSQL 的 `abei_ai` schema；
+不需要在浏览器里保持页面打开，也不再运行 PHP `bill-worker`。
 
 ## 1. 本地构建镜像
 
@@ -101,33 +102,32 @@ docker compose exec app php artisan upgrade:600-pgsql-sequences
 docker compose up -d
 ```
 
-迁移后核对数量，至少这几项要和本地 SQLite 一致：
+迁移后先核对 Firefly 标准账本数据：
 
 ```bash
 docker compose exec db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
 select 'users', count(*) from users
 union all select 'accounts', count(*) from accounts
-union all select 'transaction_groups', count(*) from transaction_groups
-union all select 'bill_tasks', count(*) from bill_tasks
-union all select 'bill_artifacts', count(*) from bill_artifacts
-union all select 'bill_statement_imports', count(*) from bill_statement_imports
-union all select 'bill_statement_rows', count(*) from bill_statement_rows
-union all select 'bill_mail_messages', count(*) from bill_mail_messages;
+union all select 'transaction_groups', count(*) from transaction_groups;
 "
 ```
 
-当前本地参考值：
+如果数据库包含旧版 `public.bill_*` 表，再使用 `abei-server` 自带的迁移审计工具。第一次只做 dry-run：
 
-```text
-users: 1
-accounts: 125
-transaction_groups: 194
-bill_tasks: 20
-bill_artifacts: 24
-bill_statement_imports: 8
-bill_statement_rows: 439
-bill_mail_messages: 32
+```bash
+docker compose run --rm abei-server legacy-bills
 ```
+
+报告中的旧表数量、可迁移数量、跳过和冲突都确认后，再执行幂等迁移：
+
+```bash
+docker compose run --rm abei-server legacy-bills --apply
+docker compose run --rm abei-server legacy-bills
+```
+
+第二次 dry-run 应显示没有新的待迁移记录。工具会按 legacy ID 对拍邮件、文档、流水、金额、
+状态和 Firefly transaction group，不会 DROP 或重命名旧表。旧表必须保留为只读回滚证据，
+直到观察窗口结束并由用户明确批准关闭回滚门。
 
 ## 5. 接域名
 
@@ -180,7 +180,7 @@ docker compose up -d
 
 ### 构建推送
 
-三个镜像都要推。`abei-api` 的构建上下文是 `abei/` 这个 Rust workspace 根：
+三个镜像都要推。`abei-api` 镜像同时包含 `abei-api` 和 `abei-server` 两个二进制，构建上下文是 `abei/` 这个 Rust workspace 根：
 
 ```bash
 docker buildx build --platform linux/amd64 \
@@ -218,7 +218,7 @@ OPENAI_API_KEY=替换成真实密钥
 OPENAI_BASE_URL=https://example.com/v1
 ```
 
-`docker compose up -d abei-api abei-agent abei-web` 后，反向代理把新域名（如 abei.xkqq.top）
+`docker compose up -d abei-server abei-api abei-agent abei-web` 后，反向代理把新域名（如 abei.xkqq.top）
 指向 `127.0.0.1:18004`。宿主端口分配：`18001` Firefly、`18003` abei-agent、`18004` abei-web；
 `abei-api` 只在 compose 内网监听 18002，不对外发端口，外面只需要看见 abei-web 一个入口。
 
@@ -230,6 +230,7 @@ OPENAI_BASE_URL=https://example.com/v1
 
 ```text
 abei-api    http://127.0.0.1:18002/health   （只在 compose 内网，用 docker compose exec 探）
+abei-server http://127.0.0.1:18005/health   （只在 compose 内网，用 docker compose exec 探）
 abei-agent  http://127.0.0.1:18003/api/ai/health
 ```
 

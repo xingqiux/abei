@@ -92,17 +92,6 @@ services:
       timeout: 5s
       retries: 30
 
-  bill-worker:
-    build: *app-build
-    environment:
-      <<: *app-environment
-    depends_on:
-      app:
-        condition: service_healthy
-    command: sh -lc 'while true; do php artisan firefly-iii:process-bill-tasks --limit=100 || true; sleep ${BILL_WORKER_INTERVAL:-300}; done'
-    volumes:
-      - ./firefly-iii/storage:/var/www/html/storage
-
   # 邮箱收取与 feedback 后端。没有宿主端口，也不和 agent 共享网络；
   # 只有 abei-api 能把已验证的 Firefly 身份递进来。
   abei-server:
@@ -125,8 +114,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-firefly}
       POSTGRES_USER: ${POSTGRES_USER:-firefly}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-firefly-local-only}
-      ABEI_GITHUB_REPO: ${ABEI_GITHUB_REPO:-}
-      ABEI_GITHUB_TOKEN: ${ABEI_GITHUB_TOKEN:-}
       ABEI_LOG: ${ABEI_LOG:-info}
     depends_on:
       app:
@@ -280,7 +267,7 @@ services:
       - ./firefly-iii/tests:/var/www/html/tests:ro
       - ./firefly-iii/phpunit.xml:/var/www/html/phpunit.xml:ro
       - ./firefly-iii/mago.toml:/var/www/html/mago.toml:ro
-    command: ["vendor/bin/phpunit", "--no-coverage"]
+    command: ["sh", "-lc", "exec php -d \"date.timezone=$${TZ}\" vendor/bin/phpunit --no-coverage"]
 
   agent-test:
     image: node:22-alpine

@@ -12,7 +12,6 @@ ABEI_API_PORT := $(or $(ABEI_API_PORT),18002)
 ABEI_AGENT_PORT := $(or $(ABEI_AGENT_PORT),18003)
 ABEI_SERVER_PORT := $(or $(ABEI_SERVER_PORT),18005)
 WEB_PORT := $(or $(WEB_PORT),5173)
-BILL_WORKER_INTERVAL := $(or $(BILL_WORKER_INTERVAL),300)
 
 # 本机 artisan serve 用 root .env 的同套 PostgreSQL（db 容器映射在 127.0.0.1:15432）。
 DEV_DB_ENV := DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=$(or $(POSTGRES_PORT),15432) \
@@ -27,11 +26,11 @@ ABEI_SERVER_DB_ENV := POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=$(or $(POSTGRES_PORT
 .PHONY: help free-ports install-cli man dev dev-web up down logs test test-web test-backend test-agent test-rust test-e2e build build-image
 
 help:
-	@echo "dev         本地开发：清端口、重装 abei 命令行，再起 db/mail + 本机 Firefly/abei-server/api/agent/worker + vite (5173)"
+	@echo "dev         本地开发：清端口、重装 abei 命令行，再起 db/mail + 本机 Firefly/abei-server/api/agent + vite (5173)"
 	@echo "dev-web     只开发前端：先清掉占着开发端口的旧进程，Firefly、abei-api 与 agent 用容器跑，本机起 vite (5173)"
-	@echo "up          起 8 个容器：db mail app bill-worker abei-server abei-api abei-agent abei-web"
+	@echo "up          起 7 个容器：db mail app abei-server abei-api abei-agent abei-web"
 	@echo "down        停本地容器"
-	@echo "logs        跟随 app、bill-worker、abei-server、abei-api、abei-agent 与 abei-web 日志"
+	@echo "logs        跟随 app、abei-server、abei-api、abei-agent 与 abei-web 日志"
 	@echo "man         生成 abei 的 man 页到 abei/target/man/abei.1"
 	@echo "test        全部测试：web vitest + Firefly PHPUnit + agent vitest + abei 三道闸"
 	@echo "test-e2e    浏览器主路径：起 db/mail/app/abei-api + playwright（自己拉 vite，数据现播）"
@@ -44,13 +43,13 @@ help:
 	cp .env.example .env
 
 up: .env
-	$(COMPOSE) up -d --build --wait db mail app bill-worker abei-server abei-api abei-agent abei-web
+	$(COMPOSE) up -d --build --wait db mail app abei-server abei-api abei-agent abei-web
 
 down:
 	$(COMPOSE) down --remove-orphans
 
 logs:
-	$(COMPOSE) logs -f app bill-worker abei-server abei-api abei-agent abei-web
+	$(COMPOSE) logs -f app abei-server abei-api abei-agent abei-web
 
 free-ports:
 	@command -v lsof >/dev/null || { echo "需要 lsof 才能清理开发端口" >&2; exit 2; }
@@ -97,16 +96,14 @@ dev: .env
 	@command -v php >/dev/null || { echo "需要本机 PHP：make dev 用 artisan serve 跑 Firefly" >&2; exit 2; }
 	@command -v cargo >/dev/null || { echo "需要本机 Rust：make dev 用 cargo run 跑 abei-api" >&2; exit 2; }
 	$(COMPOSE) up -d --wait db mail
-	@echo "停掉 app/bill-worker/abei-server/abei-api/abei-agent/abei-web 容器，把端口让给本机开发进程（make up 可恢复）"
-	@$(COMPOSE) stop app bill-worker abei-server abei-api abei-agent abei-web >/dev/null 2>&1 || true
+	@echo "停掉 app/abei-server/abei-api/abei-agent/abei-web 容器，把端口让给本机开发进程（make up 可恢复）"
+	@$(COMPOSE) stop app abei-server abei-api abei-agent abei-web >/dev/null 2>&1 || true
 	@$(MAKE) free-ports
 	@$(MAKE) install-cli
 	@cd $(APP_DIR) && $(DEV_DB_ENV) php artisan migrate --force
 	@set -eu; \
 		( cd $(APP_DIR) && exec env $(DEV_DB_ENV) php artisan serve --host=127.0.0.1 --port=$(FIREFLY_PORT) ) & \
 		php_pid=$$!; \
-		( cd $(APP_DIR) && while true; do env $(DEV_DB_ENV) php artisan firefly-iii:process-bill-tasks --limit=100 || true; sleep $(BILL_WORKER_INTERVAL); done ) & \
-		worker_pid=$$!; \
 		( set -a; . ./.env; set +a; cd $(ABEI_DIR) && exec env $(ABEI_SERVER_DB_ENV) ABEI_SERVER_ADDR=127.0.0.1:$(ABEI_SERVER_PORT) ABEI_MAIL_STORAGE=$(CURDIR)/$(APP_DIR)/storage/app GOOGLE_OAUTH_REDIRECT_URL=http://127.0.0.1:5173/oauth/google/callback cargo run -q -p abei-server ) & \
 		server_pid=$$!; \
 		( cd $(ABEI_DIR) && exec env FIREFLY_URL=http://127.0.0.1:$(FIREFLY_PORT) ABEI_WEB_URL=http://127.0.0.1:5173 ABEI_SERVER_URL=http://127.0.0.1:$(ABEI_SERVER_PORT) cargo run -q -p abei-api ) & \
@@ -115,10 +112,10 @@ dev: .env
 		agent_pid=$$!; \
 		( cd $(WEB_DIR) && exec npm run dev ) & \
 		web_pid=$$!; \
-		pids="$$php_pid $$worker_pid $$server_pid $$api_pid $$agent_pid $$web_pid"; \
+		pids="$$php_pid $$server_pid $$api_pid $$agent_pid $$web_pid"; \
 		trap 'trap - INT TERM EXIT; kill $$pids 2>/dev/null || true; wait $$pids 2>/dev/null || true' INT TERM EXIT; \
 		while true; do \
-			for process in "firefly:$$php_pid" "bill-worker:$$worker_pid" "abei-server:$$server_pid" "abei-api:$$api_pid" "abei-agent:$$agent_pid" "vite:$$web_pid"; do \
+			for process in "firefly:$$php_pid" "abei-server:$$server_pid" "abei-api:$$api_pid" "abei-agent:$$agent_pid" "vite:$$web_pid"; do \
 				name=$${process%%:*}; pid=$${process#*:}; \
 				if ! kill -0 "$$pid" 2>/dev/null; then \
 					if wait "$$pid"; then status=1; else status=$$?; fi; \
@@ -132,7 +129,7 @@ dev: .env
 dev-web: .env
 	@$(COMPOSE) stop app abei-server abei-api abei-agent >/dev/null 2>&1 || true
 	@$(MAKE) free-ports
-	ABEI_WEB_URL=http://127.0.0.1:5173 GOOGLE_OAUTH_REDIRECT_URL=http://127.0.0.1:5173/oauth/google/callback $(COMPOSE) up -d --build --wait db mail app bill-worker abei-server abei-api abei-agent
+	ABEI_WEB_URL=http://127.0.0.1:5173 GOOGLE_OAUTH_REDIRECT_URL=http://127.0.0.1:5173/oauth/google/callback $(COMPOSE) up -d --build --wait db mail app abei-server abei-api abei-agent
 	@$(COMPOSE) stop abei-web >/dev/null 2>&1 || true
 	cd $(WEB_DIR) && npm run dev
 

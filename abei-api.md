@@ -1,6 +1,6 @@
 # abei API 开发规范
 
-> 状态：有效，按 2026-08-10 的工作区实现整理。
+> 状态：有效，按 2026-08-11 的工作区实现整理。
 >
 > 配套文档：[abei-cli.md](./abei-cli.md)。改动共享契约时，两份文档与测试必须一起更新。
 
@@ -21,7 +21,7 @@
 - Firefly 与 `abei-server` 的执行分派。
 - OpenAPI 导出与请求追踪。
 
-过渡期账本能力由 Firefly 执行，反馈能力由 `abei-server` 执行。CLI 和 agent 只知道能力契约，不知道后端地址，也不能拼任意 API 请求。后端迁移只能改 API 内部和目录的 `backend`，不得要求客户端换路径。
+交易和账户查询由 Firefly 执行；邮件、解析、账单草稿、反馈和用户资料由 `abei-server` 执行；正式账单导入由 `abei-api` 编排 `abei-server` 与 Firefly 官方交易 API。CLI 和 agent 只知道能力契约，不知道后端地址，也不能拼任意 API 请求。后端迁移只能改 API 内部和目录的 `backend`，不得要求客户端换路径。
 
 `abei-api` 不缓存、不镜像 Firefly 账目。自己的状态只保存自己产生的数据；当前 API 进程只缓存短期令牌校验结果。
 
@@ -78,8 +78,8 @@ request id / trace
 
 | 动词类型 | 集合 | 单项 |
 | --- | --- | --- |
-| CRUD | `/v1/{resource}` | `/v1/{resource}/{id}` |
-| 意图动词 | `/v1/{resource}/{verb}` | `/v1/{resource}/{id}/{verb}` |
+| CRUD | `/v1/{resource}` | `/v1/{resource}/{key}` |
+| 意图动词 | `/v1/{resource}/{verb}` | `/v1/{resource}/{key}/{verb}` |
 
 方法固定：
 
@@ -90,7 +90,7 @@ request id / trace
 | `update` | PATCH |
 | `delete` | DELETE |
 
-集合级静态路径必须在 `/{id}` 前挂载，例如 `/v1/transactions/search` 和 `/v1/bills/sync`，防止被当成 id。
+单项路径键默认是 `id`；使用稳定 slug 的资源可在目录声明其它键，`profile-doc` 因此生成 `{slug}`。集合级静态路径必须在单项路由前挂载，例如 `/v1/transactions/search` 和 `/v1/bills/sync`。
 
 `get` 与 `show` 都表示读取单项，不能在同一资源同时存在，否则会生成相同方法和路径。当前交易与账单使用 `show`，反馈使用 `get`；新增资源先选一个，不造双轨。
 
@@ -98,7 +98,7 @@ request id / trace
 
 | 参数 | HTTP 位置 |
 | --- | --- |
-| 单项 `id` | path |
+| 单项稳定键（`id` 或 `slug`） | path |
 | GET 业务参数 | query |
 | 写业务参数 | JSON body |
 | `dry_run` / `confirm` | query |
@@ -109,15 +109,14 @@ GET 数组参数通过重复 key 表达，例如：
 ?exclude_category=房租&exclude_category=信用借还
 ```
 
-写能力的共享 schema 里可以要求 `id`，API 的 `ValidJson` 会用 path 参数补齐后再反序列化：
+写能力的共享 schema 里可以要求路径键，客户端用 path 参数填充并从 JSON body 移除：
 
 - 空 body 按 `{}` 处理。
-- body 也带 `id` 时，以 path 为准。
-- OpenAPI request body 必须删除 `id`，避免客户端被要求重复传值。
+- OpenAPI request body 必须删除路径键，避免客户端被要求重复传值。
 
 ## 5. 当前能力状态
 
-当前共有 22 条目录能力：10 条 `read`、5 条 `draft`、7 条 `confirm`。
+当前共有 29 条目录能力：14 条 `read`、7 条 `draft`、8 条 `confirm`。后端分布为 5 条 `firefly`、23 条 `server`、1 条 `abei`。
 
 | capability | 方法与路径 | 风险 | 后端 |
 | --- | --- | --- | --- |
@@ -126,23 +125,30 @@ GET 数组参数通过重复 key 表达，例如：
 | `transactions.summary` | `GET /v1/transactions/summary` | read | firefly |
 | `transactions.search` | `GET /v1/transactions/search` | read | firefly |
 | `accounts.list` | `GET /v1/accounts` | read | firefly |
-| `bills.list` | `GET /v1/bills` | read | firefly |
-| `bills.show` | `GET /v1/bills/{id}` | read | firefly |
-| `bills.review` | `GET /v1/bills/{id}/review` | read | firefly |
-| `bills.import` | `POST /v1/bills/{id}/import` | confirm | firefly |
-| `bills.unlock` | `POST /v1/bills/{id}/unlock` | confirm | firefly |
-| `bills.ignore` | `POST /v1/bills/{id}/ignore` | confirm | firefly |
-| `bills.retry` | `POST /v1/bills/{id}/retry` | draft | firefly |
-| `bills.sync` | `POST /v1/bills/sync` | draft | firefly |
-| `bills.process` | `POST /v1/bills/process` | draft | firefly |
-| `rows.update` | `PATCH /v1/rows/{id}` | draft | firefly |
-| `rows.split` | `POST /v1/rows/{id}/split` | draft | firefly |
-| `feedback.create` | `POST /v1/feedback` | confirm | server |
-| `feedback.update` | `PATCH /v1/feedback/{id}` | confirm | server |
-| `feedback.retry` | `POST /v1/feedback/{id}/retry` | confirm | server |
-| `feedback.delete` | `DELETE /v1/feedback/{id}` | confirm | server |
+| `bills.list` | `GET /v1/bills` | read | server |
+| `bills.show` | `GET /v1/bills/{id}` | read | server |
+| `bills.review` | `GET /v1/bills/{id}/review` | read | server |
+| `bills.import` | `POST /v1/bills/{id}/import` | confirm | abei |
+| `bills.unlock` | `POST /v1/bills/{id}/unlock` | confirm | server |
+| `bills.ignore` | `POST /v1/bills/{id}/ignore` | confirm | server |
+| `bills.retry` | `POST /v1/bills/{id}/retry` | draft | server |
+| `bills.sync` | `POST /v1/bills/sync` | draft | server |
+| `rows.update` | `PATCH /v1/bill-rows/{id}` | draft | server |
+| `rows.split` | `POST /v1/bill-rows/{id}/split` | draft | server |
+| `feedback.create` | `POST /v1/feedback` | draft | server |
+| `feedback.confirm` | `POST /v1/feedback/submissions/{id}/confirm` | draft | server |
+| `feedback.reply` | `POST /v1/feedback/submissions/{id}/messages` | draft | server |
 | `feedback.list` | `GET /v1/feedback` | read | server |
 | `feedback.get` | `GET /v1/feedback/{id}` | read | server |
+| `profile-doc.list` | `GET /v1/profile-doc` | read | server |
+| `profile-doc.get` | `GET /v1/profile-doc/{slug}` | read | server |
+| `profile-doc.create` | `POST /v1/profile-doc` | confirm | server |
+| `profile-doc.update` | `PATCH /v1/profile-doc/{slug}` | confirm | server |
+| `profile-doc.delete` | `DELETE /v1/profile-doc/{slug}` | confirm | server |
+| `mail-messages.list` | `GET /v1/mail-messages` | read | server |
+| `mail-rules.test` | `POST /v1/mail-rules/test` | read | server |
+| `mail-rules.publish` | `POST /v1/mail-rules/{id}/publish` | confirm | server |
+| `mailboxes.rescan` | `POST /v1/mailboxes/current/rescan` | confirm | server |
 
 `backend` 表示当前执行归属，不表示成熟度。能力是否可发布，以路由、校验、风险闸、dry-run、错误形状和端到端测试全部通过为准。
 
@@ -170,7 +176,7 @@ confirm=true  明确执行 confirm 能力
 - `confirm` 闸必须在 API，不能只依赖 CLI 或 web。
 - 新增写能力前先实现预览；没有可信预览就不能声称支持 `--dry-run`。
 
-Firefly 写能力使用统一 Gate。全部 feedback 写能力的 Gate 与 dry-run 在拥有数据库和 GitHub 副作用的 `abei-server` 内落实；`abei-api` 负责验证 PAT、注入可信身份并安全代理。代理边界不能削弱服务端闸门。
+Firefly 写能力使用统一 Gate。全部 feedback/profile-doc 写能力的 Gate 与 dry-run 在拥有数据库副作用的 `abei-server` 内落实；`abei-api` 负责验证 PAT、注入可信身份并安全代理。代理边界不能削弱服务端闸门。
 
 ## 7. 输入校验
 
@@ -209,6 +215,7 @@ Firefly 写能力使用统一 Gate。全部 feedback 写能力的 Gate 与 dry-r
 - 请求体与 Authorization 不进入日志。
 - 固定来源等客户端政策在目录声明；API 仍要校验直接调用者传入的值。
 - `submitted_by` 只表示反馈由谁提交，不参与授权；处理权限和审计 actor 必须来自已验证 PAT。
+- profile-doc 的 `user_id` 和审计 actor 只来自可信认证 header，不能由 body 指定。
 
 ## 8. 认证
 
@@ -224,9 +231,9 @@ Authorization: Bearer <PAT>
 2. 调 Firefly `GET /api/v1/about/user` 验证令牌。
 3. 成功结果缓存 60 秒，减少每个请求都打一次 Firefly。
 4. 缓存达到 256 条时清理过期项；这是清理阈值，不是持久存储。
-5. 把令牌与已验证用户的标识、角色放入 request extension；Firefly handler 只取令牌，反馈代理只取身份。
+5. 把令牌与已验证用户的标识、角色放入 request extension；Firefly handler 只取令牌，server 资源代理只取身份。
 
-API 不签发令牌、不保存密码、不把 PAT 发给 `abei-server`。反馈代理必须剥掉 `Authorization`，只保留统一入口的认证结果。
+API 不签发令牌、不保存密码、不把 PAT 发给 `abei-server`。server 资源代理必须剥掉 `Authorization`，只保留统一入口的认证结果。
 
 令牌撤销最多受 60 秒缓存窗口影响。除非有明确安全需求，不增加第二套 session、JWT 或用户表。
 
@@ -237,6 +244,7 @@ API 不签发令牌、不保存密码、不把 PAT 发给 `abei-server`。反馈
 - 普通读取和同步执行通常是 200。
 - `bills.sync` 可以保留上游 202 Accepted。
 - `feedback.create` 保留 `abei-server` 的 201 Created。
+- `profile-doc.create` 保留 `abei-server` 的 201 Created。
 - 空上游成功响应可以规范化为 JSON `null`。
 
 Firefly 建模接口可以保留上游数据体；API 自己计算的 `transactions.summary` 使用自己的稳定响应。任何被 CLI 投影、web 类型或 agent 依赖的字段都属于契约，不能无测试改名。
@@ -278,13 +286,13 @@ Firefly 建模接口可以保留上游数据体；API 自己计算的 `transacti
 | 409 | `ConfirmationRequired` | confirm 能力缺确认 |
 | 409 | `Conflict` | 当前外部同步配置或资源状态不允许该操作 |
 | 502 | `UpstreamError` | Firefly 返回非预期错误 |
-| 502 | `ServerUnavailable` | 反馈服务不可用 |
+| 502 | `ServerUnavailable` | `abei-server` 不可用 |
 | 503 | `UpstreamUnavailable` | 无法连接 Firefly |
 | 500 | `Internal` | API 内部错误 |
 
 Firefly 422 映射为 400 `InvalidParams`，并保留安全的上游说明。401/403 统一映射为 `InvalidToken`。
 
-内部 web 迁移代理会保留 Firefly 原始状态、header 和响应流；反馈代理保留 `abei-server` 响应。这两处的上游错误格式由其拥有者保持 problem+json，反馈参数错误统一为 400 `InvalidParams`。
+内部 web 迁移代理会保留 Firefly 原始状态、header 和响应流；server 资源代理保留 `abei-server` 响应。这两处的上游错误格式由其拥有者保持 problem+json，参数错误统一为 400 `InvalidParams`。
 
 ## 11. 后端与代理
 
@@ -313,45 +321,61 @@ Firefly 422 映射为 400 `InvalidParams`，并保留安全的上游说明。401
 - 唯一合法调用方是当前 `abei-web` 中尚未迁完的既有页面；不得新增 CLI、agent、移动端或第三方调用方。
 - 它绕过能力建模、字段校验和风险闸，因此不能视为安全边界。每迁完一个域就删除对应调用，全部清零后删除路由。
 
-### 11.3 反馈代理
+### 11.3 Server 资源代理
 
-`/v1/feedback` 与 `/v1/feedback/{id}` 代理到 `ABEI_SERVER_URL`：
+`/v1/feedback*` 与 `/v1/profile-doc*` 代理到 `ABEI_SERVER_URL`：
 
 - `abei-api` 负责入口认证，`abei-server` 不接收 Firefly PAT。
 - `abei-api` 从 Firefly 的 `/about/user` 取得已验证的用户标识与角色，用内部 header 传给 `abei-server`；调用方同名 header 会被覆盖。
 - 容器部署中 `abei-server` 不发布宿主端口，也不与 agent 共享网络；只有 `abei-api` 与数据库位于它的内部网络。
-- 请求体上限 2 MiB。
+- 请求体上限 8 MiB；profile-doc 的 Markdown 本体仍由服务端严格限制为 1 MiB。
 - 网络失败映射为 502 `ServerUnavailable`。
 - 业务状态和响应由 `abei-server` 保留。
 - 风险闸和 dry-run 仍必须在拥有副作用的一层落实，不能因为是代理而跳过。
 
 ### 11.4 Feedback 生命周期
 
-业务处理状态与外部同步状态必须分开：
+Feedback v2 使用 `Submission -> 用户确认相似项 -> Item` 两层模型。每次提交始终保留独立 Submission；Item 才是管理员持续处理、用户共同查看进展的归一对象。GitHub issue/sync 明确不在当前版本范围。
 
-| 字段 | 允许值 | 语义 |
+| 对象 | 状态 | 语义 |
 | --- | --- | --- |
-| `status` | `open / planned / started / completed / declined / duplicate` | 产品处理进度 |
-| `sync_status` | `local / synced / failed` | 当前快照与 GitHub 的同步结果 |
+| Submission | `pending_confirmation` | 有相似候选，等待用户选择同一项或新建 |
+| Submission | `linked` | 已关联 Item，计入 occurrence |
+| Submission | `needs_information` | 管理员已追问，等待用户补充 |
+| Submission | `dismissed / redacted` | 已驳回或内容已脱敏，不再计数 |
+| Item | `open / reviewing / planned / in_progress / completed / closed` | 面向用户的处理进度 |
 
 规则如下：
 
-- create 初始状态是 `open`；它会写数据库并可能创建 GitHub issue，因此是 `confirm`，不是 `draft`。
-- update 改为 `open` 表示重开；`completed`、`declined` 必须填写给提交者看的 `response`；`duplicate` 必须填写另一个有效的 `duplicate_of`。
-- update、retry、delete 只允许已验证的 Firefly `owner`。请求体里的 `submitted_by` 不能授予权限。
-- 每次创建、状态变化、同步重试和删除都追加到 `feedback_events`；事件只追加，不覆盖历史 actor、状态和说明。
-- delete 必须填写原因并采用软删除。关联 GitHub issue 时先删除外部 issue；外部删除失败时不得把本地记录标成已删除。
-- GitHub 创建或更新失败时保留本地反馈，把 `sync_status` 置为 `failed` 并保存安全截断后的错误；owner 通过 retry 显式重试。
-- get 返回当前反馈与按时间排列的审计事件；list 默认排除软删除记录，并支持按业务状态、同步状态和类型筛选。
+- 创建输入为 `kind=bug|experience|suggestion`、`target=cli|app|web` 和 `message`；`submitted_via`、幂等键与受限运行上下文有独立字段，未知上下文字段必须拒绝。
+- 没有候选时直接创建 Item；有候选时返回 202 和最多三个候选，绝不自动合并。只有用户 `confirm same_as` 后 occurrence 才增加一次；重复确认与相同幂等键重试不重复计数。
+- Item 只聚合 `linked / needs_information` Submission；`affected_users` 去重用户，`occurrences` 保留每次独立提交。
+- 未归一 Submission 被追问后仍出现在用户 `list.pending`，并带私有消息；用户回复后回到 `pending_confirmation`，不会绕过相似项确认。
+- 普通用户只能读取自己的 Item、Submission 和私有对话；公开更新对 Item 的所有关联用户可见。运行上下文、其他用户原文和审计只对 owner 可见。
+- owner 可查看收件箱、关联或新建 Item、追问、驳回、脱敏、编辑 Item、发布公开进展、合并、归档和恢复。`completed / closed` 状态变化必须同时发布进展，`closed` 还必须填写关闭原因。
+- 管理理由编码后最多 3 KiB；脱敏同时清除原始描述、预期/实际、运行上下文、指纹、候选和私有消息正文。
+- `feedback_audit_events` 只追加，数据库触发器拒绝 UPDATE/DELETE。所有 owner 写操作从可信认证身份记录 actor，不能由请求体伪造。
 
-### 11.5 设计依据
+owner 管理 API 位于 `/v1/admin/feedback`：
 
-Feedback 没有自造一套状态词：
+- `GET /submissions`、`GET /submissions/{id}`、`PATCH /submissions/{id}`。
+- `POST /submissions/{id}/link`、`POST /submissions/{id}/messages`。
+- `GET /items`、`GET/PATCH /items/{id}`、`POST /items/{id}/updates`。
+- `POST /items/{id}/merge|archive|restore`。
 
-- 开源项目 [getfider/fider](https://github.com/getfider/fider) 的 [Posts API](https://docs.fider.io/api/posts) 使用 `open / planned / started / completed / declined / duplicate`，处理结果有 response，duplicate 指向原反馈，删除要求原因。阿贝沿用这组清晰语义，同时把 GitHub 同步结果拆成独立字段，避免“同步失败”伪装成“业务未处理”。
-- 开源项目 [cli/cli](https://github.com/cli/cli) 的 [issue close](https://cli.github.com/manual/gh_issue_close) 把关闭原因和 comment 显式化，[issue reopen](https://cli.github.com/manual/gh_issue_reopen) 是独立动作，[issue delete](https://cli.github.com/manual/gh_issue_delete) 默认要求确认。阿贝对应为显式 status/response、改回 open 重开，以及 confirm + reason 的删除。
+### 11.5 Profile-doc 存储与并发
 
-当前没有加入评论线程、投票、合并反馈 UI 或复杂工作流配置；已有状态、说明、审计、软删除和同步重试足以闭合“提交 -> 处理 -> 通知结果 -> 重开/删除”的主流程。
+- 当前用户可有多份文档，唯一键为 `(user_id, slug)`；slug 匹配 `[a-z0-9][a-z0-9-]{0,63}`。
+- `content_md` 最大 1 MiB，按原内容存 PostgreSQL，同时保存 SHA-256。
+- 创建从版本 1 开始；每次有效更新在同一事务内锁定当前行、递增版本，并向 `profile_doc_revisions` 追加完整快照。
+- 更新和删除必须携带 `expected_version`。不匹配返回 409 `Conflict`；相同标题和正文是 no-op，不产生新修订。
+- 删除在同一事务内锁定当前行，先删除全部修订快照，再永久删除当前文档；dry-run 返回将删除的版本与修订数量，但不修改数据。
+- 用户身份和 `updated_by` 取自 API 注入的可信 header；body 只允许声明 `source=cli|web`。
+- v1 不提供历史版本读取接口或自动 AI 上下文注入。
+
+### 11.6 设计依据
+
+设计保留了 Fider 一类反馈产品的公开处理进度、重复归一和处理说明，但把“用户原始提交”与“产品处理事项”拆开，避免合并后丢失证据和用户上下文。相似匹配只负责提出候选，最终归一始终由用户或 owner 的显式操作完成；私有追问、公开进展和不可变审计也使用不同表，避免可见性混淆。
 
 ## 12. 能力目录与 OpenAPI
 
@@ -366,7 +390,7 @@ tool_name, command, human_only, fixed_params,
 examples, params
 ```
 
-`fixed_params` 是参数名到固定字符串值的对象，例如 `feedback.create` 返回 `{ "source": "cli" }`。动态 CLI 和 agent 必须隐藏这些模型输入，并在调用前自动注入；不得要求模型猜测或填写。
+`fixed_params` 是参数名到固定字符串值的对象，例如反馈创建和 profile-doc 写入返回 `{ "source": "cli" }`。动态 CLI 和 agent 必须隐藏这些模型输入，并在调用前自动注入；不得要求模型猜测或填写。
 
 CLI 与 API 在同一 Rust workspace 内直接共享 `abei-core`。web 与 agent 运行时读取 `/v1/catalog`。目录当前需要认证，因为它位于受保护路由组。
 
@@ -384,7 +408,7 @@ cargo run -p abei-api -- --dump-openapi openapi.json
 规则如下：
 
 - `operationId` 等于 capability id。
-- 写参数进入 request body，id 保留 path，闸门参数保留 query。
+- 写参数进入 request body，稳定键保留 path，闸门参数保留 query。
 - 风险与后端分别写入 `x-abei-risk`、`x-abei-backend`。
 - `human-only` 等 schema 扩展不得丢失。
 - 签入文件必须字节级与代码生成结果一致。
@@ -400,7 +424,7 @@ cargo run -p abei-api -- --dump-openapi openapi.json
 | `ABEI_API_PORT` | `18002` | 监听端口 |
 | `FIREFLY_URL` | `http://127.0.0.1:18001` | Firefly 地址 |
 | `ABEI_WEB_URL` | `http://127.0.0.1:18004` | `/health` 公布的配对页来源 |
-| `ABEI_SERVER_URL` | `http://127.0.0.1:18005` | 反馈服务地址 |
+| `ABEI_SERVER_URL` | `http://127.0.0.1:18005` | 反馈与用户资料服务地址 |
 | `ABEI_LOG` | `info` | tracing 过滤级别 |
 
 URL 读取时去掉末尾 `/`，空值启动失败。Firefly 与 `abei-server` HTTP 客户端超时均为 30 秒。
@@ -433,7 +457,7 @@ URL 读取时去掉末尾 `/`，空值启动失败。Firefly 与 `abei-server` H
 2. 在 catalog 声明 resource、verb、risk、backend、label、description、examples。
 3. 检查自动推导的 capability id、HTTP method、route path、CLI command 与 tool name。
 4. 在对应 `routes/*.rs` 实现 handler；先校验，再 Gate，再调用后端。
-5. 在 `lib.rs` 挂载推导出的同一方法和路径，静态意图路由放在 `/{id}` 前。
+5. 在 `lib.rs` 挂载推导出的同一方法和路径，静态意图路由放在单项路径前。
 6. 写能力实现真实 dry-run；confirm 能力验证无确认时没有上游调用。
 7. 错误用 `Problem` 并补 `resource/verb`；不得返回临时 JSON 错误形状。
 8. 加最小的路由/校验/副作用测试，并让全目录路由漂移测试覆盖它。
@@ -461,6 +485,7 @@ API 改动至少确认：
 - 敏感字段不进日志、响应、错误和预览。
 - Firefly、server 与内部错误都映射到稳定 problem reason。
 - feedback 的业务状态、同步状态和审计事件互不混用；owner 权限取自验证身份。
+- profile-doc 按可信 user id 隔离，版本冲突不覆盖或删除；更新与修订快照同事务提交，删除当前文档与全部修订也同事务提交。
 - catalog 与 OpenAPI 不包含内部 Firefly 迁移代理；agent 无法构造任意 API 请求。
 - `openapi.json` 与代码一致。
 

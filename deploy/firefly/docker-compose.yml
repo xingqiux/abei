@@ -146,21 +146,6 @@ services:
     volumes:
       - ./storage:/var/www/html/storage
 
-  # Rust 收信后，PHP 只继续处理下载、解密和账单解析。
-  # 与 app 共用 storage，附件与解析产物因此在两个容器间可见。
-  bill-worker:
-    image: ${FIREFLY_IMAGE}
-    restart: unless-stopped
-    env_file:
-      - path: .env
-        required: false
-    depends_on:
-      app:
-        condition: service_healthy
-    command: sh -lc 'while true; do php artisan firefly-iii:process-bill-tasks --limit=100 || true; sleep 300; done'
-    volumes:
-      - ./storage:/var/www/html/storage
-
   db:
     image: postgres:17-alpine
     restart: unless-stopped

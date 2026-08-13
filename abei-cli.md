@@ -1,6 +1,6 @@
 # abei CLI 开发规范
 
-> 状态：有效，按 2026-08-10 的工作区实现整理。
+> 状态：有效，按 2026-08-11 的工作区实现整理。
 >
 > 配套文档：[abei-api.md](./abei-api.md)。改动共享契约时，两份文档与测试必须一起更新。
 
@@ -40,15 +40,19 @@ CLI 可以拥有的本地契约只有两类：人类输出的稳定字段，以�
 
 ## 3. 当前能力状态
 
-当前目录共有 22 条能力：10 条 `read`、5 条 `draft`、7 条 `confirm`。16 条由 Firefly 执行，6 条反馈能力由 `abei-server` 执行，暂时没有 `backend=abei` 的能力。
+当前目录共有 29 条能力：14 条 `read`、7 条 `draft`、8 条 `confirm`。5 条交易/账户读取由 Firefly 执行，23 条业务能力由 `abei-server` 执行，1 条正式账单导入由 `abei-api` 编排并标记为 `backend=abei`。
 
 | 资源 | 生成命令 | 风险 | 后端 |
 | --- | --- | --- | --- |
 | `transactions` | `list / show / summary / search` | read | firefly |
 | `accounts` | `list` | read | firefly |
-| `bills` | `list / show / review / import / unlock / ignore / retry / sync / process` | read / draft / confirm | firefly |
-| `rows` | `update / split` | draft | firefly |
-| `feedback` | `create / update / retry / delete / list / get` | confirm / read | server |
+| `bills` | `list / show / review / import / unlock / ignore / retry / sync` | read / draft / confirm | server / api |
+| `rows` | `update / split` | draft | server |
+| `feedback` | `create / confirm / reply / list / get` | draft / read | server |
+| `profile-doc`（别名 `profile`） | `list / get / create / update / delete` | read / confirm | server |
+| `mail-messages`（别名 `mail`） | `list` | read | server |
+| `mail-rules`（别名 `rules`） | `test / publish` | read / confirm | server |
+| `mailboxes`（别名 `mailbox`） | `rescan` | confirm | server |
 
 资源命令由目录生成。手写命令只有：
 
@@ -77,10 +81,10 @@ abei <资源> <动词> [ID] [参数]
 规则如下：
 
 - 资源在前，动词在后：`abei transactions list`，不用 `abei list transactions`。
-- 资源使用英文名词：`transactions`、`accounts`、`bills`、`rows`、`feedback`。
+- 资源使用英文名词：`transactions`、`accounts`、`bills`、`rows`、`feedback`、`profile-doc`。
 - 资源别名只用于输入宽容，例如 `tx`、`acc`、`bill`、`row`、`fb`；帮助和错误回显使用正名。
 - 动词来自 `Verb` 固定表。同一资源不得同时暴露语义重复的 `get` 与 `show`。
-- 作用于单个对象的能力把 `id` 放在位置参数：`abei bills show 42`。
+- 作用于单个对象的能力把稳定路径键放在位置参数：通常是 `id`，`profile-doc` 使用 `slug`。
 - schema 标记 `x-abei-positional` 的必填字段也放在位置参数，目前是 `abei transactions search 星巴克`。
 - 未知资源、动词、flag 和字段必须报错；能判断时给 did-you-mean。
 
@@ -119,10 +123,22 @@ abei rows split 7 \
 
 ### 4.3 固定参数与人填参数
 
-- 调用方不能选择的值用目录的 fixed param 声明。CLI 隐藏该 flag，并在请求前注入固定值；当前 `feedback.create` 固定 `source=cli`。
+- 调用方不能选择的值用目录的 fixed param 声明。CLI 隐藏该 flag，并在请求前注入固定值；当前反馈创建以及资料创建/更新固定 `source=cli`。
 - 密码、验证码等字段在 schema 标 `x-abei-human-only`。CLI 帮助必须标出“人填”，agent 不得生成这些值。
 - 人填字段接受 `-` 从 stdin 读取，例如 `abei bills unlock 42 --secret - --yes`，避免进入 shell history。
 - 固定参数与人填参数都属于目录契约，不允许用 capability id 的 if 分支复制名单。
+
+### 4.4 长文本输入
+
+schema 标记 `x-abei-file-input` 的文本参数统一接受三种写法：
+
+```bash
+--content-md @rules.md       # UTF-8 文件
+--content-md -               # stdin
+--content-md '# 直接正文'    # 字面量
+```
+
+文件与 stdin 内容原样发送，不 trim；读取失败在本地报用法错误。该机制由 schema 驱动，不为 `profile-doc` 写专用解析分支。
 
 ## 5. 查询语法
 
@@ -219,42 +235,48 @@ API 返回 `dry_run: true` 时，CLI 必须在 stderr 明确写“这是预览�
 - `draft` 不得因为调用方带了 `--yes` 就升级成正式写入。
 - 敏感输入不得出现在响应、错误、日志或预览里。
 
-`feedback.create` 的 dry-run 在拥有数据库和 GitHub 副作用的 `abei-server` 内执行：完成参数校验后直接返回预览，不连接数据库，也不创建 GitHub issue。
+`feedback.create` 与 `profile-doc.create` 的 dry-run 在拥有数据库副作用的 `abei-server` 内执行：完成参数校验后直接返回预览，不落库；资料更新和删除的 dry-run 会读取当前版本，但不会修改数据。
 
 ### 8.1 反馈生命周期
 
-反馈的业务状态与 GitHub 同步状态分开：
+Feedback 使用两层数据：每次用户输入都是不可丢失的 Submission，相似 Submission 经用户确认后才归一到长期处理的 Feedback Item。GitHub issue/sync 不属于当前版本。
 
-| 字段 | 值 | 回答的问题 |
-| --- | --- | --- |
-| `status` | `open / planned / started / completed / declined / duplicate` | 产品上处理到哪一步 |
-| `sync_status` | `local / synced / failed` | 当前快照是否同步到 GitHub |
-
-CLI 工作流：
+AI 的最小提交只需要类型和描述；`kind` 接受短数字别名 `1=bug`、`2=experience`、`3=suggestion`，`target` 在 CLI 默认自动补为 `cli`：
 
 ```bash
-# 提交会写数据库，并可能创建 GitHub issue，所以必须确认
-abei feedback create --title '提示不清楚' --body '...' --kind friction --by codex --yes
+abei feedback create --kind 1 --message '导入账单后一直没有结果'
 
-# 标记解决；completed / declined 必须留下处理说明
-abei feedback update 42 --status completed --response '已在 0.2.0 修复' --yes
+# 服务端返回相似候选时，必须由用户二选一；重复反馈只在确认后 +1
+abei feedback confirm 91 --same-as 42
+abei feedback confirm 91 --new
 
-# 重开
-abei feedback update 42 --status open --yes
+# 查看自己的待处理 Submission、Feedback Item、公开进展与私有对话
+abei feedback list
+abei feedback get 42
 
-# 标记重复时必须指出原反馈
-abei feedback update 42 --status duplicate --duplicate-of 17 --yes
-
-# GitHub 同步失败后显式重试
-abei feedback retry 42 --yes
-
-# 删除必须说明原因；服务端软删除并保留审计事件
-abei feedback delete 42 --reason '包含个人隐私' --yes
+# 回复管理员针对某次 Submission 的追问
+abei feedback reply 91 --message 'abei 0.1.0，招商银行 CSV'
 ```
 
-`update / retry / delete` 只允许 Firefly `owner`。`submitted_by` 只是“这条反馈由谁或哪个 AI 提交”的展示归因，不用于授权；处理人与删除人的审计身份来自 PAT 验证结果。关联了 GitHub issue 的删除会先删除外部 issue；GitHub 配置缺失或删除失败时，本地反馈不会假装删除成功。
+CLI 自动生成并复用 `idempotency_key`，创建请求遇到连接或超时错误只重试一次；重试不得增加 occurrence。它还会附带最近一次非 Feedback 命令的最小诊断快照，包括 capability、request id、结果和稳定错误码；不采集原始 argv、令牌、请求体或账单内容，本地快照权限为 `0600` 且 30 分钟过期。
 
-### 8.2 CLI 写入链路
+`feedback list` 会把待确认和待补充 Submission 放在 Item 前，并输出可直接执行的 `next_actions`。Item 状态为 `open / reviewing / planned / in_progress / completed / closed`；管理员追问属于私有对话，处理进展属于关联用户都可见的公开更新。owner 的归一、驳回、脱敏、合并、归档与状态管理在 Web `/admin/feedback` 完成，每次管理操作写不可变审计事件。
+
+### 8.2 用户资料工作流
+
+```bash
+abei profile list
+abei profile get personal-accounting-rules --jq '.data.content_md'
+abei profile create personal-accounting-rules --title '个人记账规则' --content-md @rules.md --dry-run
+abei profile create personal-accounting-rules --title '个人记账规则' --content-md @rules.md --yes
+abei profile update personal-accounting-rules --expected-version 1 --content-md @rules.md --yes
+abei profile delete personal-accounting-rules --expected-version 2 --dry-run
+abei profile delete personal-accounting-rules --expected-version 2 --yes
+```
+
+创建、更新和删除都是 `confirm`。更新与删除必须带最近读取到的 `expected_version`；服务端返回 409 时重新读取，不得覆盖或删除新版本。删除会在一个事务中永久移除当前文档及全部历史版本，不能恢复。v1 不提供历史版本读取，也不自动把资料注入 AI 对话上下文。
+
+### 8.3 CLI 写入链路
 
 CLI 没有一套隐藏的写入 API。一次写操作固定经过：
 
@@ -362,6 +384,7 @@ CLI 改动至少确认：
 - confirm 缺 `--yes` 退出 6；dry-run 不写入；`--yes` 变成 `confirm=true`。
 - problem `reason` 正确映射退出码。
 - 敏感字段不回显，`-` 能从 stdin 读取。
+- 文件型长文本支持 `@文件`、stdin 和字面量，并保持 Markdown 内容不变。
 - broken pipe 正常退出。
 
 ## 14. 禁止事项

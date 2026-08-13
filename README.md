@@ -5,10 +5,10 @@
 
 ## 目录结构
 
-- `abei/`: Rust workspace。`abei-core` 放能力目录，`abei-api` 是统一 API 面（:18002），`abei-server` 负责邮箱收取和反馈（:18005），`abei-cli` 是命令行 `abei`。
+- `abei/`: Rust workspace。`abei-core` 放能力目录，`abei-api` 是统一 API 面（:18002），`abei-server` 负责邮箱、解析平台、账单草稿和反馈（:18005），`abei-cli` 是命令行 `abei`。
 - `abei-web/`: 前端界面。账本数据走 abei-api，AI 流式接口走 abei-agent。
 - `abei-agent/`: AI 服务进程（:18003），只提供 `/api/ai`。工具清单从 abei-api 的能力目录生成；命令行归 abei-cli，MCP 已删除。
-- `firefly-iii/`: 后端引擎。保留账单下载、解密、解析和入账；邮箱收取、MIME/EML 与附件落盘已迁到 Rust。
+- `firefly-iii/`: 最终账本引擎。邮件和账单草稿不再写入 Firefly；正式入账只调用它的官方账户与交易 API。
 
 曾经的自研 Rust 账本后端 granary-server（2026-07 封存）已于 2026-08 删除，代码在 git 历史里；它的位置将来由 `abei-server` 接替。
 
@@ -17,11 +17,11 @@
 根目录是唯一入口，需要 Make、Docker Compose v2；`make dev` 另需本机装 PHP、Composer 与 Rust。
 
 ```bash
-make dev          # db/mail 容器 + 本机 Firefly/abei-api/agent/worker + vite (5173)
-make dev-web      # Firefly、worker、abei-api、agent 用容器跑，本机只起 vite (5173)
-make up           # 完整本地形态起 8 个容器（含内部 feedback 后端）
+make dev          # db/mail 容器 + 本机 Firefly/abei-server/api/agent + vite (5173)
+make dev-web      # Firefly、abei-server、abei-api、agent 用容器跑，本机只起 vite (5173)
+make up           # 完整本地形态起 7 个容器
 make down         # 停容器（保留数据）
-make logs         # 跟随 app、bill-worker、abei-server、abei-api、abei-agent 与 abei-web 日志
+make logs         # 跟随 app、abei-server、abei-api、abei-agent 与 abei-web 日志
 make man          # 开发者生成 abei/target/man/abei.1（不是 abei 子命令）
 make test         # 全部测试：web vitest + Firefly PHPUnit + agent vitest + abei 三道闸
 make test-e2e     # 浏览器主路径：起 db/mail/app/abei-api + playwright
@@ -30,10 +30,10 @@ make build-image  # 构建 app、abei-api、abei-agent 与 abei-web 镜像
 make help
 ```
 
-`make dev` 会停掉容器版 app、abei-api、agent 与 web，把端口交给本机进程；`make dev-web`
-只停 abei-web，后端继续跑容器。之后 `make up` 可恢复完整形态。
-`bill-worker` 会随 `make up`、`make dev-web` 一起启动；`make dev` 则在本机运行同一组同步/解析命令。
-它默认每 5 分钟执行一次，可通过 `BILL_WORKER_INTERVAL` 调整。
+`make dev` 会停掉容器版 app、abei-server、abei-api、agent 与 web，把端口交给本机进程；
+`make dev-web` 只在本机运行 web，后端继续跑容器。之后 `make up` 可恢复完整形态。
+邮箱同步和解析任务由 `abei-server` 的 Tokio worker 执行，默认每 5 分钟同步一次，可通过
+`ABEI_MAIL_SYNC_INTERVAL` 调整；不再有 PHP `bill-worker`。
 
 `APP_KEY` 是 Firefly 加密邮箱密码等敏感配置所用的应用主密钥，必须在同一数据库的整个生命周期内保持不变。
 更换它不会自动迁移旧数据，只会让旧密文无法解密。
@@ -84,10 +84,11 @@ abei auth login --url http://localhost:18002 --token <PAT>
 abei transactions list --start 2026-08-01
 abei explain transactions  # 查看资源的能力和参数
 abei guide                 # 输出 agent 使用说明
-abei feedback list --status open
+abei feedback create --kind 1 --message '导入账单后一直没有结果'
+abei feedback list
 ```
 
-`abei feedback create ... --yes` 会经 abei-api 写入本地 PostgreSQL；配置 GitHub 仓库与令牌后还会自动同步成 issue。处理、重试同步和删除同样是 confirm 能力，必须由 Firefly owner 确认。
+Feedback 先保存每次用户 Submission，再归一为持续处理的 Feedback Item。CLI 会自动补充目标、幂等键和安全诊断上下文；发现相似项时不会擅自合并，而是返回 `feedback confirm` 命令让用户选择“同一问题”或“新反馈”。用户可用 `list/get/reply` 跟踪状态和管理员追问，owner 在网页 `/admin/feedback` 处理、归档和发布进展。当前不接 GitHub issue。
 
 未配对时直接运行 `abei` 会自动打开网页配对页；复制页面生成的完整命令粘回终端即可。
 
@@ -112,7 +113,7 @@ OPENAI_BASE_URL=https://example.com/v1
 
 网页助手和外部 Agent 用的是同一份能力目录：网页助手从 abei-api 取，外部 Agent 装 abei-cli
 就行——对模型来说命令行比 MCP 省 token。`abei` 不提供原始 HTTP/API 命令；模型只能看到已建模能力。
-正式入账、账单密码与 feedback 写操作必须回到界面上人工审批；用户管理、配置和邮箱凭证不在能力目录里。
+正式入账与账单密码必须回到界面上人工审批；Feedback 的相似项归一也必须由用户明确确认。用户管理、配置和邮箱凭证不在能力目录里。
 
 ### 浏览器 e2e
 
