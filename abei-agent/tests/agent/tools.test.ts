@@ -164,8 +164,8 @@ describe('目录驱动的工具生成', () => {
 
     const result = await tool.execute('call', { id: '9', category_name: '餐饮' });
 
-    expect(calls[0][0]).toBe('http://abei.test/v1/rows/9');
-    expect(calls[1][0]).toBe('http://abei.test/v1/rows/9?dry_run=true');
+    expect(calls[0][0]).toBe('http://abei.test/v1/bill-rows/9');
+    expect(calls[1][0]).toBe('http://abei.test/v1/bill-rows/9?dry_run=true');
     expect(createApproval).toHaveBeenCalledWith(
       expect.objectContaining({ capability: 'rows.update', preview: { dry_run: true } }),
     );

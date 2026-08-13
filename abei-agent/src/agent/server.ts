@@ -37,9 +37,11 @@ export async function startAgentServer(
     /\/+$/,
     '',
   );
-  const abei = new AbeiApi({
-    baseUrl: options.abeiUrl ?? env.ABEI_API_URL ?? 'http://127.0.0.1:18002',
-  });
+  const abeiUrl = (options.abeiUrl ?? env.ABEI_API_URL ?? 'http://127.0.0.1:18002').replace(
+    /\/+$/,
+    '',
+  );
+  const abei = new AbeiApi({ baseUrl: abeiUrl });
   const store = new AiStore(createAiPool(env), env.APP_KEY);
   await store.initialize();
   const environmentRuntime = createModelRuntime(env);
@@ -47,6 +49,7 @@ export async function startAgentServer(
   const activeSessions = new Set<string>();
   const autofill = new AutofillWorker({
     fireflyUrl,
+    abeiUrl,
     store,
     resolveRuntime: (ownerKey) =>
       runtimeForOwner({ ownerKey, store, env, environmentRuntime, runtimeCache }),

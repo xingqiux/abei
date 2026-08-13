@@ -147,7 +147,7 @@ const CATALOG = {
       verb: 'summary',
     },
     {
-      backend: 'firefly',
+      backend: 'server',
       command: ['bills', 'list'],
       description: '列出收件箱里的账单任务，可按渠道和状态筛选。',
       examples: [
@@ -206,7 +206,7 @@ const CATALOG = {
       verb: 'list',
     },
     {
-      backend: 'firefly',
+      backend: 'server',
       command: ['bills', 'review'],
       description: '读一份账单已分好桶、脱过敏的审阅视图。改流水之前先看这个，别去逐行拉原始数据。',
       examples: [
@@ -243,7 +243,7 @@ const CATALOG = {
       verb: 'review',
     },
     {
-      backend: 'firefly',
+      backend: 'abei',
       command: ['bills', 'import'],
       description:
         '把选中的流水写进账本。这一步会真的产生交易，必须人工确认；先干跑一次看会写什么。',
@@ -307,7 +307,7 @@ const CATALOG = {
       verb: 'import',
     },
     {
-      backend: 'firefly',
+      backend: 'server',
       command: ['bills', 'unlock'],
       description:
         '给加密的账单文件提交打开密码或验证码。密码由人在可信界面输入，不进日志、不回显给模型。',
@@ -351,7 +351,7 @@ const CATALOG = {
       verb: 'unlock',
     },
     {
-      backend: 'firefly',
+      backend: 'server',
       command: ['bills', 'ignore'],
       description: '把这份账单移出待办队列，不再提示。',
       examples: [
@@ -388,7 +388,7 @@ const CATALOG = {
       verb: 'ignore',
     },
     {
-      backend: 'firefly',
+      backend: 'server',
       command: ['rows', 'update'],
       description:
         '填一条流水该记成什么：类型、日期、金额、摘要、账户、分类、标签。写入一律记成 AI 建议，等人在收件箱确认；银行原文不给改。',
@@ -461,14 +461,14 @@ const CATALOG = {
         title: 'RowsUpdateParams',
         type: 'object',
       },
-      path: '/v1/rows/{id}',
+      path: '/v1/bill-rows/{id}',
       resource: 'rows',
       risk: 'draft',
       tool_name: 'rows_update',
       verb: 'update',
     },
     {
-      backend: 'firefly',
+      backend: 'server',
       command: ['rows', 'split'],
       description: '把一条组合支付的流水拆成两笔以上的草稿，比如一半余额一半银行卡。',
       examples: [
@@ -543,7 +543,7 @@ const CATALOG = {
         title: 'RowsSplitParams',
         type: 'object',
       },
-      path: '/v1/rows/{id}/split',
+      path: '/v1/bill-rows/{id}/split',
       resource: 'rows',
       risk: 'draft',
       tool_name: 'rows_split',

@@ -1,15 +1,12 @@
 import type { FireflyHttpClient } from '../core/http-client.js';
 
 /**
- * 后台预填循环用的账单读写口，直连 Firefly。
- *
- * 面向模型的能力一律走 abei-api（见 agent/abei-api.ts）；这里留的是 worker 的路：
- * 它按自己存的 PAT 定时跑，而且要按任务翻流水行——那是目录里没有的形状。
- * 目录补上「列某份账单的流水行」以后，这个文件就该整体退役。
+ * 后台预填循环用的账单读写口。客户端必须指向 abei-api；PAT 仍只作为
+ * Authorization 请求头传给 API，由 API 验证身份后代理到 abei-server。
  */
 
-const ENDPOINT = '/api/v1/bill-tasks';
-const ROW_ENDPOINT = '/api/v1/bill-statement-rows';
+const ENDPOINT = '/v1/bills';
+const ROW_ENDPOINT = '/v1/bill-rows';
 
 export interface BillTaskListFilters {
   source?: string;

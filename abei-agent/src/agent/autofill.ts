@@ -64,6 +64,7 @@ export interface AutofillRunStats {
 
 export interface AutofillWorkerOptions {
   fireflyUrl: string;
+  abeiUrl: string;
   store: AiStore;
   /** 复用 server.ts 的 runtimeForOwner；用回调传进来避免和 server 循环依赖。 */
   resolveRuntime: (ownerKey: string) => Promise<ModelRuntime>;
@@ -239,7 +240,7 @@ export class AutofillWorker {
     const model = runtime.model;
     if (!model || runtime.error) throw new Error(runtime.error ?? '模型不可用。');
 
-    const service = new BillTaskService(args.client);
+    const service = new BillTaskService(args.client.withBaseUrl(this.options.abeiUrl));
     const taskIds = args.taskIds?.length
       ? args.taskIds.slice(0, MAX_TASKS_PER_RUN)
       : (await parsedTaskIds(service)).slice(0, MAX_TASKS_PER_RUN);
@@ -749,7 +750,7 @@ function modelPayload(rowId: string, attributes: Record<string, unknown>): Recor
 }
 
 /**
- * 机器已经确定的重复/冲突行，以及高置信跨源命中，一律不碰：
+ * 机器已经确定的重复/冲突行、高置信已有交易，以及高置信跨源命中，一律不碰：
  * 三层指纹比模型可靠，这是既定立场。
  */
 function blockedRowIds(review: unknown): Set<string> {
@@ -759,6 +760,14 @@ function blockedRowIds(review: unknown): Set<string> {
       const rowId = trimmed(entry.row_id, 32);
       if (rowId) blocked.add(rowId);
     }
+  }
+  for (const entry of bucketEntries(review, 'existing_transaction_candidates')) {
+    const rowId = trimmed(entry.row_id, 32);
+    const candidates = Array.isArray(entry.candidates) ? entry.candidates : [];
+    const highConfidence = candidates.some(
+      (candidate) => trimmed(record(candidate)?.confidence, 32) === 'high',
+    );
+    if (rowId && highConfidence) blocked.add(rowId);
   }
   for (const entry of bucketEntries(review, 'cross_source_candidates')) {
     const rowId = trimmed(entry.row_id, 32);

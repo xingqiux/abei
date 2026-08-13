@@ -26,6 +26,10 @@ export class FireflyHttpClient {
     this.timeout = options.timeout ?? 30000;
   }
 
+  withBaseUrl(baseUrl: string): FireflyHttpClient {
+    return new FireflyHttpClient({ ...this.options, baseUrl });
+  }
+
   async request<T = unknown>(
     method: string,
     path: string,
