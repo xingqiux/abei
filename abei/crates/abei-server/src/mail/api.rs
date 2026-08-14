@@ -408,6 +408,17 @@ mod tests {
             )
             .await
             .unwrap();
+        pool.get()
+            .await
+            .unwrap()
+            .execute(
+                "INSERT INTO abei_ai.mailboxes (user_id, provider, host, port, encryption)
+                 VALUES ($1, 'imap', 'imap.example.com', 993, 'ssl')
+                 ON CONFLICT (user_id) DO NOTHING",
+                &[&user_id],
+            )
+            .await
+            .unwrap();
         let message_id: i64 = pool
             .get()
             .await
@@ -416,12 +427,12 @@ mod tests {
                 "INSERT INTO abei_ai.mail_messages
                    (user_id, mailbox_user_id, folder, uid_validity, uid, message_id,
                     from_address, to_addresses, subject, received_at, headers, body_structure,
-                    content_state, raw_path, raw_checksum, classification, legacy_bill_task_id)
-                 VALUES ($1, NULL, 'INBOX', 1, 1, $2,
+                    content_state, raw_path, raw_checksum, classification)
+                 VALUES ($1, $1, 'INBOX', 1, 1, $2,
                          'cmb-notification@example.com', ARRAY['user@example.com'],
                          'CMB parser regression', now(), '{}'::jsonb,
                          '{\"has_html\":true}'::jsonb, 'cached', $3, $4,
-                         'unclassified', $1)
+                         'unclassified')
                  RETURNING id",
                 &[
                     &user_id,

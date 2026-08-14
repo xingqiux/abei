@@ -1315,12 +1315,21 @@ mod tests {
         let flow_id: i64 = flow.get(0);
         let flow_version: i32 = flow.get(1);
         let checksum: String = flow.get(2);
+        client
+            .execute(
+                "INSERT INTO abei_ai.mailboxes (user_id, provider, host, port, encryption)
+                 VALUES ($1, 'imap', 'imap.example.com', 993, 'ssl')
+                 ON CONFLICT (user_id) DO NOTHING",
+                &[&user_id],
+            )
+            .await
+            .unwrap();
         let message_id: i64 = client
             .query_one(
                 "INSERT INTO abei_ai.mail_messages
-                   (user_id, folder, uid_validity, uid, message_id, content_state,
-                    classification, channel_key, parser_flow_id, legacy_bill_task_id)
-                 VALUES ($1,'INBOX',1,1,$2,'cached','matched','cmb',$3,$1)
+                   (user_id, mailbox_user_id, folder, uid_validity, uid, message_id,
+                    content_state, classification, channel_key, parser_flow_id)
+                 VALUES ($1,$1,'INBOX',1,1,$2,'cached','matched','cmb',$3)
                  RETURNING id",
                 &[
                     &user_id,
@@ -1488,12 +1497,21 @@ mod tests {
         let flow_id: i64 = flow.get(0);
         let flow_version: i32 = flow.get(1);
         let checksum: String = flow.get(2);
+        client
+            .execute(
+                "INSERT INTO abei_ai.mailboxes (user_id, provider, host, port, encryption)
+                 VALUES ($1, 'imap', 'imap.example.com', 993, 'ssl')
+                 ON CONFLICT (user_id) DO NOTHING",
+                &[&user_id],
+            )
+            .await
+            .unwrap();
         let message_id: i64 = client
             .query_one(
                 "INSERT INTO abei_ai.mail_messages
-                   (user_id, folder, uid_validity, uid, message_id, content_state,
-                    classification, channel_key, parser_flow_id, legacy_bill_task_id)
-                 VALUES ($1,'INBOX',1,1,$2,'cached','matched','cmb',$3,$1)
+                   (user_id, mailbox_user_id, folder, uid_validity, uid, message_id,
+                    content_state, classification, channel_key, parser_flow_id)
+                 VALUES ($1,$1,'INBOX',1,1,$2,'cached','matched','cmb',$3)
                  RETURNING id",
                 &[
                     &user_id,

@@ -31,6 +31,10 @@ const MIGRATIONS: &[Migration] = &[
         version: "0006_builtin_mail_rules",
         sql: include_str!("../migrations/0006_builtin_mail_rules.sql"),
     },
+    Migration {
+        version: "0007_drop_legacy_bill_migration",
+        sql: include_str!("../migrations/0007_drop_legacy_bill_migration.sql"),
+    },
 ];
 
 pub async fn run(pool: &Pool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

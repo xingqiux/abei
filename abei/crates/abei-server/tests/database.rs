@@ -31,7 +31,6 @@ async fn schema_bootstrap_is_idempotent_when_test_database_is_configured() {
         "bill_artifacts",
         "bill_rows",
         "bill_import_attempts",
-        "legacy_bill_migration_runs",
     ] {
         let exists: bool = client
             .query_one(
@@ -58,11 +57,13 @@ async fn schema_bootstrap_is_idempotent_when_test_database_is_configured() {
         .unwrap()
         .get(0);
     assert!(oauth_states_exist);
+    // 旧账单迁移已取消，0007 把整套脚手架删干净了：不留列，也不留报告表。
     let legacy_columns: Vec<String> = client
         .query(
-            "SELECT column_name::text FROM information_schema.columns
-             WHERE table_schema = 'abei_ai' AND table_name = 'mail_messages'
-               AND column_name LIKE 'legacy_bill_%' ORDER BY column_name",
+            "SELECT (table_name || '.' || column_name)::text
+             FROM information_schema.columns
+             WHERE table_schema = 'abei_ai' AND column_name LIKE 'legacy_bill_%'
+             ORDER BY 1",
             &[],
         )
         .await
@@ -70,13 +71,28 @@ async fn schema_bootstrap_is_idempotent_when_test_database_is_configured() {
         .iter()
         .map(|row| row.get(0))
         .collect();
-    assert_eq!(
-        legacy_columns,
-        vec![
-            "legacy_bill_mail_message_id".to_owned(),
-            "legacy_bill_task_id".to_owned(),
-        ]
-    );
+    assert_eq!(legacy_columns, Vec::<String>::new());
+    let legacy_runs_exist: bool = client
+        .query_one(
+            "SELECT to_regclass('abei_ai.legacy_bill_migration_runs') IS NOT NULL",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert!(!legacy_runs_exist);
+    // 没了 legacy 列兜底，邮件必须挂在某个邮箱上。
+    let mailbox_user_id_nullable: String = client
+        .query_one(
+            "SELECT is_nullable::text FROM information_schema.columns
+             WHERE table_schema = 'abei_ai' AND table_name = 'mail_messages'
+               AND column_name = 'mailbox_user_id'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(mailbox_user_id_nullable, "NO");
     for table in ["profile_docs", "profile_doc_revisions"] {
         let exists: bool = client
             .query_one(
