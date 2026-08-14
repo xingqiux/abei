@@ -8,6 +8,7 @@ import {
   useBillRows,
   useBillRowCounts,
   flattenBillRows,
+  BILL_ROWS_PAGE_SIZE,
   useBillTasks,
   useDeleteTransaction,
   useDismissBillRows,
@@ -51,7 +52,12 @@ import {
 } from './billInboxHelpers'
 import { formatAmount, formatMonthDay } from '../../lib/format'
 
-/** 超过这个数才弹干跑确认；以下直接执行 + 撤销窗口（设计稿 02 §4） */
+/**
+ * 超过这个数才弹干跑确认；以下直接执行 + 撤销窗口（设计稿 02 §4）。
+ *
+ * 只看笔数会错配：一封日账单常见解析出 9 笔，日常几乎从不弹确认，21 笔却弹。
+ * 所以再加一条——只要选中的行里有带问题的，不管几笔都先给干跑清单看。
+ */
 const DIRECT_IMPORT_LIMIT = 20
 
 /** 撤销那条 toast 留久一点：8 秒里没点，就当人是认下了 */
@@ -428,11 +434,14 @@ export function BillInboxPage() {
   async function handleImport(rowIds: string[]) {
     if (rowIds.length === 0 || importMutation.isPending) return
     try {
-      if (rowIds.length <= DIRECT_IMPORT_LIMIT) {
+      const chosen = new Set(rowIds)
+      const risky = rows.some((row) => chosen.has(row.id) && (row.attributes.issues?.length ?? 0) > 0)
+      if (rowIds.length <= DIRECT_IMPORT_LIMIT && !risky) {
         await runImport(rowIds)
         return
       }
-      // 一次几百笔的时候先给一份干跑清单：这个动作没法只撤销「其中错的那几笔」
+      // 笔数多、或者里面有带问题的行，先给一份干跑清单：
+      // 这个动作没法只撤销「其中错的那几笔」
       const preview = await importMutation.mutateAsync({ rowIds, confirm: false })
       setDryRun(preview)
       setConfirmRowIds(preview.rows.filter((row) => row.action === 'would_import').map((row) => row.row_id))
@@ -503,6 +512,14 @@ export function BillInboxPage() {
   }
 
   /**
+   * 快捷键要用的那几个 handler 每次渲染都是新函数，直接进依赖数组会让监听器
+   * 一秒装卸好几遍；放进 ref 里，effect 只依赖真正影响「装不装」的那几个值，
+   * 触发时读到的又始终是最新的实现。
+   */
+  const keyActions = useRef({ handleDismiss, handleImport, toggleSelect })
+  keyActions.current = { handleDismiss, handleImport, toggleSelect }
+
+  /**
    * 键盘流：j/k 上下、x 勾选、e 编辑、d 忽略、Enter 入账所选。
    * TODO(命令面板)：设计稿要求把这套快捷键也登记进 Cmd+K 的说明里，
    * 但 features/command-palette 归另一位负责，等那边开口子再接。
@@ -530,21 +547,22 @@ export function BillInboxPage() {
         setCursorIndex(Math.max(index - 1, 0))
       } else if (event.key === 'x') {
         event.preventDefault()
-        if (isRowSelectable(row)) toggleSelect(row.id, index, false)
+        if (isRowSelectable(row)) keyActions.current.toggleSelect(row.id, index, false)
       } else if (event.key === 'e') {
         event.preventDefault()
         setEditingId(row.id)
       } else if (event.key === 'd') {
         event.preventDefault()
-        void handleDismiss([row.id])
+        void keyActions.current.handleDismiss([row.id])
       } else if (event.key === 'Enter') {
         event.preventDefault()
-        void handleImport(selected.size > 0 ? Array.from(selected) : isRowSelectable(row) ? [row.id] : [])
+        void keyActions.current.handleImport(
+          selected.size > 0 ? Array.from(selected) : isRowSelectable(row) ? [row.id] : [],
+        )
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectable, editingId, cursorRows, cursorIndex, selected])
 
   useEffect(() => {
@@ -755,7 +773,7 @@ export function BillInboxPage() {
           </div>
 
           {rowsQuery.isLoading ? (
-            <ListSkeleton label={`${INBOX_VIEW_LABELS[view]}流水加载中`} />
+            <ListSkeleton label={`${INBOX_VIEW_LABELS[view]}流水加载中`} rows={counts.countFor(view, source)} />
           ) : rowsQuery.isError ? (
             <ErrorState message="流水加载失败" error={rowsQuery.error} onRetry={() => void rowsQuery.refetch()} />
           ) : rows.length === 0 ? (
@@ -973,10 +991,15 @@ function emptyStateFor(
   return { message: '还没有入账过流水', action: { label: '看待入账的', onClick: actions.onGoImportable } }
 }
 
-function ListSkeleton({ label }: { label: string }) {
+/**
+ * 占位行数按「这个 tab 上一次有多少笔」给，不写死 6 行——
+ * 写死的话加载完必然跳一下，差得越多跳得越明显。
+ */
+function ListSkeleton({ label, rows }: { label: string; rows: number }) {
+  const count = Math.min(Math.max(rows || 8, 3), BILL_ROWS_PAGE_SIZE)
   return (
     <div className="flex flex-col gap-1 p-2" role="status" aria-label={label}>
-      {Array.from({ length: 6 }).map((_, index) => <Skeleton key={index} className="h-8" />)}
+      {Array.from({ length: count }).map((_, index) => <Skeleton key={index} className="h-8" />)}
     </div>
   )
 }

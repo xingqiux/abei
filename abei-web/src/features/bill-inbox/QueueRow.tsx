@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { CaretRight } from '@phosphor-icons/react'
 import { Link } from '@tanstack/react-router'
 import type { BillQueueRow } from '../../api/schemas'
@@ -145,6 +145,8 @@ export function QueueRow({
 
   const [showEvidence, setShowEvidence] = useState(false)
   const [splitOpen, setSplitOpen] = useState(false)
+  /** 勾选那一下有没有按住 shift；change 事件读不到修饰键，只能提前记一笔 */
+  const shiftHeld = useRef(false)
 
   const [desc, setDesc] = useState('')
   const [category, setCategory] = useState('')
@@ -280,8 +282,11 @@ export function QueueRow({
             type="checkbox"
             aria-label={`选择 ${rowDescription(a)}`}
             checked={selected}
-            onChange={() => undefined}
-            onClick={(event) => onSelect?.(event.shiftKey)}
+            // 勾选走 onChange，键盘按空格和鼠标点都算数；shift 区间选要读修饰键，
+            // 而 change 事件上没有 shiftKey，所以从 mousedown/keydown 里记一笔。
+            onChange={() => onSelect?.(shiftHeld.current)}
+            onMouseDown={(event) => { shiftHeld.current = event.shiftKey }}
+            onKeyDown={(event) => { shiftHeld.current = event.shiftKey }}
             className="shrink-0"
           />
         ) : (
