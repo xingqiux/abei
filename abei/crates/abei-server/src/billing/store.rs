@@ -14,6 +14,7 @@ use crate::ApiError;
 use crate::parser::model::{
     Artifact, ArtifactKind, BillRowDraft, Diagnostic, ParseOutput, Severity,
 };
+use crate::states::{ParseJobStatus, sql_list};
 
 const FINGERPRINT_VERSION: i16 = 1;
 
@@ -96,7 +97,7 @@ impl Service {
                 "INSERT INTO abei_ai.parse_jobs
                    (user_id, bill_document_id, target_revision, parser_flow_id,
                     parser_flow_version, definition_checksum, status, stage, progress)
-                 VALUES ($1,$2,1,$3,$4,$5,'queued','route',$6) RETURNING id",
+                 VALUES ($1,$2,1,$3,$4,$5,$7,'route',$6) RETURNING id",
                 &[
                     &user_id,
                     &document_id,
@@ -104,6 +105,7 @@ impl Service {
                     &flow_version,
                     &row.get::<_, String>(7),
                     &json!({ "stage": "route", "mail_message_id": mail_message_id.to_string() }),
+                    &ParseJobStatus::Queued.as_str(),
                 ],
             )
             .await
@@ -159,8 +161,8 @@ impl Service {
         let owns = transaction
             .query_opt(
                 "SELECT 1 FROM abei_ai.parse_jobs
-                 WHERE id = $1 AND worker_id = $2 AND status = 'running' FOR UPDATE",
-                &[&job.id, &job.worker_id],
+                 WHERE id = $1 AND worker_id = $2 AND status = $3 FOR UPDATE",
+                &[&job.id, &job.worker_id, &ParseJobStatus::Running.as_str()],
             )
             .await
             .map_err(display)?
@@ -329,11 +331,17 @@ impl Service {
         });
         transaction
             .execute(
-                "UPDATE abei_ai.parse_jobs SET status = 'succeeded', stage = 'finished',
+                "UPDATE abei_ai.parse_jobs SET status = $4, stage = 'finished',
                    progress = progress || $3, worker_id = NULL, lease_expires_at = NULL,
                    heartbeat_at = NULL, finished_at = now(), updated_at = now()
-                 WHERE id = $1 AND worker_id = $2 AND status = 'running'",
-                &[&job.id, &job.worker_id, &progress],
+                 WHERE id = $1 AND worker_id = $2 AND status = $5",
+                &[
+                    &job.id,
+                    &job.worker_id,
+                    &progress,
+                    &ParseJobStatus::Succeeded.as_str(),
+                    &ParseJobStatus::Running.as_str(),
+                ],
             )
             .await
             .map_err(display)?;
@@ -551,7 +559,9 @@ impl Service {
         let client = self.pool.get().await.map_err(ApiError::database)?;
         let count: i64 = client
             .query_one(
-                "SELECT count(*)::bigint FROM abei_ai.bill_documents d
+                // CASE 左边是 parse_jobs 的状态，右边是对外的文档状态，两套词表不通用。
+                &format!(
+                    "SELECT count(*)::bigint FROM abei_ai.bill_documents d
                  LEFT JOIN LATERAL (
                    SELECT status FROM abei_ai.parse_jobs
                    WHERE bill_document_id = d.id ORDER BY id DESC LIMIT 1
@@ -559,11 +569,16 @@ impl Service {
                  WHERE d.user_id = $1 AND ($2 = '' OR d.channel_key = $2)
                    AND ($3 = '' OR $3 = CASE
                      WHEN d.lifecycle = 'archived' THEN 'ignored'
-                     WHEN j.status = 'waiting_input' THEN 'needs_secret'
-                     WHEN j.status = 'failed' THEN 'failed'
-                     WHEN j.status = 'succeeded' THEN 'parsed'
-                     WHEN j.status = 'running' THEN 'ready'
+                     WHEN j.status = '{waiting}' THEN 'needs_secret'
+                     WHEN j.status = '{failed}' THEN 'failed'
+                     WHEN j.status = '{succeeded}' THEN 'parsed'
+                     WHEN j.status = '{running}' THEN 'ready'
                      ELSE 'received' END)",
+                    waiting = ParseJobStatus::WaitingInput,
+                    failed = ParseJobStatus::Failed,
+                    succeeded = ParseJobStatus::Succeeded,
+                    running = ParseJobStatus::Running,
+                ),
                 &[&user_id, &source, &status],
             )
             .await
@@ -572,16 +587,20 @@ impl Service {
         let rows = client
             .query(
                 &format!(
-                    "{} WHERE d.user_id = $1 AND ($2 = '' OR d.channel_key = $2)
+                    "{select} WHERE d.user_id = $1 AND ($2 = '' OR d.channel_key = $2)
                        AND ($3 = '' OR $3 = CASE
                          WHEN d.lifecycle = 'archived' THEN 'ignored'
-                         WHEN j.status = 'waiting_input' THEN 'needs_secret'
-                         WHEN j.status = 'failed' THEN 'failed'
-                         WHEN j.status = 'succeeded' THEN 'parsed'
-                         WHEN j.status = 'running' THEN 'ready'
+                         WHEN j.status = '{waiting}' THEN 'needs_secret'
+                         WHEN j.status = '{failed}' THEN 'failed'
+                         WHEN j.status = '{succeeded}' THEN 'parsed'
+                         WHEN j.status = '{running}' THEN 'ready'
                          ELSE 'received' END)
                      ORDER BY d.received_at DESC NULLS LAST, d.id DESC LIMIT $4 OFFSET $5",
-                    document_select()
+                    select = document_select(),
+                    waiting = ParseJobStatus::WaitingInput,
+                    failed = ParseJobStatus::Failed,
+                    succeeded = ParseJobStatus::Succeeded,
+                    running = ParseJobStatus::Running,
                 ),
                 &[&user_id, &source, &status, &limit_i64, &offset],
             )
@@ -811,7 +830,7 @@ impl Service {
                 "INSERT INTO abei_ai.parse_jobs
                    (user_id, bill_document_id, target_revision, parser_flow_id,
                     parser_flow_version, definition_checksum, status, stage, progress)
-                 VALUES ($1,$2,$3,$4,$5,$6,'queued','route',$7) RETURNING id",
+                 VALUES ($1,$2,$3,$4,$5,$6,$8,'route',$7) RETURNING id",
                 &[
                     &user_id,
                     &id,
@@ -820,6 +839,7 @@ impl Service {
                     &version,
                     &checksum,
                     &json!({ "stage": "route", "reparse": true }),
+                    &ParseJobStatus::Queued.as_str(),
                 ],
             )
             .await
@@ -828,7 +848,7 @@ impl Service {
         transaction.commit().await.map_err(ApiError::database)?;
         self.notify.notify_one();
         Ok(
-            json!({ "data": { "id": job_id.to_string(), "status": "queued", "target_revision": target_revision } }),
+            json!({ "data": { "id": job_id.to_string(), "status": ParseJobStatus::Queued.as_str(), "target_revision": target_revision } }),
         )
     }
 
@@ -884,12 +904,16 @@ impl Service {
             .await
             .map_err(ApiError::database)?
             .execute(
-                "UPDATE abei_ai.parse_jobs SET status = 'queued', stage = 'route',
+                &format!(
+                    "UPDATE abei_ai.parse_jobs SET status = '{queued}', stage = 'route',
                    attempt = attempt + 1, worker_id = NULL, lease_expires_at = NULL,
                    heartbeat_at = NULL, error_code = NULL, error_message = NULL,
                    finished_at = NULL, updated_at = now()
-                 WHERE user_id = $1 AND id = $2 AND status IN ('failed', 'cancelled')
+                 WHERE user_id = $1 AND id = $2 AND status IN ({retryable})
                    AND attempt < 20",
+                    queued = ParseJobStatus::Queued,
+                    retryable = sql_list(&[ParseJobStatus::Failed, ParseJobStatus::Cancelled]),
+                ),
                 &[&user_id, &id],
             )
             .await
@@ -908,11 +932,19 @@ impl Service {
             .await
             .map_err(ApiError::database)?
             .execute(
-                "UPDATE abei_ai.parse_jobs SET status = 'cancelled', stage = 'finished',
+                &format!(
+                    "UPDATE abei_ai.parse_jobs SET status = '{cancelled}', stage = 'finished',
                    worker_id = NULL, lease_expires_at = NULL, heartbeat_at = NULL,
                    finished_at = now(), updated_at = now()
                  WHERE user_id = $1 AND id = $2
-                   AND status IN ('queued', 'running', 'waiting_input')",
+                   AND status IN ({cancellable})",
+                    cancelled = ParseJobStatus::Cancelled,
+                    cancellable = sql_list(&[
+                        ParseJobStatus::Queued,
+                        ParseJobStatus::Running,
+                        ParseJobStatus::WaitingInput,
+                    ]),
+                ),
                 &[&user_id, &id],
             )
             .await
@@ -950,7 +982,9 @@ impl Service {
             .await
             .map_err(ApiError::database)?
             .ok_or_else(|| ApiError::not_found("解析任务不存在。"))?;
-        if state.get::<_, String>(0) != "waiting_input" {
+        if ParseJobStatus::from_str(&state.get::<_, String>(0))
+            != Some(ParseJobStatus::WaitingInput)
+        {
             return Err(ApiError::conflict("解析任务当前不在等待密码。"));
         }
         if state.get::<_, i32>(1) >= 5 {
@@ -972,10 +1006,10 @@ impl Service {
             .map_err(ApiError::database)?;
         transaction
             .execute(
-                "UPDATE abei_ai.parse_jobs SET status = 'queued', stage = 'unlock',
+                "UPDATE abei_ai.parse_jobs SET status = $3, stage = 'unlock',
                    waiting_reason = NULL, waiting_prompt = NULL, finished_at = NULL,
                    updated_at = now() WHERE user_id = $1 AND id = $2",
-                &[&user_id, &id],
+                &[&user_id, &id, &ParseJobStatus::Queued.as_str()],
             )
             .await
             .map_err(ApiError::database)?;
@@ -1059,7 +1093,10 @@ fn document_select() -> &'static str {
 
 fn document_json(row: &Row) -> Value {
     let lifecycle: String = row.get("lifecycle");
-    let job_status: Option<String> = row.get("job_status");
+    let job_state = row
+        .get::<_, Option<String>>("job_status")
+        .as_deref()
+        .and_then(ParseJobStatus::from_str);
     let total: i64 = row.get("row_total");
     let imported: i64 = row.get("row_imported");
     let status = if lifecycle == "archived" {
@@ -1067,11 +1104,11 @@ fn document_json(row: &Row) -> Value {
     } else if total > 0 && imported == total {
         "imported"
     } else {
-        match job_status.as_deref() {
-            Some("waiting_input") => "needs_secret",
-            Some("failed") => "failed",
-            Some("succeeded") => "parsed",
-            Some("running") => "ready",
+        match job_state {
+            Some(ParseJobStatus::WaitingInput) => "needs_secret",
+            Some(ParseJobStatus::Failed) => "failed",
+            Some(ParseJobStatus::Succeeded) => "parsed",
+            Some(ParseJobStatus::Running) => "ready",
             _ => "received",
         }
     };
@@ -1093,7 +1130,7 @@ fn document_json(row: &Row) -> Value {
             "account_hint": row.get::<_, Option<String>>("account_hint"),
             "period_start": row.get::<_, Option<String>>("period_start"),
             "period_end": row.get::<_, Option<String>>("period_end"),
-            "current_secret_challenge_id": if job_status.as_deref() == Some("waiting_input") {
+            "current_secret_challenge_id": if job_state == Some(ParseJobStatus::WaitingInput) {
                 row.get::<_, Option<i64>>("job_id").map(|v| v.to_string())
             } else { None },
             "error_code": row.get::<_, Option<String>>("error_code"),

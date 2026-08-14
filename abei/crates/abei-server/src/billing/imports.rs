@@ -10,6 +10,7 @@ use uuid::Uuid;
 use super::Service;
 use crate::ApiError;
 use crate::reliability::ReliabilityConfig;
+use crate::states::{ImportStatus, RowStatus};
 
 const MAX_ERROR_CHARS: usize = 2_000;
 
@@ -87,7 +88,7 @@ impl Service {
                     "INSERT INTO abei_ai.bill_import_attempts
                        (id, user_id, bill_row_id, attempt_no, status, external_id,
                         payload_hash, payload_snapshot)
-                     VALUES ($1,$2,$3,$4,'prepared',$5,$6,$7)",
+                     VALUES ($1,$2,$3,$4,$8,$5,$6,$7)",
                     &[
                         &id,
                         &user_id,
@@ -96,6 +97,7 @@ impl Service {
                         &external_id,
                         &payload_hash,
                         &payload,
+                        &ImportStatus::Prepared.as_str(),
                     ],
                 )
                 .await
@@ -126,9 +128,14 @@ impl Service {
             .await
             .map_err(ApiError::database)?
             .execute(
-                "UPDATE abei_ai.bill_import_attempts SET status = 'sending', updated_at = now()
-                 WHERE user_id = $1 AND id = $2 AND status = 'prepared'",
-                &[&user_id, &attempt_id],
+                "UPDATE abei_ai.bill_import_attempts SET status = $3, updated_at = now()
+                 WHERE user_id = $1 AND id = $2 AND status = $4",
+                &[
+                    &user_id,
+                    &attempt_id,
+                    &ImportStatus::Sending.as_str(),
+                    &ImportStatus::Prepared.as_str(),
+                ],
             )
             .await
             .map_err(ApiError::database)?;
@@ -167,7 +174,16 @@ impl Service {
         let row_id: i64 = attempt.get(0);
         let status: String = attempt.get(1);
         let existing_group: Option<i64> = attempt.get(2);
-        if matches!(status.as_str(), "succeeded" | "reconciled") {
+        let status = ImportStatus::from_str(&status)
+            .ok_or_else(|| ApiError::internal("导入尝试的状态无法识别。"))?;
+        let target_status = if reconciled {
+            ImportStatus::Reconciled
+        } else {
+            ImportStatus::Succeeded
+        };
+
+        // 已经落定的尝试重复调用是幂等的：交易组一致就当成功返回，不一致才是真冲突。
+        if ImportStatus::SETTLED.contains(&status) {
             if existing_group == Some(transaction_group_id) {
                 transaction.commit().await.map_err(ApiError::database)?;
                 return self.get_import_attempt(user_id, attempt_id).await;
@@ -176,20 +192,22 @@ impl Service {
                 "该导入尝试已经绑定到另一个 Firefly 交易组。",
             ));
         }
-        if !matches!(status.as_str(), "sending" | "uncertain") {
+        // 合不合法交给状态机判断，而不是在这里再抄一遍允许的来源状态。
+        if !status.can_transition(target_status) {
             return Err(ApiError::conflict("当前导入尝试不能完成。"));
         }
-        let target_status = if reconciled {
-            "reconciled"
-        } else {
-            "succeeded"
-        };
         transaction
             .execute(
-                "UPDATE abei_ai.bill_rows SET status = 'imported', transaction_group_id = $3,
+                "UPDATE abei_ai.bill_rows SET status = $4, transaction_group_id = $3,
                    last_import_error = NULL, updated_at = now()
-                 WHERE user_id = $1 AND id = $2 AND status = 'pending'",
-                &[&user_id, &row_id, &transaction_group_id],
+                 WHERE user_id = $1 AND id = $2 AND status = $5",
+                &[
+                    &user_id,
+                    &row_id,
+                    &transaction_group_id,
+                    &RowStatus::Imported.as_str(),
+                    &RowStatus::Pending.as_str(),
+                ],
             )
             .await
             .map_err(import_constraint_error)?;
@@ -199,7 +217,12 @@ impl Service {
                    transaction_group_id = $4, error_code = NULL, error_message = NULL,
                    retry_after = NULL, finished_at = now(), updated_at = now()
                  WHERE user_id = $1 AND id = $2",
-                &[&user_id, &attempt_id, &target_status, &transaction_group_id],
+                &[
+                    &user_id,
+                    &attempt_id,
+                    &target_status.as_str(),
+                    &transaction_group_id,
+                ],
             )
             .await
             .map_err(import_constraint_error)?;
@@ -216,26 +239,44 @@ impl Service {
         error_code: &str,
         error_message: &str,
     ) -> Result<Value, ApiError> {
-        let target = if retryable { "retryable" } else { "rejected" };
+        let target = if retryable {
+            ImportStatus::Retryable
+        } else {
+            ImportStatus::Rejected
+        };
+        let target = target.as_str();
         let retry_delay = if retryable { 30 } else { 0 };
         let message = truncate(error_message, MAX_ERROR_CHARS);
+        // 能标记失败的来源状态 = 状态机里能走到 retryable/rejected 的那些，这里直接问它。
+        let sources = crate::states::sql_list(
+            &ImportStatus::ALL
+                .iter()
+                .copied()
+                .filter(|status| {
+                    status.can_transition(ImportStatus::Retryable)
+                        && status.can_transition(ImportStatus::Rejected)
+                })
+                .collect::<Vec<_>>(),
+        );
         let updated = self
             .pool
             .get()
             .await
             .map_err(ApiError::database)?
             .execute(
-                "WITH changed AS (
-                   UPDATE abei_ai.bill_import_attempts SET status = $3, firefly_status = $4,
-                     error_code = $5, error_message = $6,
-                     retry_after = CASE WHEN $7::integer > 0
-                       THEN now() + make_interval(secs => $7::integer) ELSE NULL END,
-                     finished_at = now(), updated_at = now()
-                   WHERE user_id = $1 AND id = $2 AND status IN ('prepared','sending')
-                   RETURNING bill_row_id
-                 )
-                 UPDATE abei_ai.bill_rows r SET last_import_error = $6, updated_at = now()
-                 FROM changed WHERE r.user_id = $1 AND r.id = changed.bill_row_id",
+                &format!(
+                    "WITH changed AS (
+                       UPDATE abei_ai.bill_import_attempts SET status = $3, firefly_status = $4,
+                         error_code = $5, error_message = $6,
+                         retry_after = CASE WHEN $7::integer > 0
+                           THEN now() + make_interval(secs => $7::integer) ELSE NULL END,
+                         finished_at = now(), updated_at = now()
+                       WHERE user_id = $1 AND id = $2 AND status IN ({sources})
+                       RETURNING bill_row_id
+                     )
+                     UPDATE abei_ai.bill_rows r SET last_import_error = $6, updated_at = now()
+                     FROM changed WHERE r.user_id = $1 AND r.id = changed.bill_row_id"
+                ),
                 &[
                     &user_id,
                     &attempt_id,
@@ -270,15 +311,21 @@ impl Service {
             .map_err(ApiError::database)?
             .execute(
                 "WITH changed AS (
-                   UPDATE abei_ai.bill_import_attempts SET status = 'uncertain',
+                   UPDATE abei_ai.bill_import_attempts SET status = $4,
                      error_code = 'firefly_result_uncertain', error_message = $3,
                      retry_after = now() + interval '30 seconds', updated_at = now()
-                   WHERE user_id = $1 AND id = $2 AND status = 'sending'
+                   WHERE user_id = $1 AND id = $2 AND status = $5
                    RETURNING bill_row_id
                  )
                  UPDATE abei_ai.bill_rows r SET last_import_error = $3, updated_at = now()
                  FROM changed WHERE r.user_id = $1 AND r.id = changed.bill_row_id",
-                &[&user_id, &attempt_id, &message],
+                &[
+                    &user_id,
+                    &attempt_id,
+                    &message,
+                    &ImportStatus::Uncertain.as_str(),
+                    &ImportStatus::Sending.as_str(),
+                ],
             )
             .await
             .map_err(ApiError::database)?;
@@ -301,13 +348,18 @@ impl Service {
             .await
             .map_err(ApiError::database)?
             .execute(
-                "UPDATE abei_ai.bill_import_attempts SET status = 'retryable',
+                "UPDATE abei_ai.bill_import_attempts SET status = $3,
                    error_code = 'reconcile_not_found',
                    error_message = '在 Firefly 中未找到对应 external_id，可以重新导入。',
                    finished_at = now(), updated_at = now()
-                 WHERE user_id = $1 AND id = $2 AND status = 'uncertain'
+                 WHERE user_id = $1 AND id = $2 AND status = $4
                    AND retry_after <= now()",
-                &[&user_id, &attempt_id],
+                &[
+                    &user_id,
+                    &attempt_id,
+                    &ImportStatus::Retryable.as_str(),
+                    &ImportStatus::Uncertain.as_str(),
+                ],
             )
             .await
             .map_err(ApiError::database)?;
@@ -430,7 +482,7 @@ async fn validate_import_row(
     if row.lifecycle != "active" || !row.active_revision {
         return Err(ApiError::conflict("只能导入当前活动 revision 的流水。"));
     }
-    if row.status != "pending" || row.transaction_group_id.is_some() {
+    if row.status != RowStatus::Pending.as_str() || row.transaction_group_id.is_some() {
         return Err(ApiError::conflict("只有尚未入账的待处理流水可以导入。"));
     }
     if row.duplicate_state != "unique" {
@@ -465,32 +517,47 @@ async fn validate_import_row(
     // 是为了让用户刚点的这一行立刻可用，不用等下一轮清扫。两处用同一套租约参数。
     transaction
         .execute(
-            "UPDATE abei_ai.bill_import_attempts SET status = 'retryable',
+            "UPDATE abei_ai.bill_import_attempts SET status = $3,
                error_code = 'prepare_expired', error_message = '导入在发送前中断，可以重试。',
                finished_at = now(), updated_at = now()
-             WHERE bill_row_id = $1 AND status = 'prepared'
+             WHERE bill_row_id = $1 AND status = $4
                AND updated_at < now() - make_interval(secs => $2)",
-            &[&row.id, &reliability.prepare_lease_secs()],
+            &[
+                &row.id,
+                &reliability.prepare_lease_secs(),
+                &ImportStatus::Retryable.as_str(),
+                &ImportStatus::Prepared.as_str(),
+            ],
         )
         .await
         .map_err(ApiError::database)?;
     transaction
         .execute(
-            "UPDATE abei_ai.bill_import_attempts SET status = 'uncertain',
+            "UPDATE abei_ai.bill_import_attempts SET status = $3,
                error_code = 'sending_lease_expired',
                error_message = '发送过程失去响应，必须先按 external_id 对账。',
                retry_after = now(), updated_at = now()
-             WHERE bill_row_id = $1 AND status = 'sending'
+             WHERE bill_row_id = $1 AND status = $4
                AND updated_at < now() - make_interval(secs => $2)",
-            &[&row.id, &reliability.send_lease_secs()],
+            &[
+                &row.id,
+                &reliability.send_lease_secs(),
+                &ImportStatus::Uncertain.as_str(),
+                &ImportStatus::Sending.as_str(),
+            ],
         )
         .await
         .map_err(ApiError::database)?;
+    // 挡住重复发送的两组状态：在途的（还占着这一行）和已落定的（账已经在 Firefly 里）。
+    // 它们和库里那两个部分唯一索引是同一组定义，states.rs 里有用例锁着。
+    let blocking = crate::states::sql_list(&[ImportStatus::ACTIVE, ImportStatus::SETTLED].concat());
     let active = transaction
         .query_opt(
-            "SELECT status FROM abei_ai.bill_import_attempts
-             WHERE bill_row_id = $1 AND status IN ('prepared','sending','uncertain','succeeded','reconciled')
-             ORDER BY attempt_no DESC LIMIT 1",
+            &format!(
+                "SELECT status FROM abei_ai.bill_import_attempts
+                 WHERE bill_row_id = $1 AND status IN ({blocking})
+                 ORDER BY attempt_no DESC LIMIT 1"
+            ),
             &[&row.id],
         )
         .await

@@ -7,6 +7,7 @@ use tokio::time::{Instant, interval_at};
 use super::Service;
 use crate::parser::engine::{self, ParseContext};
 use crate::parser::model::{Node, ParserFlowDefinition};
+use crate::states::ParseJobStatus;
 
 const CLAIM_INTERVAL: Duration = Duration::from_secs(5);
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
@@ -56,15 +57,19 @@ impl Service {
         let transaction = client.transaction().await.map_err(display)?;
         let row = transaction
             .query_opt(
-                "SELECT j.id, j.user_id, j.bill_document_id, d.mail_message_id,
+                &format!(
+                    "SELECT j.id, j.user_id, j.bill_document_id, d.mail_message_id,
                         j.target_revision, j.parser_flow_id, j.parser_flow_version,
-                        j.status = 'running' AS recovered
+                        j.status = '{running}' AS recovered
                  FROM abei_ai.parse_jobs j
                  JOIN abei_ai.bill_documents d ON d.id = j.bill_document_id
-                 WHERE j.status = 'queued'
-                    OR (j.status = 'running' AND j.lease_expires_at < now() AND j.attempt < 20)
+                 WHERE j.status = '{queued}'
+                    OR (j.status = '{running}' AND j.lease_expires_at < now() AND j.attempt < 20)
                  ORDER BY j.priority, j.requested_at, j.id
                  FOR UPDATE OF j SKIP LOCKED LIMIT 1",
+                    running = ParseJobStatus::Running,
+                    queued = ParseJobStatus::Queued,
+                ),
                 &[],
             )
             .await
@@ -77,7 +82,7 @@ impl Service {
         let recovered: bool = row.get(7);
         transaction
             .execute(
-                "UPDATE abei_ai.parse_jobs SET status = 'running', stage = 'select_input',
+                "UPDATE abei_ai.parse_jobs SET status = $6, stage = 'select_input',
                    worker_id = $2, lease_expires_at = now() + make_interval(secs => $3::integer),
                    heartbeat_at = now(), started_at = COALESCE(started_at, now()),
                    attempt = attempt + CASE WHEN $4 THEN 1 ELSE 0 END,
@@ -96,6 +101,7 @@ impl Service {
                         "recovered": recovered,
                         "updated_at": time::OffsetDateTime::now_utc().to_string(),
                     }),
+                    &ParseJobStatus::Running.as_str(),
                 ],
             )
             .await
@@ -180,8 +186,13 @@ impl Service {
             .execute(
                 "UPDATE abei_ai.parse_jobs SET heartbeat_at = now(),
                    lease_expires_at = now() + make_interval(secs => $3::integer), updated_at = now()
-                 WHERE id = $1 AND worker_id = $2 AND status = 'running'",
-                &[&job.id, &job.worker_id, &LEASE_SECONDS],
+                 WHERE id = $1 AND worker_id = $2 AND status = $4",
+                &[
+                    &job.id,
+                    &job.worker_id,
+                    &LEASE_SECONDS,
+                    &ParseJobStatus::Running.as_str(),
+                ],
             )
             .await
             .map_err(display)?;
@@ -206,8 +217,14 @@ impl Service {
             .map_err(display)?
             .execute(
                 "UPDATE abei_ai.parse_jobs SET stage = $3, progress = progress || $4,
-                   updated_at = now() WHERE id = $1 AND worker_id = $2 AND status = 'running'",
-                &[&job.id, &job.worker_id, &stage, &progress],
+                   updated_at = now() WHERE id = $1 AND worker_id = $2 AND status = $5",
+                &[
+                    &job.id,
+                    &job.worker_id,
+                    &stage,
+                    &progress,
+                    &ParseJobStatus::Running.as_str(),
+                ],
             )
             .await
             .map_err(display)?;
@@ -224,16 +241,18 @@ impl Service {
             .await
             .map_err(display)?
             .execute(
-                "UPDATE abei_ai.parse_jobs SET status = 'waiting_input', stage = 'unlock',
+                "UPDATE abei_ai.parse_jobs SET status = $5, stage = 'unlock',
                    waiting_reason = 'secret_required', waiting_prompt = $3,
                    worker_id = NULL, lease_expires_at = NULL, heartbeat_at = NULL,
                    progress = progress || $4, updated_at = now()
-                 WHERE id = $1 AND worker_id = $2 AND status = 'running'",
+                 WHERE id = $1 AND worker_id = $2 AND status = $6",
                 &[
                     &job.id,
                     &job.worker_id,
                     &format!("请输入解析此账单所需的密码（{key}）。"),
                     &json!({ "stage": "unlock", "secret_key": key }),
+                    &ParseJobStatus::WaitingInput.as_str(),
+                    &ParseJobStatus::Running.as_str(),
                 ],
             )
             .await
@@ -247,12 +266,19 @@ impl Service {
             .await
             .map_err(display)?
             .execute(
-                "UPDATE abei_ai.parse_jobs SET status = 'failed', stage = 'finished',
+                "UPDATE abei_ai.parse_jobs SET status = $5, stage = 'finished',
                    error_code = $3, error_message = $4, worker_id = NULL,
                    lease_expires_at = NULL, heartbeat_at = NULL,
                    finished_at = now(), updated_at = now()
-                 WHERE id = $1 AND worker_id = $2 AND status = 'running'",
-                &[&job.id, &job.worker_id, &code, &truncate(error, 2_000)],
+                 WHERE id = $1 AND worker_id = $2 AND status = $6",
+                &[
+                    &job.id,
+                    &job.worker_id,
+                    &code,
+                    &truncate(error, 2_000),
+                    &ParseJobStatus::Failed.as_str(),
+                    &ParseJobStatus::Running.as_str(),
+                ],
             )
             .await
             .map_err(display)?;
@@ -275,14 +301,19 @@ impl Service {
         if attempts >= 5 {
             transaction
                 .execute(
-                    "UPDATE abei_ai.parse_jobs SET status = 'failed', stage = 'finished',
+                    "UPDATE abei_ai.parse_jobs SET status = $3, stage = 'finished',
                        waiting_reason = NULL, waiting_prompt = NULL,
                        error_code = 'secret_attempts_exhausted',
                        error_message = '密码尝试次数已达上限，请重新发起解析。',
                        worker_id = NULL, lease_expires_at = NULL, heartbeat_at = NULL,
                        finished_at = now(), updated_at = now()
-                     WHERE id = $1 AND worker_id = $2 AND status = 'running'",
-                    &[&job.id, &job.worker_id],
+                     WHERE id = $1 AND worker_id = $2 AND status = $4",
+                    &[
+                        &job.id,
+                        &job.worker_id,
+                        &ParseJobStatus::Failed.as_str(),
+                        &ParseJobStatus::Running.as_str(),
+                    ],
                 )
                 .await
                 .map_err(display)?;
@@ -296,17 +327,19 @@ impl Service {
         } else {
             transaction
                 .execute(
-                    "UPDATE abei_ai.parse_jobs SET status = 'waiting_input', stage = 'unlock',
+                    "UPDATE abei_ai.parse_jobs SET status = $4, stage = 'unlock',
                        waiting_reason = 'secret_rejected',
                        waiting_prompt = '密码不正确，请重新输入。',
                        error_code = NULL, error_message = NULL,
                        worker_id = NULL, lease_expires_at = NULL, heartbeat_at = NULL,
                        progress = progress || $3, updated_at = now()
-                     WHERE id = $1 AND worker_id = $2 AND status = 'running'",
+                     WHERE id = $1 AND worker_id = $2 AND status = $5",
                     &[
                         &job.id,
                         &job.worker_id,
                         &json!({ "stage": "unlock", "secret_rejected": true, "attempts": attempts }),
+                        &ParseJobStatus::WaitingInput.as_str(),
+                        &ParseJobStatus::Running.as_str(),
                     ],
                 )
                 .await

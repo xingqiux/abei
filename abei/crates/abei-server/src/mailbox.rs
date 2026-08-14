@@ -41,6 +41,7 @@ use tokio_rustls::TlsConnector;
 use tokio_rustls::rustls::pki_types::ServerName;
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 
+use crate::states::SyncRunStatus;
 use crate::{ApiError, AppState, WriteGate, authenticated_user_id};
 
 const MAX_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
@@ -408,17 +409,18 @@ impl Service {
         // 失败次数从上一次成功之后算起，成功一次就自然归零。
         let rows = client
             .query(
-                "WITH last_success AS (
+                &format!(
+                    "WITH last_success AS (
                    SELECT user_id, max(finished_at) AS at
                    FROM abei_ai.mail_sync_runs
-                   WHERE status = 'succeeded'
+                   WHERE status = '{succeeded}'
                    GROUP BY user_id
                  ),
                  streak AS (
                    SELECT r.user_id, count(*) AS failures, max(r.finished_at) AS last_failed_at
                    FROM abei_ai.mail_sync_runs r
                    LEFT JOIN last_success s ON s.user_id = r.user_id
-                   WHERE r.status = 'failed'
+                   WHERE r.status = '{failed}'
                      AND (s.at IS NULL OR r.finished_at > s.at)
                    GROUP BY r.user_id
                  )
@@ -429,6 +431,9 @@ impl Service {
                  LEFT JOIN streak ON streak.user_id = m.user_id
                  WHERE m.enabled = true
                  ORDER BY m.user_id",
+                    succeeded = SyncRunStatus::Succeeded,
+                    failed = SyncRunStatus::Failed,
+                ),
                 &[],
             )
             .await
@@ -492,11 +497,15 @@ impl Service {
             .map_err(display)?;
         transaction
             .execute(
-                "UPDATE abei_ai.mail_sync_runs SET status = 'failed', stage = 'finished',
+                &format!(
+                    "UPDATE abei_ai.mail_sync_runs SET status = '{failed}', stage = 'finished',
                    error_summary = '同步进程失去心跳，已由下一轮同步回收。',
                    finished_at = now(), updated_at = now()
-                 WHERE user_id = $1 AND status IN ('queued', 'running')
+                 WHERE user_id = $1 AND status IN ({in_flight})
                    AND updated_at < now() - make_interval(secs => $2)",
+                    failed = SyncRunStatus::Failed,
+                    in_flight = SyncRunStatus::in_flight_sql(),
+                ),
                 &[
                     &user_id,
                     &self.config.reliability().sync_heartbeat_timeout_secs(),
@@ -506,11 +515,14 @@ impl Service {
             .map_err(display)?;
         if let Some(row) = transaction
             .query_opt(
-                "SELECT id, status, requested_at::text, started_at::text, finished_at::text,
+                &format!(
+                    "SELECT id, status, requested_at::text, started_at::text, finished_at::text,
                         progress, error_summary
                  FROM abei_ai.mail_sync_runs
-                 WHERE user_id = $1 AND status IN ('queued', 'running')
+                 WHERE user_id = $1 AND status IN ({in_flight})
                  ORDER BY id DESC LIMIT 1",
+                    in_flight = SyncRunStatus::in_flight_sql(),
+                ),
                 &[&user_id],
             )
             .await
@@ -523,10 +535,10 @@ impl Service {
             .query_one(
                 "INSERT INTO abei_ai.mail_sync_runs
                    (user_id, mailbox_user_id, kind, scope, status, stage)
-                 VALUES ($1, $1, 'incremental', $2::text::jsonb, 'queued', 'queued')
+                 VALUES ($1, $1, 'incremental', $2::text::jsonb, $3, 'queued')
                  RETURNING id, status, requested_at::text, started_at::text, finished_at::text,
                            progress, error_summary",
-                &[&user_id, &scope],
+                &[&user_id, &scope, &SyncRunStatus::Queued.as_str()],
             )
             .await
             .map_err(display)?;
@@ -567,9 +579,12 @@ impl Service {
             .map_err(display)?;
         if transaction
             .query_opt(
-                "SELECT id FROM abei_ai.mail_sync_runs
-                 WHERE user_id = $1 AND status IN ('queued', 'running')
+                &format!(
+                    "SELECT id FROM abei_ai.mail_sync_runs
+                 WHERE user_id = $1 AND status IN ({in_flight})
                  ORDER BY id DESC LIMIT 1",
+                    in_flight = SyncRunStatus::in_flight_sql(),
+                ),
                 &[&user_id],
             )
             .await
@@ -582,9 +597,9 @@ impl Service {
             .query_one(
                 "INSERT INTO abei_ai.mail_sync_runs
                    (user_id, mailbox_user_id, kind, scope, status, stage)
-                 VALUES ($1, $1, 'rescan', $2::text::jsonb, 'queued', 'queued')
+                 VALUES ($1, $1, 'rescan', $2::text::jsonb, $3, 'queued')
                  RETURNING id",
-                &[&user_id, &scope],
+                &[&user_id, &scope, &SyncRunStatus::Queued.as_str()],
             )
             .await
             .map_err(display)?
@@ -657,9 +672,9 @@ impl Service {
 
     async fn finish(&self, user_id: i64, run_id: i64, result: &SyncResult) -> Result<(), String> {
         let status = if result.failed == 0 {
-            "succeeded"
+            SyncRunStatus::Succeeded
         } else {
-            "failed"
+            SyncRunStatus::Failed
         };
         let error = result.errors.first().map(|value| truncate(value, 2000));
         let encoded = serde_json::to_string(result).map_err(display)?;
@@ -670,11 +685,11 @@ impl Service {
                    scanned = $4, fetched = $5, matched = $6, unclassified = $7,
                    failed = $8, progress = $9::text::jsonb, error_summary = $10,
                    finished_at = now(), updated_at = now()
-                 WHERE user_id = $1 AND id = $2 AND status = 'running'",
+                 WHERE user_id = $1 AND id = $2 AND status = $11",
                 &[
                     &user_id,
                     &run_id,
-                    &status,
+                    &status.as_str(),
                     &(result.scanned as i32),
                     &(result.fetched as i32),
                     &(result.matched as i32),
@@ -682,13 +697,14 @@ impl Service {
                     &(result.failed as i32),
                     &encoded,
                     &error,
+                    &SyncRunStatus::Running.as_str(),
                 ],
             )
             .await
             .map_err(display)?;
         tracing::info!(
             user_id,
-            status,
+            status = status.as_str(),
             scanned = result.scanned,
             created = result.created,
             "账单邮箱同步完成"
@@ -718,8 +734,13 @@ impl Service {
             .execute(
                 "UPDATE abei_ai.mail_sync_runs SET stage = 'fetch',
                    progress = $3::text::jsonb, updated_at = now()
-                 WHERE user_id = $1 AND id = $2 AND status = 'running'",
-                &[&user_id, &run_id, &progress],
+                 WHERE user_id = $1 AND id = $2 AND status = $4",
+                &[
+                    &user_id,
+                    &run_id,
+                    &progress,
+                    &SyncRunStatus::Running.as_str(),
+                ],
             )
             .await
             .map_err(display)?;
@@ -733,10 +754,15 @@ impl Service {
             .await
             .map_err(display)?
             .execute(
-                "UPDATE abei_ai.mail_sync_runs SET status = 'running', stage = 'connect',
+                "UPDATE abei_ai.mail_sync_runs SET status = $3, stage = 'connect',
                    started_at = now(), updated_at = now()
-                 WHERE user_id = $1 AND id = $2 AND status = 'queued'",
-                &[&user_id, &run_id],
+                 WHERE user_id = $1 AND id = $2 AND status = $4",
+                &[
+                    &user_id,
+                    &run_id,
+                    &SyncRunStatus::Running.as_str(),
+                    &SyncRunStatus::Queued.as_str(),
+                ],
             )
             .await
             .map_err(display)?;
@@ -750,9 +776,13 @@ impl Service {
             .await
             .map_err(display)?
             .execute(
-                "UPDATE abei_ai.mail_sync_runs SET status = 'cancelled', stage = 'finished',
+                &format!(
+                    "UPDATE abei_ai.mail_sync_runs SET status = '{cancelled}', stage = 'finished',
                    finished_at = now(), updated_at = now()
-                 WHERE user_id = $1 AND id = $2 AND status IN ('queued', 'running')",
+                 WHERE user_id = $1 AND id = $2 AND status IN ({in_flight})",
+                    cancelled = SyncRunStatus::Cancelled,
+                    in_flight = SyncRunStatus::in_flight_sql(),
+                ),
                 &[&user_id, &run_id],
             )
             .await
@@ -767,8 +797,8 @@ impl Service {
             .map_err(display)?
             .query_opt(
                 "SELECT 1 FROM abei_ai.mail_sync_runs
-                 WHERE user_id = $1 AND id = $2 AND status = 'cancelled'",
-                &[&user_id, &run_id],
+                 WHERE user_id = $1 AND id = $2 AND status = $3",
+                &[&user_id, &run_id, &SyncRunStatus::Cancelled.as_str()],
             )
             .await
             .map(|row| row.is_some())
@@ -799,7 +829,7 @@ impl Service {
                 "UPDATE abei_ai.mail_sync_runs SET stage = 'fetch', scanned = $3, fetched = $4,
                    matched = $5, unclassified = $6, failed = $7,
                    progress = progress || $8::text::jsonb, updated_at = now()
-                 WHERE user_id = $1 AND id = $2 AND status = 'running'",
+                 WHERE user_id = $1 AND id = $2 AND status = $9",
                 &[
                     &user_id,
                     &run_id,
@@ -809,6 +839,7 @@ impl Service {
                     &(result.unclassified as i32),
                     &(result.failed as i32),
                     &progress,
+                    &SyncRunStatus::Running.as_str(),
                 ],
             )
             .await
@@ -897,12 +928,19 @@ fn imap_date(date: Date) -> String {
 
 fn sync_run_state(row: &tokio_postgres::Row) -> Value {
     let status = row.get::<_, String>(1);
+    let state = SyncRunStatus::from_str(&status);
     let progress = row.get::<_, Value>(5);
-    let result =
-        matches!(status.as_str(), "succeeded" | "failed" | "cancelled").then_some(progress);
+    // 只有收尾了的同步才有最终结果；终态就是 succeeded / failed / cancelled 这三个。
+    let result = state
+        .is_some_and(SyncRunStatus::is_terminal)
+        .then_some(progress);
     json!({
         "run_id": row.get::<_, i64>(0).to_string(),
-        "status": if status == "cancelled" { "failed" } else { status.as_str() },
+        "status": if state == Some(SyncRunStatus::Cancelled) {
+            SyncRunStatus::Failed.as_str()
+        } else {
+            status.as_str()
+        },
         "requested_at": row.get::<_, String>(2),
         "started_at": row.get::<_, Option<String>>(3),
         "finished_at": row.get::<_, Option<String>>(4),
@@ -1076,7 +1114,7 @@ pub(crate) async fn rescan(
             "data": {
                 "type": "mail-sync-run",
                 "id": run_id.to_string(),
-                "attributes": { "status": "queued", "kind": "rescan" }
+                "attributes": { "status": SyncRunStatus::Queued.as_str(), "kind": "rescan" }
             }
         })),
     ))

@@ -7,6 +7,7 @@
 //! 这里改成进程级的定时任务：不带 row_id、不带 user_id，到点就把所有超时的都收掉。
 
 use super::Service;
+use crate::states::{ImportStatus, SyncRunStatus};
 
 pub(super) fn start(service: Service) {
     let interval = service.reliability.sweep_interval;
@@ -52,13 +53,18 @@ pub(super) async fn sweep(service: &Service) -> Result<SweepReport, String> {
         .map_err(|error| error.to_string())?;
     let config = &service.reliability;
 
+    // 状态字面量都从 states.rs 的枚举渲染，改状态机时这里跟着走，不用满仓库搜字符串。
     let prepared_expired = client
         .execute(
-            "UPDATE abei_ai.bill_import_attempts SET status = 'retryable',
-               error_code = 'prepare_expired', error_message = '导入在发送前中断，可以重试。',
-               finished_at = now(), updated_at = now()
-             WHERE status = 'prepared'
-               AND updated_at < now() - make_interval(secs => $1)",
+            &format!(
+                "UPDATE abei_ai.bill_import_attempts SET status = '{retryable}',
+                   error_code = 'prepare_expired', error_message = '导入在发送前中断，可以重试。',
+                   finished_at = now(), updated_at = now()
+                 WHERE status = '{prepared}'
+                   AND updated_at < now() - make_interval(secs => $1)",
+                retryable = ImportStatus::Retryable,
+                prepared = ImportStatus::Prepared,
+            ),
             &[&config.prepare_lease_secs()],
         )
         .await
@@ -66,12 +72,16 @@ pub(super) async fn sweep(service: &Service) -> Result<SweepReport, String> {
 
     let sending_expired = client
         .execute(
-            "UPDATE abei_ai.bill_import_attempts SET status = 'uncertain',
-               error_code = 'sending_lease_expired',
-               error_message = '发送过程失去响应，必须先按 external_id 对账。',
-               retry_after = now(), updated_at = now()
-             WHERE status = 'sending'
-               AND updated_at < now() - make_interval(secs => $1)",
+            &format!(
+                "UPDATE abei_ai.bill_import_attempts SET status = '{uncertain}',
+                   error_code = 'sending_lease_expired',
+                   error_message = '发送过程失去响应，必须先按 external_id 对账。',
+                   retry_after = now(), updated_at = now()
+                 WHERE status = '{sending}'
+                   AND updated_at < now() - make_interval(secs => $1)",
+                uncertain = ImportStatus::Uncertain,
+                sending = ImportStatus::Sending,
+            ),
             &[&config.send_lease_secs()],
         )
         .await
@@ -79,11 +89,15 @@ pub(super) async fn sweep(service: &Service) -> Result<SweepReport, String> {
 
     let sync_runs_failed = client
         .execute(
-            "UPDATE abei_ai.mail_sync_runs SET status = 'failed', stage = 'finished',
-               error_summary = '同步进程失去心跳，已由清扫器回收。',
-               finished_at = now(), updated_at = now()
-             WHERE status IN ('queued', 'running')
-               AND updated_at < now() - make_interval(secs => $1)",
+            &format!(
+                "UPDATE abei_ai.mail_sync_runs SET status = '{failed}', stage = 'finished',
+                   error_summary = '同步进程失去心跳，已由清扫器回收。',
+                   finished_at = now(), updated_at = now()
+                 WHERE status IN ({in_flight})
+                   AND updated_at < now() - make_interval(secs => $1)",
+                failed = SyncRunStatus::Failed,
+                in_flight = SyncRunStatus::in_flight_sql(),
+            ),
             &[&config.sync_heartbeat_timeout_secs()],
         )
         .await

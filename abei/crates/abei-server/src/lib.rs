@@ -9,6 +9,7 @@ mod migrations;
 mod parser;
 mod profile_docs;
 pub mod reliability;
+mod states;
 #[cfg(test)]
 mod testdb;
 
