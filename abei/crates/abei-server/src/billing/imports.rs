@@ -12,6 +12,43 @@ use crate::ApiError;
 use crate::reliability::ReliabilityConfig;
 use crate::states::{ImportStatus, RowStatus};
 
+/// 入账路径的机器码，挂在 `ApiError.reason` 上。
+///
+/// 通用的八个 reason（Conflict、InvalidParams……）只说得清「这是个冲突」，说不清
+/// 是哪一种冲突。前端要区分「去映射账户」和「去人工确认重复」这两个完全不同的动作，
+/// 就只能去匹配中文 detail 文案——文案改一个字就悄悄失效。
+///
+/// 加码只加不改：HTTP 状态码和 detail 文案一个字都没动，老的字符串匹配照旧能跑，
+/// 新的调用方可以改看 reason。
+pub(crate) mod reasons {
+    /// 流水没有映射到 Firefly 账户，用户要先去配账户映射。
+    pub(crate) const ACCOUNT_UNMAPPED: &str = "account_unmapped";
+    /// 转账两端选了同一个账户，或者少选了一端。
+    pub(crate) const TRANSFER_ACCOUNTS_INVALID: &str = "transfer_accounts_invalid";
+    /// 这条流水已经有在途或已成功的导入尝试，不能重复发。
+    pub(crate) const IMPORT_IN_FLIGHT: &str = "import_in_flight";
+    /// 金额缺失、非法或不是正数。
+    pub(crate) const AMOUNT_INVALID: &str = "amount_invalid";
+    /// 疑似重复或冲突，必须先人工确认。
+    pub(crate) const DUPLICATE_UNRESOLVED: &str = "duplicate_unresolved";
+    /// 流水不在待处理状态（已入账、已忽略，或不是当前 revision）。
+    pub(crate) const ROW_NOT_IMPORTABLE: &str = "row_not_importable";
+    /// 流水缺了入账必需的字段。
+    pub(crate) const ROW_INCOMPLETE: &str = "row_incomplete";
+    /// 导入尝试不存在，或者不属于这个用户。
+    pub(crate) const ATTEMPT_NOT_FOUND: &str = "attempt_not_found";
+    /// 流水不存在，或者不属于这个用户。
+    pub(crate) const ROW_NOT_FOUND: &str = "row_not_found";
+    /// firefly_type 不是 Firefly 认的那三种。
+    pub(crate) const ROW_TYPE_UNSUPPORTED: &str = "row_type_unsupported";
+    /// 拆分金额合计和入账金额对不上。
+    pub(crate) const SPLIT_TOTAL_MISMATCH: &str = "split_total_mismatch";
+    /// 当前状态不允许这一步状态迁移。
+    pub(crate) const ATTEMPT_TRANSITION_INVALID: &str = "attempt_transition_invalid";
+    /// 这个导入尝试已经绑定到别的 Firefly 交易组了。
+    pub(crate) const ATTEMPT_ALREADY_BOUND: &str = "attempt_already_bound";
+}
+
 const MAX_ERROR_CHARS: usize = 2_000;
 
 #[derive(Debug)]
@@ -155,9 +192,10 @@ impl Service {
         reconciled: bool,
     ) -> Result<Value, ApiError> {
         if transaction_group_id <= 0 {
-            return Err(ApiError::invalid_params(
-                "transaction_group_id 必须是正整数。",
-            ));
+            return Err(
+                ApiError::invalid_params("transaction_group_id 必须是正整数。")
+                    .with_reason(reasons::AMOUNT_INVALID),
+            );
         }
         let mut client = self.pool.get().await.map_err(ApiError::database)?;
         let transaction = client.transaction().await.map_err(ApiError::database)?;
@@ -170,7 +208,9 @@ impl Service {
             )
             .await
             .map_err(ApiError::database)?
-            .ok_or_else(|| ApiError::not_found("导入尝试不存在。"))?;
+            .ok_or_else(|| {
+                ApiError::not_found("导入尝试不存在。").with_reason(reasons::ATTEMPT_NOT_FOUND)
+            })?;
         let row_id: i64 = attempt.get(0);
         let status: String = attempt.get(1);
         let existing_group: Option<i64> = attempt.get(2);
@@ -188,13 +228,15 @@ impl Service {
                 transaction.commit().await.map_err(ApiError::database)?;
                 return self.get_import_attempt(user_id, attempt_id).await;
             }
-            return Err(ApiError::conflict(
-                "该导入尝试已经绑定到另一个 Firefly 交易组。",
-            ));
+            return Err(
+                ApiError::conflict("该导入尝试已经绑定到另一个 Firefly 交易组。")
+                    .with_reason(reasons::ATTEMPT_ALREADY_BOUND),
+            );
         }
         // 合不合法交给状态机判断，而不是在这里再抄一遍允许的来源状态。
         if !status.can_transition(target_status) {
-            return Err(ApiError::conflict("当前导入尝试不能完成。"));
+            return Err(ApiError::conflict("当前导入尝试不能完成。")
+                .with_reason(reasons::ATTEMPT_TRANSITION_INVALID));
         }
         transaction
             .execute(
@@ -406,7 +448,7 @@ impl Service {
         message: &str,
     ) -> Result<Value, ApiError> {
         self.get_import_attempt(user_id, attempt_id).await?;
-        Err(ApiError::conflict(message))
+        Err(ApiError::conflict(message).with_reason(reasons::ATTEMPT_TRANSITION_INVALID))
     }
 }
 
@@ -433,16 +475,21 @@ async fn load_import_row(
         )
         .await
         .map_err(ApiError::database)?
-        .ok_or_else(|| ApiError::not_found("账单流水不存在。"))?;
+        .ok_or_else(|| {
+            ApiError::not_found("账单流水不存在。").with_reason(reasons::ROW_NOT_FOUND)
+        })?;
     let occurred_at: String = row.get(3);
     let signed_amount = parse_decimal(row.get::<_, String>(4), "signed_amount")?;
     let firefly_amount = row
         .get::<_, Option<String>>(8)
-        .ok_or_else(|| ApiError::conflict("流水缺少 firefly_amount，不能入账。"))
+        .ok_or_else(|| {
+            ApiError::conflict("流水缺少 firefly_amount，不能入账。")
+                .with_reason(reasons::ROW_INCOMPLETE)
+        })
         .and_then(|value| parse_decimal(value, "firefly_amount"))?;
-    let firefly_date = row
-        .get::<_, Option<String>>(7)
-        .ok_or_else(|| ApiError::conflict("流水缺少 firefly_date，不能入账。"))?;
+    let firefly_date = row.get::<_, Option<String>>(7).ok_or_else(|| {
+        ApiError::conflict("流水缺少 firefly_date，不能入账。").with_reason(reasons::ROW_INCOMPLETE)
+    })?;
     Ok(ImportRow {
         id: row.get(0),
         status: row.get(1),
@@ -450,15 +497,17 @@ async fn load_import_row(
         occurred_at,
         signed_amount,
         currency_code: row.get(5),
-        firefly_type: row
-            .get::<_, Option<String>>(6)
-            .ok_or_else(|| ApiError::invalid_params("流水缺少 firefly_type。"))?,
+        firefly_type: row.get::<_, Option<String>>(6).ok_or_else(|| {
+            ApiError::invalid_params("流水缺少 firefly_type。").with_reason(reasons::ROW_INCOMPLETE)
+        })?,
         firefly_date,
         firefly_amount,
         description: row
             .get::<_, Option<String>>(9)
             .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| ApiError::invalid_params("流水缺少非空描述。"))?,
+            .ok_or_else(|| {
+                ApiError::invalid_params("流水缺少非空描述。").with_reason(reasons::ROW_INCOMPLETE)
+            })?,
         source_account_id: row.get(10),
         source_name: row.get(11),
         destination_account_id: row.get(12),
@@ -480,36 +529,45 @@ async fn validate_import_row(
     reliability: &ReliabilityConfig,
 ) -> Result<(), ApiError> {
     if row.lifecycle != "active" || !row.active_revision {
-        return Err(ApiError::conflict("只能导入当前活动 revision 的流水。"));
+        return Err(ApiError::conflict("只能导入当前活动 revision 的流水。")
+            .with_reason(reasons::ROW_NOT_IMPORTABLE));
     }
     if row.status != RowStatus::Pending.as_str() || row.transaction_group_id.is_some() {
-        return Err(ApiError::conflict("只有尚未入账的待处理流水可以导入。"));
+        return Err(ApiError::conflict("只有尚未入账的待处理流水可以导入。")
+            .with_reason(reasons::ROW_NOT_IMPORTABLE));
     }
     if row.duplicate_state != "unique" {
-        return Err(ApiError::conflict("疑似重复或冲突的流水必须先人工确认。"));
+        return Err(ApiError::conflict("疑似重复或冲突的流水必须先人工确认。")
+            .with_reason(reasons::DUPLICATE_UNRESOLVED));
     }
     if !matches!(
         row.firefly_type.as_str(),
         "withdrawal" | "deposit" | "transfer"
     ) {
-        return Err(ApiError::invalid_params("firefly_type 不支持。"));
+        return Err(ApiError::invalid_params("firefly_type 不支持。")
+            .with_reason(reasons::ROW_TYPE_UNSUPPORTED));
     }
     if row.firefly_amount <= Decimal::ZERO {
-        return Err(ApiError::invalid_params("入账金额必须大于 0。"));
+        return Err(
+            ApiError::invalid_params("入账金额必须大于 0。").with_reason(reasons::AMOUNT_INVALID)
+        );
     }
     match row.firefly_type.as_str() {
         "withdrawal" if row.source_account_id.is_none() => {
-            return Err(ApiError::conflict("支出流水必须先映射付款 Firefly 账户。"));
+            return Err(ApiError::conflict("支出流水必须先映射付款 Firefly 账户。")
+                .with_reason(reasons::ACCOUNT_UNMAPPED));
         }
         "deposit" if row.destination_account_id.is_none() => {
-            return Err(ApiError::conflict("收入流水必须先映射收款 Firefly 账户。"));
+            return Err(ApiError::conflict("收入流水必须先映射收款 Firefly 账户。")
+                .with_reason(reasons::ACCOUNT_UNMAPPED));
         }
         "transfer"
             if row.source_account_id.is_none()
                 || row.destination_account_id.is_none()
                 || row.source_account_id == row.destination_account_id =>
         {
-            return Err(ApiError::conflict("转账必须选择两个不同的 Firefly 账户。"));
+            return Err(ApiError::conflict("转账必须选择两个不同的 Firefly 账户。")
+                .with_reason(reasons::TRANSFER_ACCOUNTS_INVALID));
         }
         _ => {}
     }
@@ -564,9 +622,10 @@ async fn validate_import_row(
         .map_err(ApiError::database)?;
     if let Some(active) = active {
         let status: String = active.get(0);
-        return Err(ApiError::conflict(format!(
-            "这条流水已有 {status} 导入尝试，不能重复发送。"
-        )));
+        return Err(
+            ApiError::conflict(format!("这条流水已有 {status} 导入尝试，不能重复发送。"))
+                .with_reason(reasons::IMPORT_IN_FLIGHT),
+        );
     }
     Ok(())
 }
@@ -617,7 +676,8 @@ fn to_firefly_payload(
             return Err(ApiError::conflict(format!(
                 "拆分合计 {total} 与入账金额 {} 不一致。",
                 row.firefly_amount
-            )));
+            ))
+            .with_reason(reasons::SPLIT_TOTAL_MISMATCH));
         }
         splits
             .iter()
@@ -648,7 +708,9 @@ fn transaction_payload(
         .map(|value| value.amount)
         .unwrap_or(row.firefly_amount);
     if amount <= Decimal::ZERO {
-        return Err(ApiError::invalid_params("交易金额必须大于 0。"));
+        return Err(
+            ApiError::invalid_params("交易金额必须大于 0。").with_reason(reasons::AMOUNT_INVALID)
+        );
     }
     let source_id = split
         .and_then(|value| value.source_account_id)
@@ -672,7 +734,9 @@ fn transaction_payload(
         .map(|value| value.description.clone())
         .unwrap_or_else(|| row.description.clone());
     if description.trim().is_empty() {
-        return Err(ApiError::invalid_params("交易描述不能为空。"));
+        return Err(
+            ApiError::invalid_params("交易描述不能为空。").with_reason(reasons::ROW_INCOMPLETE)
+        );
     }
     Ok(json!({
         "type": row.firefly_type,
@@ -739,8 +803,10 @@ fn checksum(payload: &Value) -> Result<String, ApiError> {
 }
 
 fn parse_decimal(value: String, field: &str) -> Result<Decimal, ApiError> {
-    Decimal::from_str(&value)
-        .map_err(|_| ApiError::invalid_params(format!("{field} 不是有效金额。")))
+    Decimal::from_str(&value).map_err(|_| {
+        ApiError::invalid_params(format!("{field} 不是有效金额。"))
+            .with_reason(reasons::AMOUNT_INVALID)
+    })
 }
 
 fn import_attempt_json(row: &Row) -> Value {
@@ -769,6 +835,7 @@ fn import_constraint_error(error: tokio_postgres::Error) -> ApiError {
         .is_some_and(|db| db.code() == &tokio_postgres::error::SqlState::UNIQUE_VIOLATION)
     {
         ApiError::conflict("这条流水已有活动或成功的导入尝试。")
+            .with_reason(reasons::IMPORT_IN_FLIGHT)
     } else {
         ApiError::database(error)
     }

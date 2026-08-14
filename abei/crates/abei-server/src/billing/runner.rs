@@ -48,7 +48,19 @@ impl Service {
 
         let prepared = match self.prepare_import(user_id, row_id, dry_run).await {
             Ok(value) => value,
-            Err(error) => return failed_row(row_id, "skip", error.detail(), None),
+            // 准备阶段的失败是「这条流水现在不能入账」，原因五花八门：账户没映射、金额非法、
+            // 已经有在途尝试。整批请求不该因此失败，但也不能把原因糊成一个 import_excluded——
+            // 前端要靠它决定是引导去配账户还是去人工确认，所以把具体机器码原样带出去。
+            Err(error) => {
+                return failed_row_with_reason(
+                    row_id,
+                    "skip",
+                    error.detail(),
+                    None,
+                    error.reason(),
+                    Some(error.detail()),
+                );
+            }
         };
         let data = &prepared["data"];
         let preview = data["preview"].clone();
@@ -796,6 +808,55 @@ mod saga_tests {
 
         assert_eq!(result["action"], "skip");
         assert_eq!(firefly.write_count(), 0);
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    #[tokio::test]
+    async fn a_row_without_an_account_mapping_says_so_in_a_machine_readable_code() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_110_110_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        // 夹具默认给了付款账户，这里把它拿掉，回到用户还没配映射的状态。
+        client
+            .execute(
+                "UPDATE abei_ai.bill_rows SET source_account_id = NULL WHERE id = $1",
+                &[&fixture.row_id],
+            )
+            .await
+            .unwrap();
+        let firefly = testdb::FakeFirefly::start(FakeWrite::Created(1)).await;
+
+        let result = service(&pool, firefly.client())
+            .run_import(request(&fixture))
+            .await;
+
+        // 前端要靠这个码把用户领到账户映射页去，而不是让它去猜中文提示的意思。
+        assert_eq!(result["reason_code"], "account_unmapped");
+        assert_eq!(result["error"], "支出流水必须先映射付款 Firefly 账户。");
+        assert_eq!(firefly.write_count(), 0, "映射没配好之前不该写 Firefly");
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    #[tokio::test]
+    async fn a_second_import_of_the_same_row_is_told_apart_from_other_refusals() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_110_111_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        let firefly = testdb::FakeFirefly::start(FakeWrite::Created(31)).await;
+        let service = service(&pool, firefly.client());
+
+        service.run_import(request(&fixture)).await;
+        let second = service.run_import(request(&fixture)).await;
+
+        // 「已经入过了」和「账户没配好」都是 skip，但用户该做的事完全不同。
+        assert_eq!(second["reason_code"], "row_not_importable");
+        assert_eq!(firefly.write_count(), 1);
         testdb::cleanup(&client, user_id).await;
     }
 }

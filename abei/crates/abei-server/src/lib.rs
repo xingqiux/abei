@@ -862,6 +862,12 @@ impl ApiError {
     pub(crate) fn detail(&self) -> String {
         self.message.clone()
     }
+
+    /// 给机器看的那个码。同上：入账 saga 把它转写进结果行的 `reason_code`，
+    /// 好让批量入账里单条流水的失败原因和单条请求返回的一样具体。
+    pub(crate) fn reason(&self) -> &'static str {
+        self.reason
+    }
 }
 
 impl IntoResponse for ApiError {
