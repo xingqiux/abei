@@ -1,6 +1,5 @@
 import { useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
 import {
   ArrowClockwise,
   CaretDown,
@@ -32,6 +31,7 @@ import { Button, buttonClass } from '../../components/ui/Button'
 import { Card, SectionHeading } from '../../components/ui/Card'
 import { Field, Textarea } from '../../components/ui/Field'
 import { SegmentedControl } from '../../components/ui/SegmentedControl'
+import { adminUrl } from '../../lib/adminUrl'
 import { formatDateTime } from '../../lib/format'
 import { showToast } from '../../store/toastStore'
 
@@ -66,6 +66,9 @@ export function FeedbackPage() {
     queryKey: ['feedback'],
     queryFn: () => listFeedback({ limit: 100 }),
   })
+  // 反馈管理已经搬去 abei-admin，是另一个源，只能给绝对地址（没配就不显示这个入口）
+  const adminHref = adminUrl('/feedback')
+
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: ['feedback'] })
   }
@@ -77,14 +80,14 @@ export function FeedbackPage() {
           <h1 className="text-xl font-semibold text-[var(--text-primary)]">反馈</h1>
           <p className="mt-1 text-sm text-[var(--text-secondary)]">问题、体验和建议</p>
         </div>
-        {sessionQuery.data?.data.is_owner && (
-          <Link
-            to="/admin/feedback"
+        {sessionQuery.data?.data.is_owner && adminHref && (
+          <a
+            href={adminHref}
             className={buttonClass({ variant: 'secondary', size: 'md' })}
           >
             <SlidersHorizontal aria-hidden className="size-4" />
             管理反馈
-          </Link>
+          </a>
         )}
       </header>
 

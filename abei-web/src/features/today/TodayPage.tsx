@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
-import { CaretRight } from '@phosphor-icons/react'
+import { CaretRight, Wallet } from '@phosphor-icons/react'
 import {
   useNetWorthAccounts,
   useRecurrences,
@@ -23,6 +23,7 @@ import { nextOccurrence } from '../../lib/recurrence'
 import { flattenTransactionGroups } from '../../lib/transactionGroup'
 import { InsightBanner } from '../../components/abei/InsightBanner'
 import { Skeleton } from '../../components/abei/Skeleton'
+import { EmptyState } from '../../components/abei/EmptyState'
 import { ErrorState } from '../../components/abei/ErrorState'
 import { Card } from '../../components/ui/Card'
 import { useTodoCounts } from '../../hooks/useTodoCounts'
@@ -207,7 +208,12 @@ export function TodayPage() {
                 </div>
               </>
             ) : (
-              <p className="text-[12.5px] text-[var(--text-secondary)]">还没有账户</p>
+              <EmptyState
+                compact
+                icon={<Wallet className="size-7" />}
+                message="还没有账户，建一个才能算净资产"
+                action={{ label: '去建账户', to: '/accounts' }}
+              />
             )}
           </Card>
 

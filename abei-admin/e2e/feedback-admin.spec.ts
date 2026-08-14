@@ -162,6 +162,7 @@ async function mockApi(page: Page) {
       await json(route, { data: { user_id: 1, actor: 'owner@example.test', role: 'owner', is_owner: true } })
       return
     }
+    // 后台不请这个前台端点，留着是为了万一有人把 spec 指到前台源上也不会 500。
     if (url.pathname === '/v1/feedback') {
       await json(route, {
         data: [],
@@ -193,11 +194,8 @@ async function mockApi(page: Page) {
 
 test('owner feedback workbench remains usable without horizontal overflow', async ({ page }, testInfo) => {
   await mockApi(page)
+  // 后台的反馈管理就在 /feedback，不再需要先进前台再点「管理反馈」跳过来。
   await page.goto('/feedback')
-
-  const adminEntry = page.getByRole('link', { name: '管理反馈' })
-  await expect(adminEntry).toBeVisible()
-  await adminEntry.click()
 
   await expect(page.getByRole('heading', { name: '反馈管理' })).toBeVisible()
   await expect(page.getByText('导入账单后一直没有结果').first()).toBeVisible()

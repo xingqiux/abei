@@ -13,6 +13,7 @@ import {
   type AssistantModelProvider,
 } from "../../api/assistant";
 import { getActiveToken } from "../../api/client";
+import { ConfirmDialog } from "../../components/abei/ConfirmDialog";
 import { Modal } from "../../components/abei/Modal";
 import { Button } from "../../components/ui/Button";
 import { Field, Input, Select } from "../../components/ui/Field";
@@ -46,6 +47,7 @@ export function ModelConnectionPanel() {
     queryFn: ({ signal }) => getAssistantHealth(signal),
   });
   const [open, setOpen] = useState(false);
+  const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<ModelForm>(() => emptyForm("openai"));
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -167,8 +169,7 @@ export function ModelConnectionPanel() {
   }
 
   async function disconnect() {
-    if (!window.confirm("断开当前模型？环境中配置的默认模型仍可能继续生效。"))
-      return;
+    setDisconnectOpen(false);
     try {
       const updated = await deleteAssistantModelConfig();
       queryClient.setQueryData(["assistant-health"], updated);
@@ -218,7 +219,7 @@ export function ModelConnectionPanel() {
             <Button
               size="xs"
               variant="ghost-danger"
-              onClick={() => void disconnect()}
+              onClick={() => setDisconnectOpen(true)}
             >
               断开
             </Button>
@@ -368,6 +369,18 @@ export function ModelConnectionPanel() {
           </datalist>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={disconnectOpen}
+        title="断开当前模型"
+        confirmLabel="断开"
+        tone="primary"
+        onConfirm={() => void disconnect()}
+        onClose={() => setDisconnectOpen(false)}
+      >
+        <p>将移除这里保存的模型配置，财务助手会退回未配置状态。</p>
+        <p>如果部署环境里另配了默认模型，助手仍然可用——断开的只是你在这里填的这一份。</p>
+      </ConfirmDialog>
     </>
   );
 }

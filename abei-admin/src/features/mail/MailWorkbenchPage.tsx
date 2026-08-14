@@ -58,7 +58,7 @@ import { CONTROL_COMPACT, Field, Input } from '../../components/ui/Field'
 import { Tabs } from '../../components/ui/Tabs'
 import { formatDateTime } from '../../lib/format'
 import { showToast } from '../../store/toastStore'
-import { BillInboxSettingsDialog } from '../bill-inbox/BillInboxSettingsDialog'
+import { MailboxSettingsDialog } from '../mailbox/MailboxSettingsDialog'
 
 type DetailTab = 'preview' | 'headers' | 'mime' | 'attachments' | 'rules'
 type RuleGroup = 'all' | 'any'
@@ -305,7 +305,7 @@ export function MailWorkbenchPage() {
     onSuccess: (response) => {
       void queryClient.invalidateQueries({ queryKey: ['mail-samples'] })
       showToast({ kind: 'success', message: '已固定为解析样本' })
-      void navigate({ to: '/parser-workbench', search: { sample: response.data.id } })
+      void navigate({ to: '/parser', search: { sample: response.data.id } })
     },
     onError: mutationError('固定解析样本失败'),
   })
@@ -504,7 +504,7 @@ export function MailWorkbenchPage() {
           if (!estimateRescanMutation.isPending && !rescanMutation.isPending) setRescanOpen(false)
         }}
       />
-      <BillInboxSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <MailboxSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }

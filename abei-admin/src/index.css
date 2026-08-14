@@ -1,0 +1,417 @@
+@import 'tailwindcss';
+
+/* ── token 层 ────────────────────────────────────────────────
+   三组：中性分层 / 语义色 / 品牌色。组件一律用这些变量，
+   不再出现写死的 rgb() 或 Tailwind 自带色板类名（check:colors 会拦）。
+
+   配色使用中性冷灰打底；品牌色是墨蓝，只走主操作 / 当前导航项 / 链接三处。
+   上一版品牌色是朱砂，和收入红撞在一起，满屏都是红，v0.2 换掉了：
+   红色从此只表示语义（收入、危险、需要注意），不表示「这里可以点」。
+   改任一方前先跑 check:contrast。
+
+   --cat-1..--cat-12 是分类色板：只做装饰和数据映射，不承载语义。
+   分类表里存的是色板号（"1"~"12"）不是 hex，主题切换靠这里的 token 解决。
+   每个色配一个 -soft，是同色低透明度，落在任意 surface 上都成立。
+
+   深色下「抬升 = 表面变浅 + 一道细描边」。光靠变浅在近黑区间分不开，
+   所以 --ring-card 在深色下是可见发丝线、浅色下透明（浅色靠 --shadow-card），
+   这是 tailwind-plus 的做法，在这里落成 token。
+   ──────────────────────────────────────────────────────────── */
+@theme {
+  --color-ink-50: #f3f4f6;
+  --color-ink-100: #e8eaed;
+  --color-ink-200: #d9dce1;
+  --color-ink-300: #c5c9cf;
+  --color-ink-400: #9aa0a8;
+  --color-ink-500: #747b84;
+  --color-ink-600: #565c65;
+  --color-ink-700: #3e434a;
+  --color-ink-800: #292d32;
+  --color-ink-900: #1b1e22;
+  --color-ink-950: #0e0f11;
+}
+
+:root,
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  /* 表面 */
+  --surface-0: var(--color-ink-50); /* 页面底 */
+  --surface-1: #ffffff; /* 卡片、表格行 */
+  --surface-2: #ffffff; /* 浮层，靠 shadow + border 区分 */
+  --surface-hover: #eceef1;
+  --surface-selected: #e3e6ea;
+
+  /* 描边 */
+  --border-subtle: #dfe2e6;
+  --border-strong: var(--color-ink-500); /* 控件边界，要够 3:1 */
+  --chart-grid: var(--color-ink-200);
+
+  /* 抬升：浅色用投影，深色用发丝线。两个 token 一起用，永远只有一个可见 */
+  --shadow-card: 0 1px 2px 0 rgb(14 15 17 / 0.05);
+  --shadow-card-raised: 0 1px 2px 0 rgb(14 15 17 / 0.04), 0 10px 28px -10px rgb(30 48 96 / 0.14);
+  --shadow-pop: 0 10px 24px -6px rgb(14 15 17 / 0.14), 0 2px 6px -2px rgb(14 15 17 / 0.08);
+  --ring-card: transparent;
+
+  /* 氛围层：今天页 hero 的渐变底和装饰场景。只做装饰，不承载信息，
+     所以对比度不设要求；文字仍走 --text-*，必须落在渐变最浅端也够读。 */
+  --hero-grad-a: #e9effb;
+  --hero-grad-b: #fdf4ec;
+  --scene-far: #ccd9f0;
+  --scene-mid: #adc2e8;
+  --scene-near: #93abdc;
+  --scene-water: #dbe6f7;
+  --scene-sun-a: #f7c078;
+  --scene-sun-b: #ef9a6e;
+  --scene-tree: #7690c8;
+
+  /* 文字 */
+  --text-primary: #16181c;
+  --text-secondary: var(--color-ink-600);
+  --text-tertiary: #646a73;
+
+  /* 语义 */
+  --income: #c22b3e; /* 收入：红。5.66:1 on 白、5.10:1 on 页面底 */
+  --income-soft: #fceaec;
+  --expense: var(--text-primary); /* 支出：不上色，用正文色 */
+  --transfer: #0e6fa8;
+  --transfer-soft: #e4f0f8;
+  --attention: #95610c; /* 需要注意：琥珀，文字级 */
+  --attention-mark: #b0740f; /* 同色系，用于图标/边框/背景点缀 */
+  --attention-soft: #fbf1dc;
+  --danger: #a32617; /* 只给删除类按钮 */
+  --danger-soft: #fbe9e6;
+  --danger-hover: #b93023;
+  --done: #1c6b4c;
+  --done-soft: #e4f2ec;
+  /* 负债余额专用。借 attention 的琥珀色阶，但是独立 token：
+     负债不是「需要你处理」，也不是「危险操作」，之前借 --danger 是越界。 */
+  --liability: #95610c;
+
+  /* 品牌：墨蓝。主 CTA、当前导航项、链接，就这三处。 */
+  --brand: #3556a8;
+  --brand-hover: #2c4a94;
+  --brand-on: #ffffff; /* 品牌底上的文字 */
+  --brand-text: #31519e; /* 链接、当前项、图标 */
+  --brand-soft: #e9edf8; /* chip、AI 建议底 */
+  --focus-ring: #5279a3;
+
+  /* 图表分类色板。只给图表用：语义色不进这里，这里也不进界面语义。 */
+  --chart-1: #4a6fa5;
+  --chart-2: #3f8f6b;
+  --chart-3: #b0740f;
+  --chart-4: #a85a77;
+  --chart-5: #7b5ea7;
+  --chart-6: #3a8ca8;
+
+  /* 分类 12 色板 */
+  --cat-1: #c0392b;
+  --cat-2: #c2611f;
+  --cat-3: #a8730c;
+  --cat-4: #2e7d4f;
+  --cat-5: #1f7a70;
+  --cat-6: #2077a8;
+  --cat-7: #2f6bbf;
+  --cat-8: #4f46a5;
+  --cat-9: #7b4fa5;
+  --cat-10: #a8447e;
+  --cat-11: #8a5a3b;
+  --cat-12: #5f6670;
+  --cat-1-soft: rgb(192 57 43 / 0.1);
+  --cat-2-soft: rgb(194 97 31 / 0.1);
+  --cat-3-soft: rgb(168 115 12 / 0.1);
+  --cat-4-soft: rgb(46 125 79 / 0.1);
+  --cat-5-soft: rgb(31 122 112 / 0.1);
+  --cat-6-soft: rgb(32 119 168 / 0.1);
+  --cat-7-soft: rgb(47 107 191 / 0.1);
+  --cat-8-soft: rgb(79 70 165 / 0.1);
+  --cat-9-soft: rgb(123 79 165 / 0.1);
+  --cat-10-soft: rgb(168 68 126 / 0.1);
+  --cat-11-soft: rgb(138 90 59 / 0.1);
+  --cat-12-soft: rgb(95 102 112 / 0.1);
+
+  /* 密度：交易行高，设置里可切 44/48 */
+  --row-h: 44px;
+}
+
+:root[data-density='comfortable'] {
+  --row-h: 48px;
+}
+
+/* 深色三层保持可见层级；
+   再加 --ring-card 的发丝线兜底，近黑区间才真的分得出层级。 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --surface-0: #0e0f11;
+    --surface-1: #17191d;
+    --surface-2: #212429;
+    --surface-hover: #1c1f24;
+    --surface-selected: #24282e;
+    --border-subtle: #26292f;
+    --border-strong: #767c85;
+    --chart-grid: rgb(255 255 255 / 0.08);
+    --shadow-card: none;
+    --shadow-card-raised: none;
+    --shadow-pop: 0 16px 40px -8px rgb(0 0 0 / 0.6);
+    --ring-card: rgb(255 255 255 / 0.06);
+    --hero-grad-a: #151b2a;
+    --hero-grad-b: #1e2637;
+    --scene-far: #263450;
+    --scene-mid: #2f4064;
+    --scene-near: #3b4f78;
+    --scene-water: #1c2538;
+    --scene-sun-a: #e9d9a6;
+    --scene-sun-b: #d9bf82;
+    --scene-tree: #34456e;
+    --text-primary: #e8eaed;
+    --text-secondary: #a3a9b1;
+    --text-tertiary: #8a9099;
+    --income: #f0656b;
+    --income-soft: #3b1d23;
+    --expense: var(--text-primary);
+    --transfer: #6aa9e0;
+    --transfer-soft: #12293b;
+    --attention: #e0a94e;
+    --attention-mark: #e0a94e;
+    --attention-soft: #35290f;
+    --danger: #f0796a;
+    --danger-soft: #3a1c19;
+    --danger-hover: #f79184;
+    --done: #4fbf8f;
+    --done-soft: #122d23;
+    --liability: #e0a94e;
+    --brand: #7e9ee8;
+    --brand-hover: #92aeec;
+    --brand-on: #101725;
+    --brand-text: #8fabea;
+    --brand-soft: #1c2536;
+    --focus-ring: #8aa9c9;
+    --chart-1: #7fa3d8;
+    --chart-2: #5fb98d;
+    --chart-3: #e0a94e;
+    --chart-4: #d883b3;
+    --chart-5: #a992d8;
+    --chart-6: #62b4d0;
+    --cat-1: #e57368;
+    --cat-2: #e8935a;
+    --cat-3: #d9a84e;
+    --cat-4: #66bb8a;
+    --cat-5: #5fb8ae;
+    --cat-6: #64b5d9;
+    --cat-7: #6ba3e8;
+    --cat-8: #9088d8;
+    --cat-9: #b08ad8;
+    --cat-10: #d883b3;
+    --cat-11: #c09070;
+    --cat-12: #9aa2ad;
+    --cat-1-soft: rgb(229 115 104 / 0.12);
+    --cat-2-soft: rgb(232 147 90 / 0.12);
+    --cat-3-soft: rgb(217 168 78 / 0.12);
+    --cat-4-soft: rgb(102 187 138 / 0.12);
+    --cat-5-soft: rgb(95 184 174 / 0.12);
+    --cat-6-soft: rgb(100 181 217 / 0.12);
+    --cat-7-soft: rgb(107 163 232 / 0.12);
+    --cat-8-soft: rgb(144 136 216 / 0.12);
+    --cat-9-soft: rgb(176 138 216 / 0.12);
+    --cat-10-soft: rgb(216 131 179 / 0.12);
+    --cat-11-soft: rgb(192 144 112 / 0.12);
+    --cat-12-soft: rgb(154 162 173 / 0.12);
+  }
+}
+
+/* 手动锁定：必须双向压过上面的 media query */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --surface-0: #0e0f11;
+  --surface-1: #17191d;
+  --surface-2: #212429;
+  --surface-hover: #1c1f24;
+  --surface-selected: #24282e;
+  --border-subtle: #26292f;
+  --border-strong: #767c85;
+  --chart-grid: rgb(255 255 255 / 0.08);
+  --shadow-card: none;
+  --shadow-card-raised: none;
+  --shadow-pop: 0 16px 40px -8px rgb(0 0 0 / 0.6);
+  --ring-card: rgb(255 255 255 / 0.06);
+  --hero-grad-a: #151b2a;
+  --hero-grad-b: #1e2637;
+  --scene-far: #263450;
+  --scene-mid: #2f4064;
+  --scene-near: #3b4f78;
+  --scene-water: #1c2538;
+  --scene-sun-a: #e9d9a6;
+  --scene-sun-b: #d9bf82;
+  --scene-tree: #34456e;
+  --text-primary: #e8eaed;
+  --text-secondary: #a3a9b1;
+  --text-tertiary: #8a9099;
+  --income: #f0656b;
+  --income-soft: #3b1d23;
+  --expense: var(--text-primary);
+  --transfer: #6aa9e0;
+  --transfer-soft: #12293b;
+  --attention: #e0a94e;
+  --attention-mark: #e0a94e;
+  --attention-soft: #35290f;
+  --danger: #f0796a;
+  --danger-soft: #3a1c19;
+  --danger-hover: #f79184;
+  --done: #4fbf8f;
+  --done-soft: #122d23;
+  --liability: #e0a94e;
+  --brand: #7e9ee8;
+  --brand-hover: #92aeec;
+  --brand-on: #101725;
+  --brand-text: #8fabea;
+  --brand-soft: #1c2536;
+  --focus-ring: #8aa9c9;
+  --chart-1: #7fa3d8;
+  --chart-2: #5fb98d;
+  --chart-3: #e0a94e;
+  --chart-4: #d883b3;
+  --chart-5: #a992d8;
+  --chart-6: #62b4d0;
+  --cat-1: #e57368;
+  --cat-2: #e8935a;
+  --cat-3: #d9a84e;
+  --cat-4: #66bb8a;
+  --cat-5: #5fb8ae;
+  --cat-6: #64b5d9;
+  --cat-7: #6ba3e8;
+  --cat-8: #9088d8;
+  --cat-9: #b08ad8;
+  --cat-10: #d883b3;
+  --cat-11: #c09070;
+  --cat-12: #9aa2ad;
+  --cat-1-soft: rgb(229 115 104 / 0.12);
+  --cat-2-soft: rgb(232 147 90 / 0.12);
+  --cat-3-soft: rgb(217 168 78 / 0.12);
+  --cat-4-soft: rgb(102 187 138 / 0.12);
+  --cat-5-soft: rgb(95 184 174 / 0.12);
+  --cat-6-soft: rgb(100 181 217 / 0.12);
+  --cat-7-soft: rgb(107 163 232 / 0.12);
+  --cat-8-soft: rgb(144 136 216 / 0.12);
+  --cat-9-soft: rgb(176 138 216 / 0.12);
+  --cat-10-soft: rgb(216 131 179 / 0.12);
+  --cat-11-soft: rgb(192 144 112 / 0.12);
+  --cat-12-soft: rgb(154 162 173 / 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+@layer base {
+  /* 字号阶梯约定：12 辅助 / 14 正文 / 16 强调 / 18 区块标题 / 22 页面标题与 hero 问候 / 26 KPI 大数字。
+     大数字靠字重 600 撑，不靠换字体。 */
+  body {
+    @apply relative m-0 bg-[var(--surface-0)] text-[var(--text-primary)] antialiased;
+    font-family:
+      -apple-system,
+      BlinkMacSystemFont,
+      'PingFang SC',
+      'Hiragino Sans GB',
+      'Microsoft YaHei',
+      'Segoe UI',
+      sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* 焦点环统一走 token。tailwind-plus 用 outline 不用 ring，
+     好处是不吃 box-shadow、也不被 overflow 裁掉。 */
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+}
+
+/* 金额、日期、计数一律用这个：比例字体 + 等宽数字，列对得齐但不带终端感。
+   font-mono 只留给机读字段（订单号、token、shell 命令）。 */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: var(--surface-selected);
+}
+
+/* 平台品牌标（账单收件箱）：每个标把自己的品牌色写在 --pf / --pf-dark 上，
+   这里只负责按主题选用哪一支。写在 CSS 而不是 JS 里，是因为主题有三态
+   （跟随系统 / 浅色 / 深色），JS 读不准「跟随系统」那一态。 */
+.platform-mark {
+  --pf-use: var(--pf);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .platform-mark {
+    --pf-use: var(--pf-dark);
+  }
+}
+:root[data-theme='dark'] .platform-mark {
+  --pf-use: var(--pf-dark);
+}
+
+/* 滚动条：细、低调 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 骨架屏 shimmer */
+@keyframes g-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* 提示卡片进场。前台那份用 GSAP，后台只有这一处动效，不值得引一个动画库。 */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.g-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface-hover) 25%,
+    var(--surface-selected) 50%,
+    var(--surface-hover) 75%
+  );
+  background-size: 200% 100%;
+  animation: g-shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .g-skeleton {
+    animation: none;
+  }
+
+  [class*='animate-[toast-in'] {
+    animation: none;
+  }
+}

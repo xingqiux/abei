@@ -539,7 +539,7 @@ export function ParserWorkbenchPage() {
       </div>
 
       {samples.length === 0 && !samplesQuery.isLoading && (
-        <EmptyState message="还没有固定的邮件样本" action={{ label: '去邮件工作台选择', to: '/mail-workbench' }} />
+        <EmptyState message="还没有固定的邮件样本" action={{ label: '去邮件工作台选择', to: '/mail' }} />
       )}
 
       <ConfirmDialog

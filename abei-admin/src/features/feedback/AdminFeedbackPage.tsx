@@ -1,23 +1,19 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
 import {
   Archive,
   ArrowClockwise,
-  ArrowLeft,
   ChatCircleDots,
   FloppyDisk,
   GitMerge,
   LinkSimple,
   PaperPlaneTilt,
   Plus,
-  ShieldCheck,
 } from '@phosphor-icons/react'
 import {
   archiveAdminFeedbackItem,
   getAdminFeedbackItem,
   getAdminFeedbackSubmission,
-  getSession,
   linkAdminFeedbackSubmission,
   listAdminFeedbackItems,
   listAdminFeedbackSubmissions,
@@ -37,10 +33,9 @@ import {
   type FeedbackTarget,
 } from '../../api/feedback'
 import { AbeiApiError } from '../../api/client'
-import { EmptyState } from '../../components/abei/EmptyState'
 import { ErrorState } from '../../components/abei/ErrorState'
 import { Badge, type BadgeTone } from '../../components/ui/Badge'
-import { Button, buttonClass } from '../../components/ui/Button'
+import { Button } from '../../components/ui/Button'
 import { Card, SectionHeading } from '../../components/ui/Card'
 import { CONTROL_COMPACT, Field, Input, Select, Textarea } from '../../components/ui/Field'
 import { Tabs } from '../../components/ui/Tabs'
@@ -90,8 +85,7 @@ export function AdminFeedbackPage() {
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<number | null>(null)
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null)
 
-  const sessionQuery = useQuery({ queryKey: ['session'], queryFn: getSession })
-  const isOwner = sessionQuery.data?.data.is_owner === true
+  // 页面不再自己查 owner：整个后台被 OwnerGate 挡在门口，能渲染到这里就已经是 owner。
   const submissionsQuery = useQuery({
     queryKey: ['admin-feedback-submissions', submissionState, kind, target],
     queryFn: () => listAdminFeedbackSubmissions({
@@ -100,7 +94,6 @@ export function AdminFeedbackPage() {
       target: target || undefined,
       limit: 100,
     }),
-    enabled: isOwner,
   })
   const itemsQuery = useQuery({
     queryKey: ['admin-feedback-items', false, kind, target],
@@ -110,7 +103,6 @@ export function AdminFeedbackPage() {
       target: target || undefined,
       limit: 100,
     }),
-    enabled: isOwner,
   })
   const archiveQuery = useQuery({
     queryKey: ['admin-feedback-items', true, kind, target],
@@ -120,7 +112,6 @@ export function AdminFeedbackPage() {
       target: target || undefined,
       limit: 100,
     }),
-    enabled: isOwner,
   })
 
   const submissions = submissionsQuery.data?.data ?? EMPTY_SUBMISSIONS
@@ -157,46 +148,14 @@ export function AdminFeedbackPage() {
     else await archiveQuery.refetch()
   }
 
-  if (sessionQuery.isLoading) {
-    return <PageStatus message="正在验证管理权限…" />
-  }
-  if (sessionQuery.isError) {
-    return (
-      <Card className="mx-auto w-full max-w-3xl">
-        <ErrorState message="无法验证管理权限" error={sessionQuery.error} onRetry={() => void sessionQuery.refetch()} />
-      </Card>
-    )
-  }
-  if (!isOwner) {
-    return (
-      <Card className="mx-auto w-full max-w-xl py-8">
-        <EmptyState
-          icon={<ShieldCheck className="size-8" />}
-          message="只有 owner 可以进入反馈管理"
-          action={{ label: '返回我的反馈', onClick: () => { window.location.href = '/feedback' } }}
-        />
-      </Card>
-    )
-  }
-
   const activeQuery = tab === 'inbox' ? submissionsQuery : tab === 'items' ? itemsQuery : archiveQuery
 
   return (
     <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <Link
-            to="/feedback"
-            aria-label="返回反馈"
-            title="返回反馈"
-            className={buttonClass({ variant: 'ghost', size: 'sm', className: 'size-8 px-0' })}
-          >
-            <ArrowLeft aria-hidden className="size-4" />
-          </Link>
-          <div className="min-w-0">
-            <h1 className="text-xl font-semibold text-[var(--text-primary)]">反馈管理</h1>
-            <p className="mt-1 text-sm text-[var(--text-secondary)]">归一、处理并向用户同步进展</p>
-          </div>
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold text-[var(--text-primary)]">反馈管理</h1>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">归一、处理并向用户同步进展</p>
         </div>
         <Button variant="secondary" size="md" disabled={activeQuery.isFetching} onClick={() => void refresh()}>
           <ArrowClockwise aria-hidden className={`size-4 ${activeQuery.isFetching ? 'animate-spin' : ''}`} />

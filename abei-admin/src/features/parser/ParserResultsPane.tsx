@@ -99,7 +99,7 @@ function StepResults({
   onSelectNode: (nodeId: string) => void
 }) {
   if (!output) {
-    return <EmptyState compact icon={<FileText className="size-7" />} message="尚未运行解析" action={{ label: '选择邮件样本', to: '/mail-workbench' }} />
+    return <EmptyState compact icon={<FileText className="size-7" />} message="尚未运行解析" action={{ label: '选择邮件样本', to: '/mail' }} />
   }
   const selected = output.node_results.find((result) => result.node_id === selectedNodeId)
     ?? output.node_results.at(-1)
@@ -146,7 +146,7 @@ function NodePreview({ result }: { result: ParserNodeResult }) {
 }
 
 function BillRows({ output, onOpenIssues }: { output: ParseOutput | null; onOpenIssues: () => void }) {
-  if (!output) return <EmptyState compact icon={<FileText className="size-7" />} message="尚未运行解析" action={{ label: '选择邮件样本', to: '/mail-workbench' }} />
+  if (!output) return <EmptyState compact icon={<FileText className="size-7" />} message="尚未运行解析" action={{ label: '选择邮件样本', to: '/mail' }} />
   if (output.valid_rows.length === 0) return <EmptyState compact icon={<FileText className="size-7" />} message="没有有效账单行" action={{ label: '查看诊断', onClick: onOpenIssues }} />
   return (
     <div className="overflow-x-auto rounded-md border border-[var(--border-subtle)]">
@@ -177,7 +177,7 @@ function BillRows({ output, onOpenIssues }: { output: ParseOutput | null; onOpen
 }
 
 function Issues({ output, onOpenRows }: { output: ParseOutput | null; onOpenRows: () => void }) {
-  if (!output) return <EmptyState compact icon={<Warning className="size-7" />} message="尚未运行解析" action={{ label: '选择邮件样本', to: '/mail-workbench' }} />
+  if (!output) return <EmptyState compact icon={<Warning className="size-7" />} message="尚未运行解析" action={{ label: '选择邮件样本', to: '/mail' }} />
   const diagnostics = [
     ...output.warnings,
     ...output.invalid_rows.flatMap((row) => row.issues.map((issue) => ({ ...issue, locator: issue.locator ?? row.locator }))),

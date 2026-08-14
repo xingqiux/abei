@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, PencilSimple, Plus } from '@phosphor-icons/react'
+import { Archive, PencilSimple, Plus, TagSimple } from '@phosphor-icons/react'
 import { AbeiApiError, apiDelete, apiPost, apiPut, viaFirefly } from '../../api/client'
 import { getTags } from '../../api/firefly'
 import type { Tag } from '../../api/schemas'
 import { Modal } from '../../components/abei/Modal'
+import { EmptyState } from '../../components/abei/EmptyState'
 import { ErrorState } from '../../components/abei/ErrorState'
 import { Skeleton } from '../../components/abei/Skeleton'
 import { Button, IconButton } from '../../components/ui/Button'
@@ -95,7 +96,12 @@ export function ReferenceDataPanel() {
         </div>
 
         {rows.length === 0 ? (
-          <p className="py-8 text-center text-sm text-[var(--text-secondary)]">还没有标签</p>
+          <EmptyState
+            compact
+            icon={<TagSimple className="size-7" />}
+            message="还没有标签。标签用来给交易打上跨分类的记号，比如「报销」「旅行」"
+            action={{ label: '新建标签', onClick: () => setEdit({ name: '' }) }}
+          />
         ) : (
           // 行不各自带边框，靠 StackedList 的 divide-y 分隔；
           // -mx-4 抵掉 Card 的内边距，让 hover 底色铺满整行宽度

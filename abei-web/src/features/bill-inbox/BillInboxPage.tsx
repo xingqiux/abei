@@ -6,8 +6,9 @@ import {
   invalidateBillInbox,
   useBillInboxSummary,
   useBillRows,
-  useBillRowsCount,
-  useBillRowsCountByChannel,
+  useBillRowCounts,
+  flattenBillRows,
+  BILL_ROWS_PAGE_SIZE,
   useBillTasks,
   useDeleteTransaction,
   useDismissBillRows,
@@ -17,12 +18,13 @@ import {
   useRetryBillImportAttempt,
   useSyncBillInbox,
 } from '../../api/queries'
+import { useBillInboxSelection } from './useBillInboxSelection'
 import { AssistantApiError, runAutofill } from '../../api/assistant'
 import type { BillImportResponse, BillQueueRow, BillTask } from '../../api/schemas'
 import { EmptyState } from '../../components/abei/EmptyState'
 import { Skeleton } from '../../components/abei/Skeleton'
 import { ErrorState, InlineError } from '../../components/abei/ErrorState'
-import { Button, IconButton } from '../../components/ui/Button'
+import { Button, buttonClass, IconButton } from '../../components/ui/Button'
 import { Card } from '../../components/ui/Card'
 import { showToast } from '../../store/toastStore'
 import { AbeiApiError } from '../../api/client'
@@ -49,19 +51,19 @@ import {
   workloadOf,
   type InboxView,
 } from './billInboxHelpers'
+import { adminUrl } from '../../lib/adminUrl'
 import { formatAmount, formatMonthDay } from '../../lib/format'
 
-/** 超过这个数才弹干跑确认；以下直接执行 + 撤销窗口（设计稿 02 §4） */
+/**
+ * 超过这个数才弹干跑确认；以下直接执行 + 撤销窗口（设计稿 02 §4）。
+ *
+ * 只看笔数会错配：一封日账单常见解析出 9 笔，日常几乎从不弹确认，21 笔却弹。
+ * 所以再加一条——只要选中的行里有带问题的，不管几笔都先给干跑清单看。
+ */
 const DIRECT_IMPORT_LIMIT = 20
 
 /** 撤销那条 toast 留久一点：8 秒里没点，就当人是认下了 */
 const UNDO_TOAST_DURATION = 8000
-
-/**
- * 滚动加载一次续多少行。不做分页器：这一页的活是「从上往下清掉」，
- * 翻页会把「清到哪儿了」这条线打断。到底了会明说「共 N 笔」，不留悬念。
- */
-const SCROLL_STEP = 40
 
 export function BillInboxPage() {
   const search = useSearch({ from: '/bill-inbox' })
@@ -71,6 +73,8 @@ export function BillInboxPage() {
   const taskFilter = search.task ?? null
 
   const queryClient = useQueryClient()
+  // 邮件工作台已经搬去 abei-admin，是另一个源，只能给绝对地址
+  const mailWorkbenchHref = adminUrl('/mail')
   const summaryQuery = useBillInboxSummary()
   const syncMutation = useSyncBillInbox()
   const dismissMutation = useDismissBillRows()
@@ -83,16 +87,12 @@ export function BillInboxPage() {
 
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [accountMappingsOpen, setAccountMappingsOpen] = useState(false)
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [anchorIndex, setAnchorIndex] = useState<number | null>(null)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [cursorIndex, setCursorIndex] = useState(0)
+  /** 勾选 / 光标 / 展开 / 编辑：一起变的东西收在一个 reducer 里 */
+  const [selection, dispatchSelection] = useBillInboxSelection()
+  const { selected, expandedId, editingId, cursorIndex } = selection
   const [dryRun, setDryRun] = useState<BillImportResponse | null>(null)
   const [confirmRowIds, setConfirmRowIds] = useState<string[]>([])
   const [autofillRunning, setAutofillRunning] = useState(false)
-  /** 滚动加载已经放出来多少行 */
-  const [shown, setShown] = useState(SCROLL_STEP)
   /** 这一趟处理掉了多少笔，工作量条上的进度就是它 */
   const [handledCount, setHandledCount] = useState(0)
   const pageRef = useRef<HTMLDivElement | null>(null)
@@ -101,19 +101,18 @@ export function BillInboxPage() {
 
   /** 当前 tab 的行；其余三个 tab 不请求，切过去再拉 */
   const rowsQuery = useBillRows(view, { source })
-  const counts = {
-    importable: useBillRowsCount('importable', { source }),
-    attention: useBillRowsCount('attention', { source }),
-    dismissed: useBillRowsCount('dismissed', { source }),
-    imported: useBillRowsCount('imported', { source }),
-  }
+  /** 四个 tab 和渠道条上的数字都从 summary 里取，不再各自发请求 */
+  const counts = useBillRowCounts(summaryQuery.data)
 
   // 来源面板要的是整箱邮件，故意不跟着当前渠道过滤走：面板本身就是换渠道的地方，
   // 跟着过滤会把「换一个渠道看看」这条路自己堵死。
   const tasksQuery = useBillTasks()
   const billTasks = useMemo(() => tasksQuery.data?.data ?? [], [tasksQuery.data])
 
-  const allRows = useMemo(() => rowsQuery.data?.data ?? [], [rowsQuery.data])
+  const { rows: allRows, total: loadedTotal } = useMemo(
+    () => flattenBillRows(rowsQuery.data?.pages),
+    [rowsQuery.data],
+  )
   const rows = useMemo(
     () => (taskFilter === null ? allRows : allRows.filter((row) => String(row.attributes.bill_task_id) === taskFilter)),
     [allRows, taskFilter],
@@ -151,25 +150,16 @@ export function BillInboxPage() {
       .sort((a, b) => a.label.localeCompare(b.label, 'zh-Hans-CN'))
   }, [billTasks, summaryQuery.data, channelName])
 
-  /** 渠道 chip 上的笔数：每个渠道一个 limit=1 的轻请求，只取 meta 总数 */
+  /** 渠道 chip 上的笔数：跟着当前 tab 走，数字全部来自 summary */
   const channelKeys = useMemo(() => sourceGroups.map((group) => group.key), [sourceGroups])
-  const channelCountQueries = useBillRowsCountByChannel(view, channelKeys)
   const channelCounts = useMemo(() => {
     const out: Record<string, number | undefined> = {}
-    channelKeys.forEach((key, index) => {
-      out[key] = channelCountQueries[index]?.data
-    })
+    for (const key of channelKeys) out[key] = counts.countFor(view, key)
     return out
-  }, [channelKeys, channelCountQueries])
+  }, [channelKeys, counts, view])
 
-  /**
-   * 滚动加载：只渲染前 shown 行。待确认 tab 按判断类型分小节，本来就不长，整段出。
-   * 真上到几千行时这里还得再加虚拟滚动，眼下 DOM 里最多 SCROLL_STEP 的整数倍。
-   */
-  const visibleRows = useMemo(
-    () => (view === 'attention' ? rows : rows.slice(0, shown)),
-    [view, rows, shown],
-  )
+  /** 拉回来多少就渲染多少；再往下由 sentinel 触发续页 */
+  const visibleRows = rows
   const dayGroups = useMemo(() => groupRowsByDay(visibleRows), [visibleRows])
   const workload = useMemo(() => workloadOf(rows), [rows])
   const currencySymbol = rows[0]?.attributes.currency_symbol ?? rows[0]?.attributes.currency_code ?? ''
@@ -194,15 +184,12 @@ export function BillInboxPage() {
   const mailboxSyncActive = mailboxSync?.status === 'queued' || mailboxSync?.status === 'running'
   const syncBusy = syncMutation.isPending || mailboxSyncActive
 
-  // 换 tab / 换渠道 / 换邮件后，之前选中的行已经不在屏幕上了，留着选中状态只会误伤
+  // 换 tab / 换渠道 / 换邮件后，之前选中的行已经不在屏幕上了，留着选中状态只会误伤。
+  // 进度也一并归零：它数的是「这一屏清掉了多少」，换了一屏就该重新数。
   useEffect(() => {
-    setSelected(new Set())
-    setAnchorIndex(null)
-    setExpandedId(null)
-    setEditingId(null)
-    setCursorIndex(0)
-    setShown(SCROLL_STEP)
-  }, [source, view, taskFilter])
+    dispatchSelection({ type: 'reset' })
+    setHandledCount(0)
+  }, [source, view, taskFilter, dispatchSelection])
 
   /**
    * 两层粘性要对齐：顶部条钉在滚动区顶端，日期分组头贴着它的下沿。
@@ -228,16 +215,18 @@ export function BillInboxPage() {
     return () => observer.disconnect()
   }, [])
 
-  /** 滚到底就再放一批。没有 IntersectionObserver 的环境（jsdom）直接不装，列表照常渲染 */
+  /** 滚到底就向后端要下一页。没有 IntersectionObserver 的环境（jsdom）直接不装，列表照常渲染 */
+  const { fetchNextPage, hasNextPage, isFetchingNextPage } = rowsQuery
   useEffect(() => {
     const element = sentinelRef.current
     if (!element || typeof IntersectionObserver === 'undefined') return
+    if (!hasNextPage) return
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) setShown((value) => value + SCROLL_STEP)
+      if (entries.some((entry) => entry.isIntersecting) && !isFetchingNextPage) void fetchNextPage()
     }, { rootMargin: '400px' })
     observer.observe(element)
     return () => observer.disconnect()
-  }, [rows.length, shown])
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage])
 
   function setView(next: InboxView) {
     void navigate({ search: { source, view: next === DEFAULT_INBOX_VIEW ? undefined : next, task: taskFilter ?? undefined }, replace: true })
@@ -267,27 +256,18 @@ export function BillInboxPage() {
   }
 
   function toggleSelect(rowId: string, index: number, shift: boolean) {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (shift && anchorIndex !== null) {
-        const [from, to] = anchorIndex <= index ? [anchorIndex, index] : [index, anchorIndex]
-        // 区间选统一改成「选上」，不做逐行反转：反转出来的结果没人能预期
-        for (let i = from; i <= to; i += 1) {
-          const id = cursorRows[i]?.id
-          if (id && selectableIds.includes(id)) next.add(id)
-        }
-        return next
-      }
-      if (next.has(rowId)) next.delete(rowId)
-      else next.add(rowId)
-      return next
+    dispatchSelection({
+      type: 'toggle',
+      rowId,
+      index,
+      shift,
+      selectableIds,
+      orderedIds: cursorRows.map((row) => row.id),
     })
-    setAnchorIndex(index)
   }
 
   function toggleSelectAll() {
-    setSelected(allSelected ? new Set() : new Set(selectableIds))
-    setAnchorIndex(null)
+    dispatchSelection({ type: 'selectAll', selectableIds })
   }
 
   useEffect(() => {
@@ -387,8 +367,7 @@ export function BillInboxPage() {
 
   async function runImport(rowIds: string[]) {
     const res = await importMutation.mutateAsync({ rowIds, confirm: true })
-    setSelected(new Set())
-    setAnchorIndex(null)
+    dispatchSelection({ type: 'clearSelection' })
     reportImportResult(res)
   }
 
@@ -443,11 +422,14 @@ export function BillInboxPage() {
   async function handleImport(rowIds: string[]) {
     if (rowIds.length === 0 || importMutation.isPending) return
     try {
-      if (rowIds.length <= DIRECT_IMPORT_LIMIT) {
+      const chosen = new Set(rowIds)
+      const risky = rows.some((row) => chosen.has(row.id) && (row.attributes.issues?.length ?? 0) > 0)
+      if (rowIds.length <= DIRECT_IMPORT_LIMIT && !risky) {
         await runImport(rowIds)
         return
       }
-      // 一次几百笔的时候先给一份干跑清单：这个动作没法只撤销「其中错的那几笔」
+      // 笔数多、或者里面有带问题的行，先给一份干跑清单：
+      // 这个动作没法只撤销「其中错的那几笔」
       const preview = await importMutation.mutateAsync({ rowIds, confirm: false })
       setDryRun(preview)
       setConfirmRowIds(preview.rows.filter((row) => row.action === 'would_import').map((row) => row.row_id))
@@ -480,11 +462,7 @@ export function BillInboxPage() {
     try {
       await dismissMutation.mutateAsync({ row_ids: rowIds })
       setHandledCount((value) => value + rowIds.length)
-      setSelected((prev) => {
-        const next = new Set(prev)
-        rowIds.forEach((id) => next.delete(id))
-        return next
-      })
+      dispatchSelection({ type: 'forget', rowIds })
       showToast({
         kind: 'success',
         message: `已忽略 ${rowIds.length} 笔`,
@@ -518,6 +496,14 @@ export function BillInboxPage() {
   }
 
   /**
+   * 快捷键要用的那几个 handler 每次渲染都是新函数，直接进依赖数组会让监听器
+   * 一秒装卸好几遍；放进 ref 里，effect 只依赖真正影响「装不装」的那几个值，
+   * 触发时读到的又始终是最新的实现。
+   */
+  const keyActions = useRef({ handleDismiss, handleImport, toggleSelect })
+  keyActions.current = { handleDismiss, handleImport, toggleSelect }
+
+  /**
    * 键盘流：j/k 上下、x 勾选、e 编辑、d 忽略、Enter 入账所选。
    * TODO(命令面板)：设计稿要求把这套快捷键也登记进 Cmd+K 的说明里，
    * 但 features/command-palette 归另一位负责，等那边开口子再接。
@@ -539,28 +525,30 @@ export function BillInboxPage() {
 
       if (event.key === 'j' || event.key === 'ArrowDown') {
         event.preventDefault()
-        setCursorIndex(Math.min(index + 1, list.length - 1))
+        dispatchSelection({ type: 'cursor', index: Math.min(index + 1, list.length - 1) })
       } else if (event.key === 'k' || event.key === 'ArrowUp') {
         event.preventDefault()
-        setCursorIndex(Math.max(index - 1, 0))
+        dispatchSelection({ type: 'cursor', index: Math.max(index - 1, 0) })
       } else if (event.key === 'x') {
         event.preventDefault()
-        if (isRowSelectable(row)) toggleSelect(row.id, index, false)
+        if (isRowSelectable(row)) keyActions.current.toggleSelect(row.id, index, false)
       } else if (event.key === 'e') {
         event.preventDefault()
-        setEditingId(row.id)
+        dispatchSelection({ type: 'edit', rowId: row.id })
       } else if (event.key === 'd') {
         event.preventDefault()
-        void handleDismiss([row.id])
+        void keyActions.current.handleDismiss([row.id])
       } else if (event.key === 'Enter') {
         event.preventDefault()
-        void handleImport(selected.size > 0 ? Array.from(selected) : isRowSelectable(row) ? [row.id] : [])
+        void keyActions.current.handleImport(
+          selected.size > 0 ? Array.from(selected) : isRowSelectable(row) ? [row.id] : [],
+        )
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectable, editingId, cursorRows, cursorIndex, selected])
+    // dispatchSelection 是 useReducer 给的，跨渲染稳定，列进来只是让 lint 闭嘴不改行为。
+  }, [selectable, editingId, cursorRows, cursorIndex, selected, dispatchSelection])
 
   useEffect(() => {
     const row = cursorRows[cursorIndex]
@@ -585,10 +573,11 @@ export function BillInboxPage() {
       onSelect: (shift: boolean) => toggleSelect(row.id, index, shift),
       focused: cursorRowId === row.id,
       expanded: expandedId === row.id,
-      onToggleExpand: () => setExpandedId(expandedId === row.id ? null : row.id),
+      onToggleExpand: () =>
+        dispatchSelection({ type: 'expand', rowId: expandedId === row.id ? null : row.id }),
       editing: editingId === row.id,
-      onStartEdit: () => setEditingId(row.id),
-      onEndEdit: () => setEditingId(null),
+      onStartEdit: () => dispatchSelection({ type: 'edit', rowId: row.id }),
+      onEndEdit: () => dispatchSelection({ type: 'edit', rowId: null }),
       onDismiss: selectable ? () => void handleDismiss([row.id]) : undefined,
       onRestore: view === 'dismissed' ? () => void handleRestore([row.id]) : undefined,
       onReconcile: attempt?.status === 'uncertain'
@@ -653,9 +642,13 @@ export function BillInboxPage() {
           <span className="text-[var(--text-secondary)]">
             有 {summaryQuery.data?.unclassified_mail} 封邮件尚未匹配账单规则，因此不会出现在账单收件箱。
           </span>
-          <Button variant="secondary" size="sm" onClick={() => void navigate({ to: '/mail-workbench' })}>
-            前往邮件工作台
-          </Button>
+          {/* 邮件工作台在后台（另一个源）。没配后台地址时不显示按钮，但这句话仍然要说，
+              否则用户只会觉得「怎么少了几笔」。 */}
+          {mailWorkbenchHref && (
+            <a href={mailWorkbenchHref} className={buttonClass({ variant: 'secondary', size: 'sm' })}>
+              前往邮件工作台
+            </a>
+          )}
         </div>
       )}
 
@@ -697,7 +690,7 @@ export function BillInboxPage() {
             >
               {INBOX_VIEW_LABELS[candidate]}
               <span className="num ml-1.5 text-[11.5px] text-[var(--text-tertiary)]">
-                {counts[candidate].data ?? 0}
+                {counts.countFor(candidate, source)}
               </span>
             </button>
           ))}
@@ -706,7 +699,7 @@ export function BillInboxPage() {
         <ChannelBar
           groups={sourceGroups}
           counts={channelCounts}
-          totalCount={counts[view].data ?? 0}
+          totalCount={counts.countFor(view, source)}
           loading={tasksQuery.isLoading}
           error={tasksQuery.error}
           onRetryLoad={() => void tasksQuery.refetch()}
@@ -770,7 +763,7 @@ export function BillInboxPage() {
           </div>
 
           {rowsQuery.isLoading ? (
-            <ListSkeleton label={`${INBOX_VIEW_LABELS[view]}流水加载中`} />
+            <ListSkeleton label={`${INBOX_VIEW_LABELS[view]}流水加载中`} rows={counts.countFor(view, source)} />
           ) : rowsQuery.isError ? (
             <ErrorState message="流水加载失败" error={rowsQuery.error} onRetry={() => void rowsQuery.refetch()} />
           ) : rows.length === 0 ? (
@@ -829,8 +822,8 @@ export function BillInboxPage() {
           {/* 滚动加载：到底了要明说共多少笔，不留「是不是还有」的悬念 */}
           {view !== 'attention' && rows.length > 0 && (
             <div ref={sentinelRef} className="px-2 pt-3 pb-1 text-center text-[11.5px] text-[var(--text-tertiary)]">
-              {visibleRows.length < rows.length
-                ? `正在加载…已显示 ${visibleRows.length} / ${rows.length} 笔`
+              {hasNextPage
+                ? `正在加载…已显示 ${rows.length} / ${loadedTotal} 笔`
                 : `到底了 · 共 ${rows.length} 笔`}
             </div>
           )}
@@ -866,7 +859,7 @@ export function BillInboxPage() {
             >
               忽略 {selectedCount} 笔
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+            <Button variant="ghost" size="sm" onClick={() => dispatchSelection({ type: 'clearSelection' })}>
               取消
             </Button>
           </div>
@@ -988,10 +981,15 @@ function emptyStateFor(
   return { message: '还没有入账过流水', action: { label: '看待入账的', onClick: actions.onGoImportable } }
 }
 
-function ListSkeleton({ label }: { label: string }) {
+/**
+ * 占位行数按「这个 tab 上一次有多少笔」给，不写死 6 行——
+ * 写死的话加载完必然跳一下，差得越多跳得越明显。
+ */
+function ListSkeleton({ label, rows }: { label: string; rows: number }) {
+  const count = Math.min(Math.max(rows || 8, 3), BILL_ROWS_PAGE_SIZE)
   return (
     <div className="flex flex-col gap-1 p-2" role="status" aria-label={label}>
-      {Array.from({ length: 6 }).map((_, index) => <Skeleton key={index} className="h-8" />)}
+      {Array.from({ length: count }).map((_, index) => <Skeleton key={index} className="h-8" />)}
     </div>
   )
 }

@@ -71,7 +71,8 @@ describe('BudgetRow', () => {
     fireEvent.click(screen.getByRole('button', { name: '删除预算 Food' }))
     // 删除要过一道确认框：点「删除」只是把框弹出来，不会直接下手
     expect(mocks.deleteBudget).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+    // 行上那颗是「删除预算 Food」，确认框里那颗才是「删除预算」——按名字全等能分开
+    fireEvent.click(screen.getByRole('button', { name: '删除预算' }))
     await waitFor(() => expect(mocks.deleteBudget).toHaveBeenCalledWith('5'))
   })
 })

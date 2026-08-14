@@ -211,6 +211,16 @@ export const financialReportResponseSchema = z.object({
 
 export type FinancialReportResponse = z.infer<typeof financialReportResponseSchema>
 
+/** 四状态计数。tab 上的数字和渠道条上的数字共用这个形状。 */
+export const billRowGroupCountsSchema = z.object({
+  importable: z.number(),
+  attention: z.number(),
+  dismissed: z.number(),
+  imported: z.number(),
+})
+
+export type BillRowGroupCounts = z.infer<typeof billRowGroupCountsSchema>
+
 /** GET /api/v1/bill-inbox/summary（本项目账单收件箱汇总端点）。 */
 export const billInboxChannelSchema = z
   .object({
@@ -223,6 +233,8 @@ export const billInboxChannelSchema = z
     parsed: z.number(),
     to_store: z.number(),
     last_status: z.string().nullable().optional(),
+    /** 渠道 × 四状态的分桶，和列表用同一套口径。老响应没有，缺省当全 0。 */
+    counts: billRowGroupCountsSchema.optional(),
   })
   .passthrough()
 
@@ -288,6 +300,8 @@ export const billInboxSummarySchema = z
     failed: z.number(),
     unclassified_mail: z.number().optional().default(0),
     channels: z.array(billInboxChannelSchema),
+    /** 四个状态 tab 的数字。老响应没有，缺省当全 0。 */
+    counts: billRowGroupCountsSchema.optional(),
     todo: billInboxTodoSchema.optional(),
     mailbox_sync: billMailboxSyncStateSchema.optional(),
   })

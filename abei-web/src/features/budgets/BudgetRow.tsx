@@ -4,6 +4,7 @@ import type { Budget } from '../../api/schemas'
 import type { DateRange } from '../../api/firefly'
 import { useCreateBudgetLimit, useCurrencies, useDeleteBudget, useUpdateBudget, useUpdateBudgetLimit } from '../../api/queries'
 import { ProgressBar } from '../../components/abei/ProgressBar'
+import { ConfirmDialog } from '../../components/abei/ConfirmDialog'
 import { Modal } from '../../components/abei/Modal'
 import { InlineError } from '../../components/abei/ErrorState'
 import { Button, IconButton } from '../../components/ui/Button'
@@ -352,29 +353,19 @@ export function BudgetRow({ budget, limits, range, limitsLoading = false, limits
         </div>
       </Modal>
 
-      {/* 删除原先走 window.confirm：既不受主题控制，也说不清「会丢什么」。
-          换成跟其他破坏性操作一致的确认框 */}
-      <Modal
+      <ConfirmDialog
         open={deleteOpen}
-        onClose={() => setDeleteOpen(false)}
         title="删除预算"
-        width={420}
-        footer={
-          <>
-            <Button variant="secondary" size="md" disabled={deleteBudgetMutation.isPending} onClick={() => setDeleteOpen(false)}>
-              取消
-            </Button>
-            <Button variant="danger" size="md" disabled={deleteBudgetMutation.isPending} onClick={() => void removeBudget()}>
-              {deleteBudgetMutation.isPending ? '删除中…' : '确认删除'}
-            </Button>
-          </>
-        }
+        confirmLabel="删除预算"
+        pending={deleteBudgetMutation.isPending}
+        onConfirm={() => void removeBudget()}
+        onClose={() => setDeleteOpen(false)}
       >
         <p>
-          确定删除预算「<span className="font-semibold">{attrs.name}</span>」？
+          确定删除预算「<span className="font-semibold text-[var(--text-primary)]">{attrs.name}</span>」？
           交易不会被删除，但与该预算的关联将丢失。此操作不可撤销。
         </p>
-      </Modal>
+      </ConfirmDialog>
     </>
   )
 }

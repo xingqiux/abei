@@ -8,14 +8,6 @@ const TodayPage = lazyRouteComponent(() => import('../features/today/TodayPage')
 const AssistantPage = lazyRouteComponent(() => import('../features/assistant/AssistantPage'), 'AssistantPage')
 const TransactionsPage = lazyRouteComponent(() => import('../features/transactions/TransactionsPage'), 'TransactionsPage')
 const BillInboxPage = lazyRouteComponent(() => import('../features/bill-inbox/BillInboxPage'), 'BillInboxPage')
-const MailWorkbenchPage = lazyRouteComponent(
-  () => import('../features/mail-workbench/MailWorkbenchPage'),
-  'MailWorkbenchPage',
-)
-const ParserWorkbenchPage = lazyRouteComponent(
-  () => import('../features/parser-workbench/ParserWorkbenchPage'),
-  'ParserWorkbenchPage',
-)
 const GoogleOAuthCallbackPage = lazyRouteComponent(
   () => import('../features/bill-inbox/GoogleOAuthCallbackPage'),
   'GoogleOAuthCallbackPage',
@@ -26,10 +18,6 @@ const BudgetsPage = lazyRouteComponent(() => import('../features/budgets/Budgets
 const ReferenceDataPage = lazyRouteComponent(() => import('../features/reference-data/ReferenceDataPage'), 'ReferenceDataPage')
 const AnalysisPage = lazyRouteComponent(() => import('../features/analysis/AnalysisPage'), 'AnalysisPage')
 const FeedbackPage = lazyRouteComponent(() => import('../features/feedback/FeedbackPage'), 'FeedbackPage')
-const AdminFeedbackPage = lazyRouteComponent(
-  () => import('../features/feedback/AdminFeedbackPage'),
-  'AdminFeedbackPage',
-)
 const ProfilePage = lazyRouteComponent(() => import('../features/profile/ProfilePage'), 'ProfilePage')
 const SettingsPage = lazyRouteComponent(() => import('../features/settings/SettingsPage'), 'SettingsPage')
 
@@ -77,22 +65,6 @@ const billInboxRoute = createRoute({
     task: typeof search.task === 'string' && search.task !== '' ? search.task : undefined,
   }),
   component: BillInboxPage,
-})
-
-const mailWorkbenchRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/mail-workbench',
-  component: MailWorkbenchPage,
-})
-
-const parserWorkbenchRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/parser-workbench',
-  validateSearch: (search: Record<string, unknown>): { flow?: string; sample?: string } => ({
-    flow: typeof search.flow === 'string' && search.flow !== '' ? search.flow : undefined,
-    sample: typeof search.sample === 'string' && search.sample !== '' ? search.sample : undefined,
-  }),
-  component: ParserWorkbenchPage,
 })
 
 const googleOAuthCallbackRoute = createRoute({
@@ -151,12 +123,6 @@ const feedbackRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/feedback',
   component: FeedbackPage,
-})
-
-const adminFeedbackRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/admin/feedback',
-  component: AdminFeedbackPage,
 })
 
 const profileRoute = createRoute({
@@ -218,8 +184,6 @@ const routeTree = rootRoute.addChildren([
   assistantRoute,
   transactionsRoute,
   billInboxRoute,
-  mailWorkbenchRoute,
-  parserWorkbenchRoute,
   googleOAuthCallbackRoute,
   accountsRoute,
   accountDetailRoute,
@@ -228,7 +192,6 @@ const routeTree = rootRoute.addChildren([
   analysisRoute,
   legacyReportsRoute,
   feedbackRoute,
-  adminFeedbackRoute,
   profileRoute,
   settingsRoute,
   catchAllRoute,
