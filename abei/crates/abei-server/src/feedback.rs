@@ -2801,7 +2801,10 @@ mod tests {
         crate::initialize(&pool).await.unwrap();
         let db = pool.get().await.unwrap();
         let users = db
-            .query("SELECT id FROM public.users ORDER BY id LIMIT 2", &[])
+            .query(
+                "SELECT id::bigint FROM public.users ORDER BY id LIMIT 2",
+                &[],
+            )
             .await
             .unwrap();
         if users.len() < 2 {

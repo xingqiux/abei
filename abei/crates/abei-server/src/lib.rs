@@ -504,6 +504,42 @@ pub(crate) fn test_signature(actor: &str, role: &str, user_id: i64) -> String {
     abei_core::internal_auth::sign(TEST_SECRET.as_bytes(), &Identity::new(actor, role, user_id))
 }
 
+/// 建一个只属于测试的 Firefly 用户。
+///
+/// `public.users` 是 Firefly 建的表：`id` 是 int4，`email` 和 `password` 都非空且没有默认值，
+/// 所以既要把 i64 显式降到 bigint 再交给 Postgres 做赋值转换，也得把两个必填列填上。
+/// 各测试模块以前各自抄了一份只写 `id` 的插入语句，从来没插进去过，统一收到这里。
+#[cfg(test)]
+pub(crate) async fn ensure_test_user(client: &deadpool_postgres::Client, user_id: i64) {
+    client
+        .execute(
+            "DELETE FROM public.users WHERE id = $1::bigint",
+            &[&user_id],
+        )
+        .await
+        .unwrap();
+    client
+        .execute(
+            "INSERT INTO public.users (id, email, password)
+             VALUES ($1::bigint, 'abei-test-' || $1::text || '@example.invalid', '')",
+            &[&user_id],
+        )
+        .await
+        .unwrap();
+}
+
+/// 收掉 [`ensure_test_user`] 建的用户；`abei_ai` 里挂在它名下的行会跟着级联删掉。
+#[cfg(test)]
+pub(crate) async fn remove_test_user(client: &deadpool_postgres::Client, user_id: i64) {
+    client
+        .execute(
+            "DELETE FROM public.users WHERE id = $1::bigint",
+            &[&user_id],
+        )
+        .await
+        .unwrap();
+}
+
 fn unauthenticated(error: abei_core::internal_auth::VerifyError) -> Response {
     tracing::warn!(reason = %error, "拒绝了一个没有可信签名的请求");
     ApiError::unauthenticated(format!("{error}。abei-server 只接受 abei-api 转发的请求。"))

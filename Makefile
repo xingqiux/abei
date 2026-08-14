@@ -20,6 +20,8 @@ DEV_DB_ENV := DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=$(or $(POSTGRES_PORT
 ABEI_SERVER_DB_ENV := POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=$(or $(POSTGRES_PORT),15432) \
 	POSTGRES_DB=$(or $(POSTGRES_DB),firefly) POSTGRES_USER=$(or $(POSTGRES_USER),firefly) \
 	POSTGRES_PASSWORD=$(or $(POSTGRES_PASSWORD),firefly-local-only)
+# 带库的 Rust 用例认这个变量，不给就整批静默跳过（见 test-rust）。
+ABEI_TEST_DATABASE_URL := $(or $(ABEI_TEST_DATABASE_URL),postgres://$(or $(POSTGRES_USER),firefly):$(or $(POSTGRES_PASSWORD),firefly-local-only)@127.0.0.1:$(or $(POSTGRES_PORT),15432)/$(or $(POSTGRES_DB),firefly))
 
 .DEFAULT_GOAL := help
 
@@ -150,10 +152,14 @@ test-agent:
 	$(COMPOSE) run --rm agent-test
 
 # abei 的三道闸，缺一不可。
+# 带数据库的用例全部写成「没有 ABEI_TEST_DATABASE_URL 就直接 return」，所以这个变量不给，
+# 它们会安静地跳过、测试照样全绿——等于没测。这里默认指向本地 db 容器，先把它拉起来。
+# 用例只碰 8_11x_xxx 这段合成 user_id，不会动到你自己的账本数据。
 test-rust:
+	$(COMPOSE) up -d --wait db
 	cd $(ABEI_DIR) && cargo fmt --all -- --check
 	cd $(ABEI_DIR) && cargo clippy --workspace --all-targets --all-features -- -D warnings
-	cd $(ABEI_DIR) && cargo test --workspace --all-features
+	cd $(ABEI_DIR) && ABEI_TEST_DATABASE_URL="$(ABEI_TEST_DATABASE_URL)" cargo test --workspace --all-features
 
 # e2e 要 db/mail/app/abei-api 四个容器：前端由 playwright 自己拉 vite（端口 5174，见
 # playwright.config.ts），vite 把 /v1 代理到 18002，账本请求全程经 abei-api，少了它整轮必挂。

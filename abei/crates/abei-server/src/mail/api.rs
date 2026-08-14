@@ -349,14 +349,7 @@ mod tests {
         crate::initialize(&pool).await.unwrap();
         let user_id = 8_110_001_i64;
         let client = pool.get().await.unwrap();
-        client
-            .execute("DELETE FROM public.users WHERE id = $1", &[&user_id])
-            .await
-            .unwrap();
-        client
-            .execute("INSERT INTO public.users (id) VALUES ($1)", &[&user_id])
-            .await
-            .unwrap();
+        crate::ensure_test_user(&client, user_id).await;
         let flow_id: i64 = client
             .query_one(
                 "SELECT id FROM abei_ai.parser_flows
@@ -491,12 +484,7 @@ mod tests {
             Some("招商银行信用卡(1234)")
         );
 
-        pool.get()
-            .await
-            .unwrap()
-            .execute("DELETE FROM public.users WHERE id = $1", &[&user_id])
-            .await
-            .unwrap();
+        crate::remove_test_user(&pool.get().await.unwrap(), user_id).await;
         let _ = tokio::fs::remove_file(storage_root.join(raw_path)).await;
     }
 }
