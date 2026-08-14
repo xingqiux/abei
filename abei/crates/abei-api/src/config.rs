@@ -11,12 +11,16 @@ pub struct Config {
     pub server_url: String,
     /// Firefly III 的地址，过渡期账本操作都委托给它。
     pub firefly_url: String,
+    /// 与 abei-server 之间的共享密钥，用来给可信身份头签名。
+    pub internal_secret: String,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("{0} 的值不对：{1}")]
     Invalid(&'static str, String),
+    #[error("{0} 没有配置。{1}")]
+    Missing(&'static str, String),
 }
 
 impl Default for Config {
@@ -27,6 +31,8 @@ impl Default for Config {
             web_url: "http://127.0.0.1:18004".to_owned(),
             server_url: "http://127.0.0.1:18005".to_owned(),
             firefly_url: "http://127.0.0.1:18001".to_owned(),
+            // 没有默认密钥：`from_env` 必须从环境里读到一个，读不到就拒绝起服。
+            internal_secret: String::new(),
         }
     }
 }
@@ -70,12 +76,23 @@ impl Config {
             return Err(ConfigError::Invalid("ABEI_SERVER_URL", server_url));
         }
 
+        let internal_secret = env::var("ABEI_INTERNAL_SECRET").unwrap_or_default();
+        if internal_secret.trim().is_empty() {
+            return Err(ConfigError::Missing(
+                "ABEI_INTERNAL_SECRET",
+                "abei-api 用它给发往 abei-server 的身份头签名，两个服务必须配同一个值。".to_owned(),
+            ));
+        }
+        abei_core::internal_auth::check_secret(&internal_secret)
+            .map_err(|reason| ConfigError::Missing("ABEI_INTERNAL_SECRET", reason))?;
+
         Ok(Self {
             host,
             port,
             web_url,
             server_url,
             firefly_url,
+            internal_secret: internal_secret.trim().to_owned(),
         })
     }
 }

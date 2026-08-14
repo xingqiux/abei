@@ -22,6 +22,10 @@ use crate::state::AppState;
 /// 假 Firefly 只认这一个令牌，别的都当作 401。
 pub const GOOD_TOKEN: &str = "good-token";
 
+/// 测试用的内部签名密钥。假 abei-server 不验签，但 API 侧照样会签，
+/// 免得签名这条路径在测试里从来没被走过。
+pub const TEST_INTERNAL_SECRET: &str = "abei-testkit-internal-secret-0123456789";
+
 /// 随便挑个端口起服务，返回实际地址。
 pub async fn spawn(app: Router) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -44,6 +48,7 @@ pub async fn start_api_recording(recorder: Recorder) -> String {
     let config = Config {
         firefly_url: format!("http://{firefly}"),
         server_url: format!("http://{server}"),
+        internal_secret: TEST_INTERNAL_SECRET.to_owned(),
         ..Config::default()
     };
     let state = AppState::new(&config).unwrap();

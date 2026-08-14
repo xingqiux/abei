@@ -1140,6 +1140,7 @@ async fn unavailable_feedback_server_is_a_plain_502() {
     let config = Config {
         firefly_url: format!("http://{firefly}"),
         server_url: "http://127.0.0.1:1".to_owned(),
+        internal_secret: abei_api::testkit::TEST_INTERNAL_SECRET.to_owned(),
         ..Config::default()
     };
     let api = spawn(abei_api::build_app(AppState::new(&config).unwrap())).await;

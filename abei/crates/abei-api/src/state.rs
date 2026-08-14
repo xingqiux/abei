@@ -24,6 +24,8 @@ pub struct AppState {
     pub web_url: String,
     pub server_url: String,
     pub http: reqwest::Client,
+    /// 给发往 abei-server 的身份头签名用，见 [`crate::routes::server`]。
+    pub internal_secret: Arc<String>,
     verified: Arc<Mutex<HashMap<String, CachedUser>>>,
 }
 
@@ -34,6 +36,7 @@ impl AppState {
             web_url: config.web_url.clone(),
             server_url: config.server_url.clone(),
             http: reqwest::Client::builder().timeout(SERVER_TIMEOUT).build()?,
+            internal_secret: Arc::new(config.internal_secret.clone()),
             verified: Arc::new(Mutex::new(HashMap::new())),
         })
     }

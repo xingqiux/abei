@@ -2815,6 +2815,7 @@ mod tests {
         let app = crate::build_app(crate::AppState::new(
             pool,
             crate::mailbox::RuntimeConfig::test(),
+            crate::TEST_SECRET.to_owned(),
         ));
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -2851,10 +2852,15 @@ mod tests {
             })
         };
         let with_identity = |request: reqwest::RequestBuilder, user_id: i64, role: &str| {
+            let actor = format!("user-{user_id}");
             request
-                .header(crate::ACTOR_HEADER, format!("user-{user_id}"))
+                .header(crate::ACTOR_HEADER, &actor)
                 .header(crate::ROLE_HEADER, role)
                 .header(crate::USER_ID_HEADER, user_id)
+                .header(
+                    crate::SIGNATURE_HEADER,
+                    crate::test_signature(&actor, role, user_id),
+                )
         };
 
         let response = with_identity(

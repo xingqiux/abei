@@ -13,9 +13,26 @@ use crate::state::AppState;
 // 1 MiB Markdown 在 JSON 里经过转义可能明显变大，入口仍保留一个明确上限。
 const MAX_BODY: usize = 8 * 1024 * 1024;
 const MAX_EML_BODY: usize = 26 * 1024 * 1024;
-const ACTOR_HEADER: &str = "x-abei-authenticated-user";
-const ROLE_HEADER: &str = "x-abei-authenticated-role";
-const USER_ID_HEADER: &str = "x-abei-authenticated-user-id";
+use abei_core::internal_auth::{
+    ACTOR_HEADER, Identity, ROLE_HEADER, SIGNATURE_HEADER, USER_ID_HEADER, sign,
+};
+
+/// 给一次转发装上可信身份头和覆盖它们的签名。
+///
+/// abei-server 不自己验 Firefly token，它只认这套签名——没签名或签名对不上一律 401。
+/// 三个身份头必须和签名同时设置，漏一个就整体失效。
+fn sign_identity(
+    request: reqwest::RequestBuilder,
+    secret: &str,
+    identity: &VerifiedUser,
+) -> reqwest::RequestBuilder {
+    let signed = Identity::new(&identity.actor, &identity.role, identity.id);
+    request
+        .header(ACTOR_HEADER, &identity.actor)
+        .header(ROLE_HEADER, &identity.role)
+        .header(USER_ID_HEADER, identity.id)
+        .header(SIGNATURE_HEADER, sign(secret.as_bytes(), &signed))
+}
 
 /// `abei-server` 只接受这里注入的可信身份头；浏览器传入的同名头会被丢弃。
 pub async fn proxy(State(state): State<AppState>, request: Request) -> Result<Response, Problem> {
@@ -51,12 +68,13 @@ pub async fn send_json(
     path: &str,
     body: &Value,
 ) -> Result<Response, Problem> {
-    let request = state
-        .http
-        .request(method, format!("{}{path}", state.server_url))
-        .header(ACTOR_HEADER, &identity.actor)
-        .header(ROLE_HEADER, &identity.role)
-        .header(USER_ID_HEADER, identity.id);
+    let request = sign_identity(
+        state
+            .http
+            .request(method, format!("{}{path}", state.server_url)),
+        &state.internal_secret,
+        identity,
+    );
     let request = if body.is_null() {
         request
     } else {
@@ -73,16 +91,17 @@ pub async fn request_json(
     path: &str,
     body: &Value,
 ) -> Result<(StatusCode, Value), Problem> {
-    let upstream = state
-        .http
-        .request(method, format!("{}{path}", state.server_url))
-        .header(ACTOR_HEADER, &identity.actor)
-        .header(ROLE_HEADER, &identity.role)
-        .header(USER_ID_HEADER, identity.id)
-        .json(body)
-        .send()
-        .await
-        .map_err(server_unavailable)?;
+    let upstream = sign_identity(
+        state
+            .http
+            .request(method, format!("{}{path}", state.server_url)),
+        &state.internal_secret,
+        identity,
+    )
+    .json(body)
+    .send()
+    .await
+    .map_err(server_unavailable)?;
     let status = upstream.status();
     let text = upstream.text().await.unwrap_or_default();
     let value = if text.trim().is_empty() {
@@ -109,19 +128,19 @@ async fn forward(
         .http
         .request(method, format!("{}{path}", state.server_url));
     for (name, value) in headers {
+        // 浏览器传来的身份头和签名头一律丢掉，只有下面这一份是可信的；
+        // 留着会变成同名的第二个值，abei-server 读到哪个就说不准了。
         if !crate::firefly::is_hop_by_hop(name)
             && name != "authorization"
             && name != ACTOR_HEADER
             && name != ROLE_HEADER
             && name != USER_ID_HEADER
+            && name != SIGNATURE_HEADER
         {
             upstream = upstream.header(name, value);
         }
     }
-    upstream = upstream
-        .header(ACTOR_HEADER, &identity.actor)
-        .header(ROLE_HEADER, &identity.role)
-        .header(USER_ID_HEADER, identity.id);
+    upstream = sign_identity(upstream, &state.internal_secret, identity);
     if !body.is_empty() {
         upstream = upstream.body(body);
     }

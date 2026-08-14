@@ -10,7 +10,7 @@ mod migrations;
 mod parser;
 mod profile_docs;
 
-use axum::extract::DefaultBodyLimit;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header::CONTENT_TYPE};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
@@ -20,15 +20,17 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio_postgres::NoTls;
 
-const ACTOR_HEADER: &str = "x-abei-authenticated-user";
-const ROLE_HEADER: &str = "x-abei-authenticated-role";
-const USER_ID_HEADER: &str = "x-abei-authenticated-user-id";
+use abei_core::internal_auth::{
+    ACTOR_HEADER, Identity, ROLE_HEADER, SIGNATURE_HEADER, USER_ID_HEADER,
+};
 
 pub struct ServerConfig {
     pub address: SocketAddr,
     pub database: tokio_postgres::Config,
     pub pool_size: usize,
     pub mailbox: mailbox::RuntimeConfig,
+    /// 与 abei-api 之间的共享密钥，用来验可信身份头的签名。
+    pub internal_secret: String,
 }
 
 impl ServerConfig {
@@ -43,11 +45,20 @@ impl ServerConfig {
         if pool_size == 0 {
             return Err("ABEI_DB_POOL_SIZE 必须大于 0".into());
         }
+        // 没有密钥就没有身份可言：这个进程里的每个接口都只认 abei-api 的签名，
+        // 缺配置时宁可起不来，也不能退回到「谁发头就信谁」。
+        let internal_secret = env::var("ABEI_INTERNAL_SECRET").unwrap_or_default();
+        if internal_secret.trim().is_empty() {
+            return Err("ABEI_INTERNAL_SECRET 没有配置，abei-server 无法验证 abei-api 的身份签名。两个服务必须配同一个值。".into());
+        }
+        abei_core::internal_auth::check_secret(&internal_secret)?;
+
         Ok(Self {
             address,
             database,
             pool_size,
             mailbox: mailbox::RuntimeConfig::from_env()?,
+            internal_secret: internal_secret.trim().to_owned(),
         })
     }
 }
@@ -105,10 +116,11 @@ pub struct AppState {
     mailbox: mailbox::Service,
     parser: parser::Service,
     billing: billing::Service,
+    internal_secret: std::sync::Arc<String>,
 }
 
 impl AppState {
-    pub fn new(pool: Pool, mailbox: mailbox::RuntimeConfig) -> Self {
+    pub fn new(pool: Pool, mailbox: mailbox::RuntimeConfig, internal_secret: String) -> Self {
         let mail = mail::Service::new(pool.clone(), mailbox.storage_root().to_path_buf());
         let parser = parser::Service::new(pool.clone(), mail.clone());
         let billing = billing::Service::new(
@@ -124,6 +136,7 @@ impl AppState {
             mailbox,
             parser,
             billing,
+            internal_secret: std::sync::Arc::new(internal_secret),
         }
     }
 
@@ -136,7 +149,6 @@ impl AppState {
 
 pub fn build_app(state: AppState) -> Router {
     Router::new()
-        .route("/health", get(health))
         .route(
             "/v1/bills/mailbox",
             get(mailbox::get_settings).put(mailbox::update_settings),
@@ -420,7 +432,83 @@ pub fn build_app(state: AppState) -> Router {
             post(feedback::admin_restore_item),
         )
         .layer(DefaultBodyLimit::max(8 * 1024 * 1024))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            verify_internal_signature,
+        ))
+        // /health 挂在验签之后，运维探活不需要身份。它不碰数据库也不返回任何用户数据。
+        .route("/health", get(health))
         .with_state(state)
+}
+
+/// 验 abei-api 的身份签名。没有它，任何能连上本进程端口的东西都可以自称任意用户。
+///
+/// 验过之后把三个身份头按签名内容重写一遍：请求里可能带着同名的第二个值，
+/// 留着的话后面 `headers.get()` 读到哪个就说不准了。
+async fn verify_internal_signature(
+    State(state): State<AppState>,
+    mut request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let headers = request.headers();
+    let text = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let identity = Identity::new(
+        text(ACTOR_HEADER),
+        text(ROLE_HEADER),
+        text(USER_ID_HEADER).parse::<i64>().unwrap_or_default(),
+    );
+    let signature = headers
+        .get(SIGNATURE_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+
+    if signature.is_empty() {
+        return unauthenticated(abei_core::internal_auth::VerifyError::Missing);
+    }
+    if let Err(error) =
+        abei_core::internal_auth::verify(state.internal_secret.as_bytes(), &identity, &signature)
+    {
+        return unauthenticated(error);
+    }
+
+    let headers = request.headers_mut();
+    headers.remove(SIGNATURE_HEADER);
+    if let (Ok(actor), Ok(role), Ok(user_id)) = (
+        HeaderValue::from_str(&identity.actor),
+        HeaderValue::from_str(&identity.role),
+        HeaderValue::from_str(&identity.user_id.to_string()),
+    ) {
+        headers.insert(ACTOR_HEADER, actor);
+        headers.insert(ROLE_HEADER, role);
+        headers.insert(USER_ID_HEADER, user_id);
+    } else {
+        return unauthenticated(abei_core::internal_auth::VerifyError::Malformed);
+    }
+    request.extensions_mut().insert(identity);
+    next.run(request).await
+}
+
+/// 测试用的内部签名密钥。各测试模块共用一份，别在别处再造一个。
+#[cfg(test)]
+pub(crate) const TEST_SECRET: &str = "abei-server-test-internal-secret-0123456789";
+
+/// 按测试实际发出的那几个身份头算签名——签名覆盖三个值，少发一个就得跟着少签一个。
+#[cfg(test)]
+pub(crate) fn test_signature(actor: &str, role: &str, user_id: i64) -> String {
+    abei_core::internal_auth::sign(TEST_SECRET.as_bytes(), &Identity::new(actor, role, user_id))
+}
+
+fn unauthenticated(error: abei_core::internal_auth::VerifyError) -> Response {
+    tracing::warn!(reason = %error, "拒绝了一个没有可信签名的请求");
+    ApiError::unauthenticated(format!("{error}。abei-server 只接受 abei-api 转发的请求。"))
+        .into_response()
 }
 
 pub async fn initialize(pool: &Pool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -635,6 +723,17 @@ impl ApiError {
         }
     }
 
+    /// 请求没有通过内部签名校验。和 403 分开：403 是身份可信但权限不够。
+    pub(crate) fn unauthenticated(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            problem_type: "https://abei.local/problems/unauthenticated",
+            reason: "Unauthenticated",
+            title: "身份不可信",
+            message: message.into(),
+        }
+    }
+
     pub(crate) fn conflict(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::CONFLICT,
@@ -713,7 +812,7 @@ mod tests {
         let mut database = tokio_postgres::Config::new();
         database.host("127.0.0.1").port(1).user("nobody");
         let pool = create_pool(database, 1).unwrap();
-        AppState::new(pool, mailbox::RuntimeConfig::test())
+        AppState::new(pool, mailbox::RuntimeConfig::test(), TEST_SECRET.to_owned())
     }
 
     async fn spawn_app(app: Router) -> String {
@@ -732,6 +831,10 @@ mod tests {
             .header(ACTOR_HEADER, "owner@example.com")
             .header(ROLE_HEADER, "owner")
             .header(USER_ID_HEADER, "1")
+            .header(
+                SIGNATURE_HEADER,
+                test_signature("owner@example.com", "owner", 1),
+            )
             .json(&json!({
                 "slug": "personal-accounting-rules",
                 "title": "个人记账规则",
@@ -753,6 +856,7 @@ mod tests {
         let response = reqwest::Client::new()
             .delete(format!("{base}/v1/profile-doc/personal-accounting-rules"))
             .header(USER_ID_HEADER, "1")
+            .header(SIGNATURE_HEADER, test_signature("", "", 1))
             .json(&json!({ "expected_version": 3 }))
             .send()
             .await
@@ -768,6 +872,7 @@ mod tests {
         let response = reqwest::Client::new()
             .post(format!("{base}/v1/mail-rules?dry_run=true"))
             .header(USER_ID_HEADER, "1")
+            .header(SIGNATURE_HEADER, test_signature("", "", 1))
             .json(&json!({
                 "name": "中信银行账单",
                 "enabled": true,
@@ -800,6 +905,7 @@ mod tests {
             .post(format!("{base}/v1/mail-rules/42/publish"))
             .header(ACTOR_HEADER, "owner@example.com")
             .header(USER_ID_HEADER, "1")
+            .header(SIGNATURE_HEADER, test_signature("owner@example.com", "", 1))
             .send()
             .await
             .unwrap();
@@ -816,6 +922,7 @@ mod tests {
                 "{base}/v1/bill-account-mappings/pending:cmb:card?confirm=true"
             ))
             .header(USER_ID_HEADER, "1")
+            .header(SIGNATURE_HEADER, test_signature("", "", 1))
             .send()
             .await
             .unwrap();
@@ -826,6 +933,84 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn requests_without_a_signature_are_rejected() {
+        let base = spawn_app(build_app(offline_state())).await;
+        let response = reqwest::Client::new()
+            .get(format!("{base}/v1/mail-messages"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["reason"], "Unauthenticated");
+    }
+
+    #[tokio::test]
+    async fn forged_identity_headers_without_a_signature_are_rejected() {
+        let base = spawn_app(build_app(offline_state())).await;
+        // 这正是这层中间件要挡的事：直接连上端口，自称是 1 号用户。
+        let response = reqwest::Client::new()
+            .get(format!("{base}/v1/mail-messages"))
+            .header(ACTOR_HEADER, "attacker@example.com")
+            .header(ROLE_HEADER, "owner")
+            .header(USER_ID_HEADER, "1")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn a_signature_does_not_carry_over_to_a_different_user() {
+        let base = spawn_app(build_app(offline_state())).await;
+        // 拿 1 号用户的合法签名去冒充 2 号用户：签名覆盖 user_id，所以对不上。
+        let response = reqwest::Client::new()
+            .get(format!("{base}/v1/mail-messages"))
+            .header(ACTOR_HEADER, "owner@example.com")
+            .header(ROLE_HEADER, "owner")
+            .header(USER_ID_HEADER, "2")
+            .header(
+                SIGNATURE_HEADER,
+                test_signature("owner@example.com", "owner", 1),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn a_correctly_signed_request_reaches_the_handler() {
+        let base = spawn_app(build_app(offline_state())).await;
+        let response = reqwest::Client::new()
+            .get(format!("{base}/v1/mail-messages"))
+            .header(ACTOR_HEADER, "owner@example.com")
+            .header(ROLE_HEADER, "owner")
+            .header(USER_ID_HEADER, "1")
+            .header(
+                SIGNATURE_HEADER,
+                test_signature("owner@example.com", "owner", 1),
+            )
+            .send()
+            .await
+            .unwrap();
+        // 过了验签就轮到 handler，这个 state 连不上库，所以是 5xx 而不是 401。
+        assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
+        assert!(response.status().is_server_error());
+    }
+
+    #[tokio::test]
+    async fn health_needs_no_signature() {
+        let base = spawn_app(build_app(offline_state())).await;
+        let response = reqwest::Client::new()
+            .get(format!("{base}/health"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
     async fn raw_mail_requires_a_trusted_user_identity() {
         let base = spawn_app(build_app(offline_state())).await;
         let response = reqwest::Client::new()
@@ -833,7 +1018,8 @@ mod tests {
             .send()
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        // 裸请求现在被验签中间件挡在更前面，连不上身份就是 401 而不是 403。
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
@@ -864,6 +1050,7 @@ nodes:
         let response = reqwest::Client::new()
             .post(format!("{base}/v1/parser-flows/test-eml"))
             .header(USER_ID_HEADER, "1")
+            .header(SIGNATURE_HEADER, test_signature("", "", 1))
             .header(
                 CONTENT_TYPE,
                 format!("multipart/form-data; boundary={boundary}"),
@@ -889,6 +1076,7 @@ nodes:
         let response = reqwest::Client::new()
             .post(format!("{base}/v1/parser-flows/test-eml"))
             .header(USER_ID_HEADER, "1")
+            .header(SIGNATURE_HEADER, test_signature("", "", 1))
             .header(
                 CONTENT_TYPE,
                 format!("multipart/form-data; boundary={boundary}"),

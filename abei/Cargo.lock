@@ -53,9 +53,11 @@ dependencies = [
 name = "abei-core"
 version = "0.1.0"
 dependencies = [
+ "hmac",
  "schemars",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
 ]
 
 [[package]]

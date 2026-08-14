@@ -106,7 +106,7 @@ dev: .env
 		php_pid=$$!; \
 		( set -a; . ./.env; set +a; cd $(ABEI_DIR) && exec env $(ABEI_SERVER_DB_ENV) ABEI_SERVER_ADDR=127.0.0.1:$(ABEI_SERVER_PORT) ABEI_MAIL_STORAGE=$(CURDIR)/$(APP_DIR)/storage/app GOOGLE_OAUTH_REDIRECT_URL=http://127.0.0.1:5173/oauth/google/callback cargo run -q -p abei-server ) & \
 		server_pid=$$!; \
-		( cd $(ABEI_DIR) && exec env FIREFLY_URL=http://127.0.0.1:$(FIREFLY_PORT) ABEI_WEB_URL=http://127.0.0.1:5173 ABEI_SERVER_URL=http://127.0.0.1:$(ABEI_SERVER_PORT) cargo run -q -p abei-api ) & \
+		( set -a; . ./.env; set +a; cd $(ABEI_DIR) && exec env FIREFLY_URL=http://127.0.0.1:$(FIREFLY_PORT) ABEI_WEB_URL=http://127.0.0.1:5173 ABEI_SERVER_URL=http://127.0.0.1:$(ABEI_SERVER_PORT) cargo run -q -p abei-api ) & \
 		api_pid=$$!; \
 		( set -a; . ./.env; set +a; cd $(AGENT_DIR) && exec env $(DEV_DB_ENV) FIREFLY_URL=http://127.0.0.1:$(FIREFLY_PORT) npm run dev -- agent serve ) & \
 		agent_pid=$$!; \

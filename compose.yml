@@ -109,6 +109,8 @@ services:
       GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
       GOOGLE_OAUTH_REDIRECT_URL: ${GOOGLE_OAUTH_REDIRECT_URL:-http://127.0.0.1:18004/oauth/google/callback}
       APP_KEY: ${APP_KEY:-SomeRandomStringOf32CharsExactly}
+      # 和 abei-api 配同一个值。abei-server 只认这个密钥签出来的身份头。
+      ABEI_INTERNAL_SECRET: ${ABEI_INTERNAL_SECRET:-change-me-to-a-random-32-char-secret}
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-firefly}
@@ -148,6 +150,8 @@ services:
       ABEI_API_PORT: 18002
       ABEI_WEB_URL: ${ABEI_WEB_URL:-http://127.0.0.1:${ABEI_WEB_PORT:-18004}}
       ABEI_SERVER_URL: http://abei-server:18005
+      # 和 abei-server 配同一个值，否则每个转发过去的请求都会被回 401。
+      ABEI_INTERNAL_SECRET: ${ABEI_INTERNAL_SECRET:-change-me-to-a-random-32-char-secret}
       FIREFLY_URL: http://app
     depends_on:
       app:

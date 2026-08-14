@@ -370,7 +370,7 @@ mod tests {
 
         let config = crate::mailbox::RuntimeConfig::test();
         let storage_root = config.storage_root().to_path_buf();
-        let state = AppState::new(pool.clone(), config);
+        let state = AppState::new(pool.clone(), config, crate::TEST_SECRET.to_owned());
         state.billing.start_workers();
         let rule = state
             .mail

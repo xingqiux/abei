@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
         return Ok(());
     }
-    let state = AppState::new(pool, config.mailbox);
+    let state = AppState::new(pool, config.mailbox, config.internal_secret);
     state.start_mailbox_scheduler();
     let listener = TcpListener::bind(config.address).await?;
     tracing::info!(address = %config.address, "abei-server 已启动");
