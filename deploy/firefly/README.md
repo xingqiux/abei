@@ -112,22 +112,9 @@ union all select 'transaction_groups', count(*) from transaction_groups;
 "
 ```
 
-如果数据库包含旧版 `public.bill_*` 表，再使用 `abei-server` 自带的迁移审计工具。第一次只做 dry-run：
-
-```bash
-docker compose run --rm abei-server legacy-bills
-```
-
-报告中的旧表数量、可迁移数量、跳过和冲突都确认后，再执行幂等迁移：
-
-```bash
-docker compose run --rm abei-server legacy-bills --apply
-docker compose run --rm abei-server legacy-bills
-```
-
-第二次 dry-run 应显示没有新的待迁移记录。工具会按 legacy ID 对拍邮件、文档、流水、金额、
-状态和 Firefly transaction group，不会 DROP 或重命名旧表。旧表必须保留为只读回滚证据，
-直到观察窗口结束并由用户明确批准关闭回滚门。
+旧版 `public.bill_*` 表（Firefly 时代的账单收件箱）不再迁移：那批数据是测试数据，
+邮件原件都在邮件服务器上可以重新收取，账单草稿本身没有搬迁价值。abei-server 从
+0.1.0 起不再带 `legacy-bills` 子命令。旧表留着不影响新库，确认不需要后直接删掉即可。
 
 ## 5. 接域名
 

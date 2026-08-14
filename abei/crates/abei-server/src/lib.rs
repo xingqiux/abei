@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 
 mod billing;
 mod feedback;
-pub mod legacy_bills;
 mod mail;
 pub mod mailbox;
 mod migrations;
