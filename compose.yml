@@ -227,6 +227,19 @@ services:
     ports:
       - "127.0.0.1:${ABEI_WEB_PORT:-18004}:80"
 
+  # 后台：解析器、同步器、反馈处理。和前台分开是因为受众不同——
+  # 前台是记账的人，后台是维护解析规则的人，两边的导航、权限和发版节奏都不该互相牵制。
+  # 只反代 /v1，不给 Firefly 直连口子；owner 校验在 abei-api 的 /v1/admin/* 上。
+  abei-admin:
+    build:
+      context: ./abei-admin
+      target: runtime
+    depends_on:
+      abei-api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${ABEI_ADMIN_PORT:-18006}:80"
+
   test-db:
     image: postgres:17-alpine
     profiles: [test]
