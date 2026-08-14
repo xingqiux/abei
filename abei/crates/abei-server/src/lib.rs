@@ -283,6 +283,19 @@ pub fn build_app(state: AppState) -> Router {
             "/v1/bill-rows/{id}/mark-unique",
             post(billing::api::mark_row_unique),
         )
+        .route("/v1/bill-rows/{id}/links", get(billing::api::row_links))
+        .route(
+            "/v1/bill-row-links/{id}/confirm",
+            post(billing::api::confirm_link),
+        )
+        .route(
+            "/v1/bill-row-links/{id}/reject",
+            post(billing::api::reject_link),
+        )
+        .route(
+            "/v1/bill-row-links/{id}/undo",
+            post(billing::api::undo_link),
+        )
         .route("/v1/bill-inbox/summary", get(billing::api::inbox_summary))
         .route(
             "/v1/bill-inbox/processing-summary",

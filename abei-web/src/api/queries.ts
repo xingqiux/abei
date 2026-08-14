@@ -40,6 +40,10 @@ import {
   getBillInboxSummary,
   getBillProcessingSummary,
   retryParseJob,
+  getBillRowLinks,
+  confirmBillRowLink,
+  rejectBillRowLink,
+  undoBillRowLink,
   getBillInboxSettings,
   getBillTaskArtifacts,
   getBillTaskEvents,
@@ -377,6 +381,43 @@ export function useRetryParseJob() {
     mutationFn: (jobId: string) => retryParseJob(jobId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bill-processing-summary'] })
+      queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] })
+    },
+  })
+}
+
+export function useBillRowLinks(rowId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ['bill-row-links', rowId],
+    queryFn: () => getBillRowLinks(rowId as string),
+    enabled: !!rowId && enabled,
+    staleTime: 30_000,
+  })
+}
+
+/**
+ * 确认 / 否掉 / 撤回一条配对。三个动作都会动到行本身（确认重复会把一行忽略掉），
+ * 所以行列表和汇总一起失效。
+ */
+export function useBillRowLinkDecision() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      linkId,
+      action,
+      keepRowId,
+    }: {
+      linkId: string
+      action: 'confirm' | 'reject' | 'undo'
+      keepRowId?: string
+    }) => {
+      if (action === 'confirm') return confirmBillRowLink(linkId, keepRowId)
+      if (action === 'reject') return rejectBillRowLink(linkId)
+      return undoBillRowLink(linkId)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bill-row-links'] })
+      queryClient.invalidateQueries({ queryKey: ['bill-rows'] })
       queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] })
     },
   })

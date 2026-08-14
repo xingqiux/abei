@@ -596,6 +596,44 @@ export const billRowsResponseSchema = paginatedCollectionSchema(billQueueRowSche
 export type BillQueueRow = z.infer<typeof billQueueRowSchema>
 export type BillRowsResponse = z.infer<typeof billRowsResponseSchema>
 
+/**
+ * GET /v1/bill-rows/{id}/links：这一行和别的行可能是同一件事。
+ * suggested 是算出来的建议，confirmed 是人确认过的（重复的那一侧已经被忽略掉了）。
+ */
+export const billRowLinkSchema = z
+  .object({
+    id: z.string(),
+    attributes: z
+      .object({
+        row_id: z.string(),
+        relation: z.string(),
+        state: z.enum(['suggested', 'confirmed', 'rejected']),
+        confidence: z.string(),
+        evidence: z.record(z.string(), z.unknown()).nullable().optional(),
+        decided_at: z.string().nullable().optional(),
+        related_row: z
+          .object({
+            id: z.string(),
+            status: z.string(),
+            occurred_at: z.string().nullable().optional(),
+            signed_amount: z.string(),
+            currency_code: z.string().nullable().optional(),
+            description: z.string().nullable().optional(),
+            counterparty: z.string().nullable().optional(),
+            source_name: z.string().nullable().optional(),
+            destination_name: z.string().nullable().optional(),
+            channel_key: z.string().nullable().optional(),
+            dismissed_reason: z.string().nullable().optional(),
+          })
+          .passthrough(),
+      })
+      .passthrough(),
+  })
+  .passthrough()
+
+export const billRowLinksResponseSchema = z.object({ data: z.array(billRowLinkSchema) })
+export type BillRowLink = z.infer<typeof billRowLinkSchema>
+
 /** POST /api/v1/bill-rows/dismiss | restore 响应：只关心处理条数 */
 export const billRowsBulkResultSchema = z
   .object({

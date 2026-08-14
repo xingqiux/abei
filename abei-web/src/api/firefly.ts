@@ -31,6 +31,7 @@ import {
   billAccountMappingsResponseSchema,
   billInboxSummarySchema,
   billProcessingSummarySchema,
+  billRowLinksResponseSchema,
   billInboxSettingsSchema,
   googleOAuthStartSchema,
   billInboxSyncResultSchema,
@@ -72,6 +73,7 @@ import {
   type BillAccountMappingsResponse,
   type BillInboxSummary,
   type BillProcessingSummary,
+  type BillRowLink,
   type BillInboxSettings,
   type GoogleOAuthStart,
   type BillInboxSyncResult,
@@ -386,6 +388,27 @@ export async function getBillProcessingSummary(days?: number): Promise<BillProce
 /** POST /v1/parse-jobs/{id}/retry —— 重跑一封没解析出来的邮件。 */
 export async function retryParseJob(jobId: string): Promise<unknown> {
   return apiPost(`/v1/parse-jobs/${jobId}/retry`, {})
+}
+
+/** GET /v1/bill-rows/{id}/links —— 这一行可能和哪一笔是同一件事。 */
+export async function getBillRowLinks(rowId: string): Promise<BillRowLink[]> {
+  const raw = await apiGet(`/v1/bill-rows/${rowId}/links`)
+  return billRowLinksResponseSchema.parse(raw).data
+}
+
+/** 确认配对。跨渠道重复会把没留下的那一行按忽略处理。 */
+export async function confirmBillRowLink(linkId: string, keepRowId?: string): Promise<unknown> {
+  return apiPost(`/v1/bill-row-links/${linkId}/confirm`, keepRowId ? { keep_row_id: keepRowId } : {})
+}
+
+/** 否掉配对。下次重新打分不会再提。 */
+export async function rejectBillRowLink(linkId: string): Promise<unknown> {
+  return apiPost(`/v1/bill-row-links/${linkId}/reject`, {})
+}
+
+/** 撤回上一个决定；确认重复时被忽略掉的那一行跟着回来。 */
+export async function undoBillRowLink(linkId: string): Promise<unknown> {
+  return apiPost(`/v1/bill-row-links/${linkId}/undo`, {})
 }
 
 export type BillInboxSettingsInput = Partial<

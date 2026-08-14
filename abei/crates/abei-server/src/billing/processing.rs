@@ -198,8 +198,7 @@ impl Service {
 
         let rows = client
             .query(
-                &format!(
-                    "SELECT m.user_id,
+                "SELECT m.user_id,
                             u.email AS user_email,
                             m.email AS mailbox_email,
                             m.enabled,
@@ -232,8 +231,7 @@ impl Service {
                          AND requested_at >= now() - make_interval(secs => $1)
                      ) p ON true
                      ORDER BY coalesce(p.failed, 0) DESC, m.user_id
-                     LIMIT 200"
-                ),
+                     LIMIT 200",
                 &[
                     &window,
                     &SyncRunStatus::Failed.as_str(),

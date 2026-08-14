@@ -158,7 +158,9 @@ impl Service {
                        (user_id, left_row_id, right_row_id, relation, confidence, evidence)
                      VALUES ($1,$2,$3,$4,$5::text::numeric,$6)
                      ON CONFLICT (left_row_id, right_row_id, relation) DO UPDATE SET
-                       confidence = EXCLUDED.confidence, evidence = EXCLUDED.evidence",
+                       confidence = EXCLUDED.confidence, evidence = EXCLUDED.evidence,
+                       updated_at = now()
+                     WHERE abei_ai.bill_row_links.state = 'suggested'",
                     &[
                         &job.user_id,
                         &left_id,

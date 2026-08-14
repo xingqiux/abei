@@ -22,6 +22,7 @@ import {
   type InboxView,
 } from './billInboxHelpers'
 import { PlatformMark } from './PlatformMark'
+import { PairingSuggestions } from './PairingSuggestions'
 import { QueueRowEditor } from './QueueRowEditor'
 import { RowTimeline } from './RowTimeline'
 import { SplitBillRowDialog } from './SplitBillRowDialog'
@@ -435,6 +436,8 @@ export function QueueRow({
               带底色的值为 AI 建议，入账即视为确认；修改后恢复普通样式。
             </p>
           )}
+
+          <PairingSuggestions rowId={row.id} />
 
           <RowTimeline row={row} />
 

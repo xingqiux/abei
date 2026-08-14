@@ -112,6 +112,16 @@ pub fn build_app(state: AppState) -> Router {
             "/v1/bill-rows/{id}/mark-unique",
             post(routes::server::proxy),
         )
+        .route("/v1/bill-rows/{id}/links", get(routes::server::proxy))
+        .route(
+            "/v1/bill-row-links/{id}/confirm",
+            post(routes::server::proxy),
+        )
+        .route(
+            "/v1/bill-row-links/{id}/reject",
+            post(routes::server::proxy),
+        )
+        .route("/v1/bill-row-links/{id}/undo", post(routes::server::proxy))
         .route("/v1/bill-inbox/summary", get(routes::server::proxy))
         .route(
             "/v1/bill-inbox/processing-summary",

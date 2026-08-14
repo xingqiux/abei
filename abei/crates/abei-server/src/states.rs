@@ -180,9 +180,30 @@ define_state! {
     }
 }
 
+define_state! {
+    /// `abei_ai.bill_row_links.state`：一条配对建议的去向。
+    ///
+    /// 建议是算出来的，确认和否掉是人做的。两个决定都能撤回到 `suggested`——
+    /// 确认重复会把被并的那一行按忽略处理，撤回就得把它放回来，所以这条边必须留着。
+    LinkState {
+        Suggested = "suggested" => [Confirmed, Rejected],
+        Confirmed = "confirmed" => [Suggested],
+        Rejected = "rejected" => [Suggested],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pairing_decision_can_always_be_taken_back() {
+        assert!(LinkState::Suggested.can_transition(LinkState::Confirmed));
+        assert!(LinkState::Confirmed.can_transition(LinkState::Suggested));
+        assert!(LinkState::Rejected.can_transition(LinkState::Suggested));
+        // 确认之后不能直接改成否掉：先撤回，被并的那一行才有机会放回来。
+        assert!(!LinkState::Confirmed.can_transition(LinkState::Rejected));
+    }
 
     #[test]
     fn every_status_survives_a_round_trip_through_its_literal() {
@@ -197,6 +218,9 @@ mod tests {
         }
         for status in RowStatus::ALL {
             assert_eq!(RowStatus::from_str(status.as_str()), Some(*status));
+        }
+        for status in LinkState::ALL {
+            assert_eq!(LinkState::from_str(status.as_str()), Some(*status));
         }
     }
 

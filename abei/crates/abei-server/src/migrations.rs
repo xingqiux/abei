@@ -35,7 +35,14 @@ const MIGRATIONS: &[Migration] = &[
         version: "0007_drop_legacy_bill_migration",
         sql: include_str!("../migrations/0007_drop_legacy_bill_migration.sql"),
     },
+    Migration {
+        version: "0008_bill_row_link_state",
+        sql: include_str!("../migrations/0008_bill_row_link_state.sql"),
+    },
 ];
+
+/// 迁移串行化用的咨询锁编号。随手挑的常量，只要全仓库只有这一处用就行。
+const ADVISORY_LOCK: i64 = 8_105_000;
 
 pub async fn run(pool: &Pool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut client = pool.get().await?;
@@ -55,6 +62,12 @@ pub async fn run(pool: &Pool) -> Result<(), Box<dyn std::error::Error + Send + S
     for migration in MIGRATIONS {
         let checksum = checksum(migration.sql);
         let transaction = client.transaction().await?;
+        // 两个进程同时启动（或者两个测试各自建池）时，`FOR UPDATE` 锁不住还不存在的行，
+        // 两边都会去跑同一条迁移，后提交的那个撞主键。这把事务级咨询锁把这一段串起来，
+        // 提交或回滚时自动释放。
+        transaction
+            .execute("SELECT pg_advisory_xact_lock($1)", &[&ADVISORY_LOCK])
+            .await?;
         let applied = transaction
             .query_opt(
                 "SELECT checksum FROM abei_ai.schema_migrations WHERE version = $1 FOR UPDATE",

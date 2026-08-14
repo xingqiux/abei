@@ -631,6 +631,66 @@ pub(crate) async fn mark_row_unique(
     Ok(Json(state.billing.mark_row_unique(user_id, id).await?))
 }
 
+/// 确认配对时可以指定留哪一行。不给就按「已入账的留下，都没入账就留先来的」。
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct ConfirmLinkInput {
+    keep_row_id: Option<Value>,
+}
+
+pub(crate) async fn row_links(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    path: Result<Path<String>, PathRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = authenticated_user_id(&headers)?;
+    let id = resource_id(path, "账单流水")?;
+    Ok(Json(state.billing.row_links(user_id, id).await?))
+}
+
+pub(crate) async fn confirm_link(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    path: Result<Path<String>, PathRejection>,
+    payload: Result<Json<ConfirmLinkInput>, JsonRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = authenticated_user_id(&headers)?;
+    let id = resource_id(path, "配对建议")?;
+    let Json(input) = payload.map_err(json_error)?;
+    let keep_row_id = match input.keep_row_id {
+        Some(value) => Some(
+            resource_ids(std::slice::from_ref(&value))?
+                .first()
+                .copied()
+                .ok_or_else(|| ApiError::invalid_params("keep_row_id 必须是正整数。"))?,
+        ),
+        None => None,
+    };
+    Ok(Json(
+        state.billing.confirm_link(user_id, id, keep_row_id).await?,
+    ))
+}
+
+pub(crate) async fn reject_link(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    path: Result<Path<String>, PathRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = authenticated_user_id(&headers)?;
+    let id = resource_id(path, "配对建议")?;
+    Ok(Json(state.billing.reject_link(user_id, id).await?))
+}
+
+pub(crate) async fn undo_link(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    path: Result<Path<String>, PathRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = authenticated_user_id(&headers)?;
+    let id = resource_id(path, "配对建议")?;
+    Ok(Json(state.billing.undo_link(user_id, id).await?))
+}
+
 pub(crate) async fn split_row(
     State(state): State<AppState>,
     headers: HeaderMap,
