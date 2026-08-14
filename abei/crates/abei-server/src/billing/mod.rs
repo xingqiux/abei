@@ -3,6 +3,7 @@ pub(crate) mod api;
 mod existing;
 mod imports;
 mod mappings;
+mod processing;
 mod rows;
 pub(crate) mod runner;
 mod store;

@@ -97,6 +97,13 @@ pub(crate) struct UncertainImportInput {
     error_message: String,
 }
 
+/// 处理结果汇总回看多少天。
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct WindowQuery {
+    days: Option<i32>,
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct MappingQuery {
@@ -656,6 +663,29 @@ pub(crate) async fn inbox_summary(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = authenticated_user_id(&headers)?;
     Ok(Json(state.billing.inbox_summary(user_id).await?))
+}
+
+pub(crate) async fn processing_summary(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    query: Result<Query<WindowQuery>, QueryRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = authenticated_user_id(&headers)?;
+    let Query(query) = query.map_err(query_error)?;
+    let days = super::processing::validate_window(query.days)?;
+    Ok(Json(state.billing.processing_summary(user_id, days).await?))
+}
+
+/// 管理视角的同一份账。owner 才看得到别人的邮箱。
+pub(crate) async fn admin_processing_summary(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    query: Result<Query<WindowQuery>, QueryRejection>,
+) -> Result<Json<Value>, ApiError> {
+    crate::owner(&headers)?;
+    let Query(query) = query.map_err(query_error)?;
+    let days = super::processing::validate_window(query.days)?;
+    Ok(Json(state.billing.admin_processing_summary(days).await?))
 }
 
 pub(crate) async fn prepare_import(

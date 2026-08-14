@@ -30,6 +30,7 @@ import {
   billAccountMappingResponseSchema,
   billAccountMappingsResponseSchema,
   billInboxSummarySchema,
+  billProcessingSummarySchema,
   billInboxSettingsSchema,
   googleOAuthStartSchema,
   billInboxSyncResultSchema,
@@ -70,6 +71,7 @@ import {
   type BillAccountMappingResponse,
   type BillAccountMappingsResponse,
   type BillInboxSummary,
+  type BillProcessingSummary,
   type BillInboxSettings,
   type GoogleOAuthStart,
   type BillInboxSyncResult,
@@ -370,6 +372,20 @@ export async function getAccountOverviewChart(
 export async function getBillInboxSummary(): Promise<BillInboxSummary> {
   const raw = await apiGet('/v1/bill-inbox/summary', {})
   return billInboxSummarySchema.parse(raw)
+}
+
+/**
+ * GET /v1/bill-inbox/processing-summary —— 最近一段时间的处理结果。
+ * 收件箱只说得出「现在还剩多少」，这条补上「这一批邮件里有几封没解析出来、为什么」。
+ */
+export async function getBillProcessingSummary(days?: number): Promise<BillProcessingSummary> {
+  const raw = await apiGet('/v1/bill-inbox/processing-summary', days ? { days } : {})
+  return billProcessingSummarySchema.parse(raw)
+}
+
+/** POST /v1/parse-jobs/{id}/retry —— 重跑一封没解析出来的邮件。 */
+export async function retryParseJob(jobId: string): Promise<unknown> {
+  return apiPost(`/v1/parse-jobs/${jobId}/retry`, {})
 }
 
 export type BillInboxSettingsInput = Partial<

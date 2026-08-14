@@ -283,3 +283,29 @@ export async function downloadRawMail(id: string): Promise<void> {
 export function deleteMailSample(id: string): Promise<unknown> {
   return apiDeleteJson(`/v1/mail-samples/${id}`, {}, { confirm: true })
 }
+
+/** 一个邮箱在窗口期内的处理结果。管理视角用，解析失败多的排在前面。 */
+export interface AdminProcessingMailbox {
+  user_id: string
+  user_email: string | null
+  mailbox_email: string | null
+  enabled: boolean
+  runs: number
+  failed_runs: number
+  matched: number
+  parse_total: number
+  parse_failed: number
+  parse_waiting_input: number
+  last_requested_at: string | null
+  last_status: string | null
+}
+
+/**
+ * GET /v1/admin/processing-summary —— 和用户端同一份账，按邮箱铺开。
+ * owner 才拿得到；用来一眼看出谁的解析卡住了。
+ */
+export function getAdminProcessingSummary(
+  days?: number,
+): Promise<{ window_days: number; mailboxes: AdminProcessingMailbox[] }> {
+  return apiGet('/v1/admin/processing-summary', days ? { days } : undefined)
+}

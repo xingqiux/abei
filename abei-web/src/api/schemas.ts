@@ -309,6 +309,72 @@ export const billInboxSummarySchema = z
 
 export type BillInboxSummary = z.infer<typeof billInboxSummarySchema>
 
+/** 一条卡住的解析任务：失败了要重试，或者在等账单密码。 */
+export const billProcessingStuckJobSchema = z
+  .object({
+    job_id: z.string(),
+    document_id: z.string(),
+    status: z.string(),
+    error_code: z.string().nullable().optional(),
+    error_message: z.string().nullable().optional(),
+    waiting_reason: z.string().nullable().optional(),
+    updated_at: z.string(),
+    channel_key: z.string(),
+    summary: z.string().nullable().optional(),
+  })
+  .passthrough()
+
+export type BillProcessingStuckJob = z.infer<typeof billProcessingStuckJobSchema>
+
+/** 最近一段时间的处理结果：收了多少信、解析成了几封、产出多少行。 */
+export const billProcessingSummarySchema = z
+  .object({
+    window_days: z.number(),
+    mail: z
+      .object({
+        runs: z.number(),
+        scanned: z.number(),
+        fetched: z.number(),
+        matched: z.number(),
+        unclassified: z.number(),
+        failed_runs: z.number(),
+        running_runs: z.number(),
+        last_run: z
+          .object({
+            id: z.string(),
+            status: z.string(),
+            stage: z.string(),
+            error_summary: z.string().nullable().optional(),
+            requested_at: z.string(),
+            finished_at: z.string().nullable().optional(),
+          })
+          .passthrough()
+          .nullable()
+          .optional(),
+      })
+      .passthrough(),
+    parse: z
+      .object({
+        total: z.number(),
+        succeeded: z.number(),
+        failed: z.number(),
+        waiting_input: z.number(),
+        running: z.number(),
+        stuck: z.array(billProcessingStuckJobSchema),
+      })
+      .passthrough(),
+    rows: z
+      .object({
+        produced: z.number(),
+        importable: z.number(),
+        attention: z.number(),
+      })
+      .passthrough(),
+  })
+  .passthrough()
+
+export type BillProcessingSummary = z.infer<typeof billProcessingSummarySchema>
+
 export const billInboxSettingsSchema = z.object({
   data: z.object({
     type: z.string(),

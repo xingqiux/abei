@@ -59,6 +59,7 @@ import { Tabs } from '../../components/ui/Tabs'
 import { formatDateTime } from '../../lib/format'
 import { showToast } from '../../store/toastStore'
 import { MailboxSettingsDialog } from '../mailbox/MailboxSettingsDialog'
+import { ProcessingSummaryPanel } from './ProcessingSummaryPanel'
 
 type DetailTab = 'preview' | 'headers' | 'mime' | 'attachments' | 'rules'
 type RuleGroup = 'all' | 'any'
@@ -382,6 +383,8 @@ export function MailWorkbenchPage() {
       {activeRun?.status === 'failed' && activeRun.error_summary && (
         <InlineError message={activeRun.error_summary} />
       )}
+
+      <ProcessingSummaryPanel />
 
       <RuleEditor
         rules={rules}

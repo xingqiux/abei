@@ -32,6 +32,7 @@ import { BillInboxSettingsDialog } from './BillInboxSettingsDialog'
 import { AccountMappingDialog } from './AccountMappingDialog'
 import { ImportConfirmDialog } from './ImportConfirmDialog'
 import { QueueRow } from './QueueRow'
+import { ProcessingSummaryCard } from './ProcessingSummaryCard'
 import { ChannelBar, type SourceGroup } from './ChannelBar'
 import { BRAND_MARKS, type PlatformKey } from './brandMarks'
 import {
@@ -636,6 +637,9 @@ export function BillInboxPage() {
       {summaryQuery.isError && (
         <InlineError message="收件箱汇总加载失败" error={summaryQuery.error} onRetry={() => void summaryQuery.refetch()} />
       )}
+
+      {/* 解析失败在这一页上本来什么都不留，用户只能月底发现某笔账没进来 */}
+      <ProcessingSummaryCard mailboxSyncing={syncBusy} />
 
       {(summaryQuery.data?.unclassified_mail ?? 0) > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] px-4 py-3 text-sm">

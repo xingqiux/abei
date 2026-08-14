@@ -1126,11 +1126,11 @@ fn row_select() -> &'static str {
      ) ia ON true"
 }
 
-fn row_from() -> &'static str {
+pub(super) fn row_from() -> &'static str {
     "FROM abei_ai.bill_rows r JOIN abei_ai.bill_documents d ON d.id = r.bill_document_id"
 }
 
-fn row_group_predicate() -> &'static str {
+pub(super) fn row_group_predicate() -> &'static str {
     "CASE
        WHEN r.status = 'imported' THEN 'imported'
        WHEN r.status = 'dismissed' THEN 'dismissed'

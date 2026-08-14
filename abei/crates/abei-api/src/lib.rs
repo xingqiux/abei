@@ -114,6 +114,11 @@ pub fn build_app(state: AppState) -> Router {
         )
         .route("/v1/bill-inbox/summary", get(routes::server::proxy))
         .route(
+            "/v1/bill-inbox/processing-summary",
+            get(routes::server::proxy),
+        )
+        .route("/v1/admin/processing-summary", get(routes::server::proxy))
+        .route(
             "/v1/bill-import-attempts/{id}",
             get(routes::bill_imports::get_attempt),
         )

@@ -23,6 +23,7 @@ import {
 } from './billInboxHelpers'
 import { PlatformMark } from './PlatformMark'
 import { QueueRowEditor } from './QueueRowEditor'
+import { RowTimeline } from './RowTimeline'
 import { SplitBillRowDialog } from './SplitBillRowDialog'
 import { TaskEvidencePanel } from './TaskEvidencePanel'
 import { Button } from '../../components/ui/Button'
@@ -432,6 +433,15 @@ export function QueueRow({
           {ai && (
             <p className="text-[var(--text-secondary)]">
               带底色的值为 AI 建议，入账即视为确认；修改后恢复普通样式。
+            </p>
+          )}
+
+          <RowTimeline row={row} />
+
+          {/* 入账是发到 Firefly 的，阿贝这边撤不回来，明说比让人找一圈撤销按钮强。 */}
+          {mode === 'imported' && (
+            <p className="text-[var(--text-secondary)]">
+              这笔已经进 Firefly 了。要改或要删，去交易页面上改，收件箱这里不会再动它。
             </p>
           )}
 

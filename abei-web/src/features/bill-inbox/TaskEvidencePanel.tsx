@@ -9,6 +9,7 @@ import { formatDateTime } from '../../lib/format'
 import { IconButton } from '../../components/ui/Button'
 import { InlineError } from '../../components/abei/ErrorState'
 import { SOURCE_FALLBACK_LABELS } from './billInboxHelpers'
+import { eventLabel } from './RowTimeline'
 
 const STAGE_LABELS = {
   received: '已接收',
@@ -114,7 +115,7 @@ export function TaskEvidencePanel({ task }: { task: BillRowTaskRef }) {
           {(events.data?.data ?? []).map((event) => (
             <div key={event.id} className="text-xs leading-relaxed">
               <span className="num text-[var(--text-secondary)]">{event.attributes.created_at ? formatDateTime(event.attributes.created_at) : '--'}</span>{' '}
-              <span className="text-[var(--text-primary)]">{event.attributes.event_type}</span>
+              <span className="text-[var(--text-primary)]">{eventLabel(event.attributes.event_type)}</span>
               {event.attributes.message && <span className="text-[var(--text-secondary)]"> · {event.attributes.message}</span>}
             </div>
           ))}

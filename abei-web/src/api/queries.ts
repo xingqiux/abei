@@ -38,6 +38,8 @@ import {
   getAccountTransactions,
   getAssetAccounts,
   getBillInboxSummary,
+  getBillProcessingSummary,
+  retryParseJob,
   getBillInboxSettings,
   getBillTaskArtifacts,
   getBillTaskEvents,
@@ -353,6 +355,30 @@ export function useBillInboxSummary() {
     queryFn: () => getBillInboxSummary(),
     staleTime: 60_000,
     refetchInterval: (query) => mailboxSyncPollInterval(query.state.data?.mailbox_sync?.status),
+  })
+}
+
+/**
+ * 最近一段时间的处理结果。同步在跑的时候跟着 summary 一起快刷，
+ * 否则解析完了卡片还停在「正在解析 3 封」。
+ */
+export function useBillProcessingSummary(opts: { days?: number; enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: ['bill-processing-summary', opts.days ?? null],
+    queryFn: () => getBillProcessingSummary(opts.days),
+    enabled: opts.enabled ?? true,
+    staleTime: 60_000,
+  })
+}
+
+export function useRetryParseJob() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (jobId: string) => retryParseJob(jobId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bill-processing-summary'] })
+      queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] })
+    },
   })
 }
 
