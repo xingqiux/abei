@@ -24,6 +24,7 @@ import {
   type AssistantMessage,
 } from "../../api/assistant";
 import { Button, IconButton } from "../../components/ui/Button";
+import { ErrorState } from "../../components/abei/ErrorState";
 import { CONTROL_COMPACT, Input, Textarea } from "../../components/ui/Field";
 import { useCapabilityIndex } from "../../api/queries";
 import { needsSecretInput } from "../../api/catalog";
@@ -321,8 +322,23 @@ export function AssistantPage() {
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
             {sessionsQuery.isError && (
-              <p className="px-2 py-3 text-xs text-[var(--danger)]">
-                对话列表加载失败
+              // 原来只有一行红字，没有出路：加载失败是可以重试的，不该让人只能刷新整页
+              <div className="flex flex-col items-start gap-2 px-2 py-3">
+                <p className="text-xs text-[var(--danger)]">对话列表加载失败</p>
+                <Button
+                  variant="secondary"
+                  size="xs"
+                  onClick={() => void sessionsQuery.refetch()}
+                >
+                  重试
+                </Button>
+              </div>
+            )}
+            {!sessionsQuery.isError
+              && !sessionsQuery.isLoading
+              && (sessionsQuery.data ?? []).length === 0 && (
+              <p className="px-2 py-3 text-xs text-[var(--text-tertiary)]">
+                还没有对话。在右边问一句就开始了。
               </p>
             )}
             {(sessionsQuery.data ?? []).map((session) => (
@@ -364,6 +380,15 @@ export function AssistantPage() {
               ) : historyQuery.isLoading ? (
                 <div className="m-auto text-sm text-[var(--text-secondary)]">
                   正在载入对话…
+                </div>
+              ) : historyQuery.isError ? (
+                // 不处理的话会落到下面的「空对话」分支，看起来像这段记录被清空了
+                <div className="m-auto w-full max-w-sm">
+                  <ErrorState
+                    message="这段对话没能打开"
+                    error={historyQuery.error}
+                    onRetry={() => void historyQuery.refetch()}
+                  />
                 </div>
               ) : messages.length === 0 &&
                 activities.length === 0 &&

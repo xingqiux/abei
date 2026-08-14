@@ -10,6 +10,7 @@ import {
 import { downloadAttachment } from '../../api/firefly'
 import { AbeiApiError } from '../../api/client'
 import { showToast } from '../../store/toastStore'
+import { ConfirmDialog } from '../../components/abei/ConfirmDialog'
 import { Modal } from '../../components/abei/Modal'
 import { InlineError } from '../../components/abei/ErrorState'
 import { Button, IconButton } from '../../components/ui/Button'
@@ -196,23 +197,16 @@ export function TransactionAttachments({ groupId, journalId }: { groupId: string
         )}
       </Modal>
 
-      {/* 原先是 window.confirm：不受主题控制，在移动端浏览器里样子也各不相同 */}
-      <Modal
+      <ConfirmDialog
         open={pendingDelete !== null}
-        onClose={() => setPendingDelete(null)}
         title="删除附件"
-        width={380}
-        footer={
-          <>
-            <Button variant="secondary" size="md" onClick={() => setPendingDelete(null)}>取消</Button>
-            <Button variant="danger" size="md" onClick={() => void remove()}>删除</Button>
-          </>
-        }
+        confirmLabel="删除"
+        pending={deleteMutation.isPending}
+        onConfirm={() => void remove()}
+        onClose={() => setPendingDelete(null)}
       >
-        <p className="text-[var(--text-secondary)]">
-          将删除附件「{pendingDelete?.name}」，文件本身会从 Firefly 移除，不能撤销。
-        </p>
-      </Modal>
+        <p>将删除附件「{pendingDelete?.name}」，文件本身会从 Firefly 移除，不能撤销。</p>
+      </ConfirmDialog>
     </>
   )
 }

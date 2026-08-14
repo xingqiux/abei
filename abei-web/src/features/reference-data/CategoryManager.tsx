@@ -236,7 +236,8 @@ export function CategoryManager() {
               </Button>
             </div>
 
-            {tree.length === 0 && domain !== 'expense' ? (
+            {/* 原来这里限了 domain !== 'expense'：支出域万一真空了就是一片没有解释的空白 */}
+            {tree.length === 0 ? (
               <p className="px-4 pb-6 text-center text-sm text-[var(--text-secondary)]">
                 这一段还没有分类
               </p>

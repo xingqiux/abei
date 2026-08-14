@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ConfirmDialog } from '../../components/abei/ConfirmDialog'
 import { Modal } from '../../components/abei/Modal'
 import {
   useDisconnectGoogleMailbox,
@@ -34,6 +35,7 @@ export function MailboxSettingsDialog({ open, onClose }: { open: boolean; onClos
   const [initialized, setInitialized] = useState(false)
   /** 点过保存之后才标红。刚打开就一片红字是在骂人 */
   const [submitted, setSubmitted] = useState(false)
+  const [disconnectOpen, setDisconnectOpen] = useState(false)
   const hasPassword = query.data?.data.attributes.has_password ?? false
   const googleConnected = query.data?.data.attributes.google_connected ?? false
   const googleAvailable = query.data?.data.attributes.google_oauth_available ?? false
@@ -131,7 +133,7 @@ export function MailboxSettingsDialog({ open, onClose }: { open: boolean; onClos
   }
 
   async function disconnectGoogle() {
-    if (!window.confirm('断开 Google 后将停止收取 Gmail 账单邮件。确定断开吗？')) return
+    setDisconnectOpen(false)
     try {
       await googleDisconnect.mutateAsync()
       showToast({ kind: 'success', message: 'Google 邮箱已断开' })
@@ -145,6 +147,7 @@ export function MailboxSettingsDialog({ open, onClose }: { open: boolean; onClos
   }
 
   return (
+    <>
     <Modal
       open={open}
       onClose={onClose}
@@ -204,7 +207,7 @@ export function MailboxSettingsDialog({ open, onClose }: { open: boolean; onClos
                   variant="secondary"
                   size="sm"
                   disabled={googleDisconnect.isPending}
-                  onClick={() => void disconnectGoogle()}
+                  onClick={() => setDisconnectOpen(true)}
                 >
                   {googleDisconnect.isPending ? '断开中…' : '断开连接'}
                 </Button>
@@ -265,5 +268,18 @@ export function MailboxSettingsDialog({ open, onClose }: { open: boolean; onClos
         </div>
       )}
     </Modal>
+
+      <ConfirmDialog
+        open={disconnectOpen}
+        title="断开 Google 邮箱"
+        confirmLabel="断开"
+        pending={googleDisconnect.isPending}
+        onConfirm={() => void disconnectGoogle()}
+        onClose={() => setDisconnectOpen(false)}
+      >
+        <p>断开后不再收取这个 Gmail 里的账单邮件，已经收进来的不受影响。</p>
+        <p>随时可以重新连接，要再走一遍 Google 授权。</p>
+      </ConfirmDialog>
+    </>
   )
 }

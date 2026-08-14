@@ -7,7 +7,7 @@ import { FileText, FloppyDisk, Plus, Trash } from '@phosphor-icons/react'
 import { AbeiApiError, apiDeleteJson, apiGet, apiPatch, apiPost } from '../../api/client'
 import { EmptyState } from '../../components/abei/EmptyState'
 import { ErrorState } from '../../components/abei/ErrorState'
-import { Modal } from '../../components/abei/Modal'
+import { ConfirmDialog } from '../../components/abei/ConfirmDialog'
 import { Button, IconButton } from '../../components/ui/Button'
 import { Card, SectionHeading } from '../../components/ui/Card'
 import { Field, Input, Textarea } from '../../components/ui/Field'
@@ -49,6 +49,7 @@ export function ProfilePage() {
   const [creating, setCreating] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<ProfileDoc | null>(null)
+  const [reloadOpen, setReloadOpen] = useState(false)
   useBlocker({
     shouldBlockFn: () => dirty && !window.confirm(DISCARD_DRAFT_MESSAGE),
     enableBeforeUnload: dirty,
@@ -190,11 +191,7 @@ export function ProfilePage() {
             onSaved={saved}
             onDirtyChange={setDirty}
             onDelete={() => setPendingDelete(detailQuery.data.data)}
-            onReload={() => {
-              if (!window.confirm('重新载入会放弃当前草稿，确定继续吗？')) return
-              setDirty(false)
-              void detailQuery.refetch()
-            }}
+            onReload={() => setReloadOpen(true)}
           />
         ) : null}
       </div>
@@ -206,6 +203,21 @@ export function ProfilePage() {
           onDeleted={deleted}
         />
       )}
+
+      <ConfirmDialog
+        open={reloadOpen}
+        title="重新载入"
+        confirmLabel="放弃草稿并载入"
+        tone="primary"
+        onConfirm={() => {
+          setReloadOpen(false)
+          setDirty(false)
+          void detailQuery.refetch()
+        }}
+        onClose={() => setReloadOpen(false)}
+      >
+        <p>会用服务端最新的一版覆盖编辑器里的内容，当前未保存的修改就没了。</p>
+      </ConfirmDialog>
     </div>
   )
 }
@@ -405,25 +417,18 @@ function DeleteProfileDocDialog({
   }
 
   return (
-    <Modal
+    <ConfirmDialog
       open
-      onClose={onClose}
       title="删除资料文档"
-      footer={(
-        <>
-          <Button size="md" disabled={mutation.isPending} onClick={onClose}>取消</Button>
-          <Button size="md" variant="danger" disabled={mutation.isPending} onClick={() => void remove()}>
-            {mutation.isPending ? '删除中…' : '永久删除'}
-          </Button>
-        </>
-      )}
+      confirmLabel="永久删除"
+      pending={mutation.isPending}
+      onConfirm={() => void remove()}
+      onClose={onClose}
     >
-      <div className="flex flex-col gap-3">
-        <p>“{document.title}”及其全部历史版本将被永久删除，无法恢复。</p>
-        <p>当前未保存的修改也会丢失。</p>
-        {error && <p role="alert" className="text-[var(--danger)]">{error}</p>}
-      </div>
-    </Modal>
+      <p>“{document.title}”及其全部历史版本将被永久删除，无法恢复。</p>
+      <p>当前未保存的修改也会丢失。</p>
+      {error && <p role="alert" className="text-[var(--danger)]">{error}</p>}
+    </ConfirmDialog>
   )
 }
 
