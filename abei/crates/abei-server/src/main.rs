@@ -20,9 +20,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let listener = TcpListener::bind(config.address).await?;
     tracing::info!(address = %config.address, "abei-server 已启动");
 
-    axum::serve(listener, build_app(state))
+    axum::serve(listener, build_app(state.clone()))
         .with_graceful_shutdown(shutdown())
         .await?;
+    // HTTP 收完了不等于活干完了：邮箱同步是后台任务，进程这时候直接退会把它们从中间砍断，
+    // 库里留下一批 running 记录。这里等它们收尾（超时就算了，清扫器会回收）。
+    state.drain().await;
     Ok(())
 }
 

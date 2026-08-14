@@ -13,7 +13,7 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 const LEASE_SECONDS: i32 = 90;
 
 pub(super) fn start(service: Service) {
-    for slot in 0..service.worker_count {
+    for slot in 0..service.worker_count() {
         let worker = service.clone();
         tokio::spawn(async move { worker_loop(worker, slot).await });
     }

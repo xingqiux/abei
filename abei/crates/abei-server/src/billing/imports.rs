@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use super::Service;
 use crate::ApiError;
+use crate::reliability::ReliabilityConfig;
 
 const MAX_ERROR_CHARS: usize = 2_000;
 
@@ -61,7 +62,7 @@ impl Service {
         let mut client = self.pool.get().await.map_err(ApiError::database)?;
         let transaction = client.transaction().await.map_err(ApiError::database)?;
         let row = load_import_row(&transaction, user_id, row_id).await?;
-        validate_import_row(&transaction, &row).await?;
+        validate_import_row(&transaction, &row, &self.reliability).await?;
         let splits = load_splits(&transaction, user_id, row_id).await?;
         let external_id = format!("abei:bill-row:{row_id}");
         let payload = to_firefly_payload(&row, &splits, &external_id)?;
@@ -424,6 +425,7 @@ async fn load_import_row(
 async fn validate_import_row(
     transaction: &Transaction<'_>,
     row: &ImportRow,
+    reliability: &ReliabilityConfig,
 ) -> Result<(), ApiError> {
     if row.lifecycle != "active" || !row.active_revision {
         return Err(ApiError::conflict("只能导入当前活动 revision 的流水。"));
@@ -459,14 +461,16 @@ async fn validate_import_row(
         }
         _ => {}
     }
+    // 全局清扫器（billing::sweeper）每分钟会把所有超时流水收一遍，这里再按行收一次，
+    // 是为了让用户刚点的这一行立刻可用，不用等下一轮清扫。两处用同一套租约参数。
     transaction
         .execute(
             "UPDATE abei_ai.bill_import_attempts SET status = 'retryable',
                error_code = 'prepare_expired', error_message = '导入在发送前中断，可以重试。',
                finished_at = now(), updated_at = now()
              WHERE bill_row_id = $1 AND status = 'prepared'
-               AND updated_at < now() - interval '5 minutes'",
-            &[&row.id],
+               AND updated_at < now() - make_interval(secs => $2)",
+            &[&row.id, &reliability.prepare_lease_secs()],
         )
         .await
         .map_err(ApiError::database)?;
@@ -477,8 +481,8 @@ async fn validate_import_row(
                error_message = '发送过程失去响应，必须先按 external_id 对账。',
                retry_after = now(), updated_at = now()
              WHERE bill_row_id = $1 AND status = 'sending'
-               AND updated_at < now() - interval '2 minutes'",
-            &[&row.id],
+               AND updated_at < now() - make_interval(secs => $2)",
+            &[&row.id, &reliability.send_lease_secs()],
         )
         .await
         .map_err(ApiError::database)?;

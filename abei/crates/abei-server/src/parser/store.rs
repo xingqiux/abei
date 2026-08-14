@@ -140,8 +140,10 @@ async fn install_builtin_mail_rules(
         let checksum = crate::mail::rules_checksum(builtin.conditions, &channel_key, Some(flow_id));
         client
             .execute(
+                // FOR SHARE：这条语句是「先读一遍用户表，再按它插外键行」。不锁的话，读到的
+                // 快照和语句末尾的外键检查之间有窗口，期间用户被删掉就会撞 mail_rules_user_id_fkey。
                 "WITH users AS (
-                   SELECT id AS user_id FROM public.users
+                   SELECT id AS user_id FROM public.users FOR SHARE
                  ), inserted AS (
                    INSERT INTO abei_ai.mail_rules
                      (user_id, name, enabled, position, current_version, draft_conditions,

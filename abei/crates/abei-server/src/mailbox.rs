@@ -62,6 +62,7 @@ pub struct RuntimeConfig {
     google_oauth: Option<GoogleOAuth>,
     operation_timeout: Duration,
     pub sync_interval: Duration,
+    reliability: crate::reliability::ReliabilityConfig,
 }
 
 impl RuntimeConfig {
@@ -92,7 +93,12 @@ impl RuntimeConfig {
             google_oauth,
             operation_timeout,
             sync_interval,
+            reliability: crate::reliability::ReliabilityConfig::from_env()?,
         })
+    }
+
+    pub(crate) fn reliability(&self) -> crate::reliability::ReliabilityConfig {
+        self.reliability
     }
 
     pub(crate) fn storage_root(&self) -> &Path {
@@ -126,6 +132,7 @@ impl RuntimeConfig {
             google_oauth: None,
             operation_timeout: Duration::from_secs(2),
             sync_interval: Duration::from_secs(300),
+            reliability: crate::reliability::ReliabilityConfig::test(),
         }
     }
 }
@@ -322,6 +329,8 @@ pub struct Service {
     config: RuntimeConfig,
     workbench: crate::mail::Service,
     billing: crate::billing::Service,
+    /// 同步任务的并发闸门。每个在跑的同步占一个名额，关停时靠「把名额全收回来」等它们收尾。
+    sync_slots: std::sync::Arc<tokio::sync::Semaphore>,
 }
 
 impl Service {
@@ -331,12 +340,53 @@ impl Service {
         workbench: crate::mail::Service,
         billing: crate::billing::Service,
     ) -> Self {
+        let sync_slots = std::sync::Arc::new(tokio::sync::Semaphore::new(
+            config.reliability().sync_concurrency,
+        ));
         Self {
             pool,
             config,
             workbench,
             billing,
+            sync_slots,
         }
+    }
+
+    /// 等在跑的同步任务收尾，最多等 `shutdown_grace`。
+    ///
+    /// 名额全部回到手里就说明没有同步在跑了。等不到就直说——调用方会照常退出进程，
+    /// 留下的 `running` 记录由清扫器在下次启动后回收。
+    pub async fn drain(&self) {
+        let config = self.config.reliability();
+        let permits = u32::try_from(config.sync_concurrency).unwrap_or(u32::MAX);
+        match tokio::time::timeout(config.shutdown_grace, self.sync_slots.acquire_many(permits))
+            .await
+        {
+            Ok(Ok(_)) => tracing::info!("在跑的邮箱同步都已收尾"),
+            Ok(Err(error)) => tracing::warn!(%error, "同步闸门已关闭，不再等待"),
+            Err(_) => tracing::warn!(
+                grace_secs = config.shutdown_grace.as_secs(),
+                "等邮箱同步收尾超时，剩下的交给下次启动时的清扫器"
+            ),
+        }
+    }
+
+    /// 起一个受并发闸门约束的同步任务。
+    ///
+    /// 以前这里是裸 `tokio::spawn`：N 个用户在同一拍被唤醒就是 N 条 IMAP 连接同时建立，
+    /// 既没有上限也没人等它们收尾。
+    fn spawn_sync<F>(&self, task: F)
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let slots = self.sync_slots.clone();
+        tokio::spawn(async move {
+            let Ok(_permit) = slots.acquire_owned().await else {
+                tracing::warn!("同步闸门已关闭，这次同步不再启动");
+                return;
+            };
+            task.await;
+        });
     }
 
     pub fn start_scheduler(&self) {
@@ -354,17 +404,81 @@ impl Service {
 
     async fn enqueue_enabled(&self) -> Result<(), String> {
         let client = self.pool.get().await.map_err(display)?;
+        // 连着失败的邮箱要退避，不然一个连不上的服务器会被每一拍都重敲一次。
+        // 失败次数从上一次成功之后算起，成功一次就自然归零。
         let rows = client
             .query(
-                "SELECT user_id FROM abei_ai.mailboxes WHERE enabled = true ORDER BY user_id",
+                "WITH last_success AS (
+                   SELECT user_id, max(finished_at) AS at
+                   FROM abei_ai.mail_sync_runs
+                   WHERE status = 'succeeded'
+                   GROUP BY user_id
+                 ),
+                 streak AS (
+                   SELECT r.user_id, count(*) AS failures, max(r.finished_at) AS last_failed_at
+                   FROM abei_ai.mail_sync_runs r
+                   LEFT JOIN last_success s ON s.user_id = r.user_id
+                   WHERE r.status = 'failed'
+                     AND (s.at IS NULL OR r.finished_at > s.at)
+                   GROUP BY r.user_id
+                 )
+                 SELECT m.user_id,
+                        coalesce(streak.failures, 0) AS failures,
+                        extract(epoch FROM now() - streak.last_failed_at)::float8 AS since_failure
+                 FROM abei_ai.mailboxes m
+                 LEFT JOIN streak ON streak.user_id = m.user_id
+                 WHERE m.enabled = true
+                 ORDER BY m.user_id",
                 &[],
             )
             .await
             .map_err(display)?;
-        for row in rows {
-            self.enqueue(row.get(0), 100).await?;
+        drop(client);
+        // 一个用户投递失败不能连累别人：这里原本是 `?`，于是排在故障用户后面的所有邮箱
+        // 在这一轮里全被跳过，而且外面只看得到一行日志。现在逐个记账、逐个继续。
+        let mut failed = 0usize;
+        let mut backed_off = 0usize;
+        for row in &rows {
+            let user_id: i64 = row.get(0);
+            let failures: i64 = row.get(1);
+            let since_failure: Option<f64> = row.get(2);
+            let waited = since_failure
+                .filter(|value| value.is_finite() && *value >= 0.0)
+                .map(Duration::from_secs_f64)
+                .unwrap_or(Duration::ZERO);
+            let wait_for = self.backoff_for(failures);
+            if waited < wait_for {
+                backed_off += 1;
+                tracing::debug!(
+                    user_id,
+                    failures,
+                    wait_secs = wait_for.as_secs(),
+                    "这个邮箱还在退避窗口里，本轮先跳过"
+                );
+                continue;
+            }
+            if let Err(error) = self.enqueue(user_id, 100).await {
+                failed += 1;
+                tracing::error!(user_id, %error, "这个邮箱的定时同步没投递成功，跳过它继续下一个");
+            }
+        }
+        if failed > 0 || backed_off > 0 {
+            tracing::warn!(
+                failed,
+                backed_off,
+                total = rows.len(),
+                "本轮定时同步有邮箱没投递，其余已照常投递"
+            );
         }
         Ok(())
+    }
+
+    fn backoff_for(&self, failures: i64) -> Duration {
+        backoff_for(
+            self.config.sync_interval,
+            self.config.reliability().sync_backoff_max,
+            failures,
+        )
     }
 
     pub(crate) async fn enqueue(&self, user_id: i64, limit: i16) -> Result<Value, String> {
@@ -382,8 +496,11 @@ impl Service {
                    error_summary = '同步进程失去心跳，已由下一轮同步回收。',
                    finished_at = now(), updated_at = now()
                  WHERE user_id = $1 AND status IN ('queued', 'running')
-                   AND updated_at < now() - interval '3 minutes'",
-                &[&user_id],
+                   AND updated_at < now() - make_interval(secs => $2)",
+                &[
+                    &user_id,
+                    &self.config.reliability().sync_heartbeat_timeout_secs(),
+                ],
             )
             .await
             .map_err(display)?;
@@ -417,7 +534,7 @@ impl Service {
         let state = sync_run_state(&row);
         transaction.commit().await.map_err(display)?;
         let service = self.clone();
-        tokio::spawn(async move { service.run(user_id, limit, run_id).await });
+        self.spawn_sync(async move { service.run(user_id, limit, run_id).await });
         Ok(state)
     }
 
@@ -475,7 +592,7 @@ impl Service {
         transaction.commit().await.map_err(display)?;
 
         let service = self.clone();
-        tokio::spawn(async move { service.run_rescan(user_id, range, run_id).await });
+        self.spawn_sync(async move { service.run_rescan(user_id, range, run_id).await });
         Ok(run_id)
     }
 
@@ -2570,6 +2687,19 @@ fn safe_filename(value: &str, index: usize) -> String {
     }
 }
 
+/// 连续失败 n 次之后要等多久才再试：每多失败一次翻一倍，封顶在 `backoff_max`。
+/// 没失败过就是 0；成功一次失败计数归零，退避也跟着消失。
+fn backoff_for(sync_interval: Duration, backoff_max: Duration, failures: i64) -> Duration {
+    if failures <= 0 {
+        return Duration::ZERO;
+    }
+    // 指数先夹到 16：再大也早就撞上封顶了，夹一下顺便躲开 2^n 溢出。
+    let exponent = u32::try_from(failures - 1).unwrap_or(u32::MAX).min(16);
+    sync_interval
+        .saturating_mul(2u32.saturating_pow(exponent))
+        .min(backoff_max)
+}
+
 fn sha256(content: &[u8]) -> String {
     Sha256::digest(content)
         .iter()
@@ -2582,6 +2712,24 @@ mod tests {
     use super::*;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::net::TcpListener;
+
+    #[test]
+    fn a_mailbox_that_keeps_failing_gets_retried_less_and_less() {
+        let interval = Duration::from_secs(600);
+        let max = Duration::from_secs(3600);
+
+        // 一直成功的邮箱不欠任何等待，照常按 sync_interval 排。
+        assert_eq!(backoff_for(interval, max, 0), Duration::ZERO);
+        // 第一次失败等一个间隔，之后每失败一次翻倍。
+        assert_eq!(backoff_for(interval, max, 1), interval);
+        assert_eq!(backoff_for(interval, max, 2), interval * 2);
+        assert_eq!(backoff_for(interval, max, 3), interval * 4);
+        // 涨到封顶就不再涨，密码改了的邮箱不会退避到几天后。
+        assert_eq!(backoff_for(interval, max, 4), max);
+        assert_eq!(backoff_for(interval, max, 99), max);
+        // 失败次数再离谱也只是封顶，不会溢出成 0 而把邮箱变成死循环重试。
+        assert_eq!(backoff_for(interval, max, i64::MAX), max);
+    }
 
     #[tokio::test]
     async fn select_timeout_reconnects_once_and_reports_the_folder() {

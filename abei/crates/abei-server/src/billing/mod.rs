@@ -4,6 +4,7 @@ mod imports;
 mod mappings;
 mod rows;
 mod store;
+mod sweeper;
 mod worker;
 
 use std::sync::Arc;
@@ -11,9 +12,8 @@ use std::sync::Arc;
 use deadpool_postgres::Pool;
 use tokio::sync::Notify;
 
+use crate::reliability::ReliabilityConfig;
 use crate::{mail, mailbox, parser};
-
-const DEFAULT_WORKERS: usize = 2;
 
 #[derive(Clone)]
 pub(crate) struct Service {
@@ -23,7 +23,7 @@ pub(crate) struct Service {
     pub(super) secret_cipher: mailbox::SecretCipher,
     pub(super) notify: Arc<Notify>,
     pub(super) worker_id: Arc<String>,
-    pub(super) worker_count: usize,
+    pub(super) reliability: ReliabilityConfig,
 }
 
 impl Service {
@@ -32,12 +32,8 @@ impl Service {
         mail: mail::Service,
         parser: parser::Service,
         secret_cipher: mailbox::SecretCipher,
+        reliability: ReliabilityConfig,
     ) -> Self {
-        let worker_count = std::env::var("ABEI_PARSE_WORKERS")
-            .ok()
-            .and_then(|value| value.parse::<usize>().ok())
-            .filter(|value| (1..=16).contains(value))
-            .unwrap_or(DEFAULT_WORKERS);
         Self {
             pool,
             mail,
@@ -49,11 +45,16 @@ impl Service {
                 std::process::id(),
                 time::OffsetDateTime::now_utc().unix_timestamp_nanos()
             )),
-            worker_count,
+            reliability,
         }
+    }
+
+    pub(crate) fn worker_count(&self) -> usize {
+        self.reliability.parse_workers
     }
 
     pub(crate) fn start_workers(&self) {
         worker::start(self.clone());
+        sweeper::start(self.clone());
     }
 }

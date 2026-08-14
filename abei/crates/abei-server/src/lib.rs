@@ -8,6 +8,9 @@ pub mod mailbox;
 mod migrations;
 mod parser;
 mod profile_docs;
+pub mod reliability;
+#[cfg(test)]
+mod testdb;
 
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header::CONTENT_TYPE};
@@ -127,6 +130,7 @@ impl AppState {
             mail.clone(),
             parser.clone(),
             mailbox.job_secret_cipher(),
+            mailbox.reliability(),
         );
         let mailbox = mailbox::Service::new(pool.clone(), mailbox, mail.clone(), billing.clone());
         Self {
@@ -143,6 +147,11 @@ impl AppState {
         self.mail.start_cleanup_scheduler();
         self.mailbox.start_scheduler();
         self.billing.start_workers();
+    }
+
+    /// 关停时等后台的邮箱同步收尾。见 [`mailbox::Service::drain`]。
+    pub async fn drain(&self) {
+        self.mailbox.drain().await;
     }
 }
 

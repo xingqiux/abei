@@ -1275,7 +1275,13 @@ mod tests {
         let config = crate::mailbox::RuntimeConfig::test();
         let mail = crate::mail::Service::new(pool.clone(), config.storage_root().to_path_buf());
         let parser = crate::parser::Service::new(pool.clone(), mail.clone());
-        let service = Service::new(pool, mail, parser, config.job_secret_cipher());
+        let service = Service::new(
+            pool,
+            mail,
+            parser,
+            config.job_secret_cipher(),
+            config.reliability(),
+        );
 
         let response = service
             .list_rows(i64::MAX, None, None, None, 1, 20)
@@ -1389,7 +1395,13 @@ mod tests {
         let config = crate::mailbox::RuntimeConfig::test();
         let mail = crate::mail::Service::new(pool.clone(), config.storage_root().to_path_buf());
         let parser = crate::parser::Service::new(pool.clone(), mail.clone());
-        let service = Service::new(pool.clone(), mail, parser, config.job_secret_cipher());
+        let service = Service::new(
+            pool.clone(),
+            mail,
+            parser,
+            config.job_secret_cipher(),
+            config.reliability(),
+        );
         let updated = service
             .update_row(
                 user_id,
@@ -1592,7 +1604,13 @@ mod tests {
         let config = crate::mailbox::RuntimeConfig::test();
         let mail = crate::mail::Service::new(pool.clone(), config.storage_root().to_path_buf());
         let parser = crate::parser::Service::new(pool.clone(), mail.clone());
-        let service = Service::new(pool.clone(), mail, parser, config.job_secret_cipher());
+        let service = Service::new(
+            pool.clone(),
+            mail,
+            parser,
+            config.job_secret_cipher(),
+            config.reliability(),
+        );
 
         let updated = service
             .update_rows_many(
