@@ -662,6 +662,15 @@ pub(crate) fn authenticated_user_id(headers: &HeaderMap) -> Result<i64, ApiError
         .ok_or_else(|| ApiError::forbidden("缺少可信的 Firefly 用户 ID。"))
 }
 
+/// 只放 Firefly 站点属主进来。
+///
+/// 目前只有 `/v1/admin/feedback/*` 用它，这不是漏加：本服务其余资源都是按用户隔离的，
+/// 不存在「一个人改了、所有人受影响」的东西。邮件规则带 `user_id`，解析流程带
+/// `owner_user_id`，写路径一律 `WHERE ... = $1`；内置流程（`owner_user_id IS NULL`）
+/// 谁都能看能克隆，但没有任何接口能改它，用户新建的流程也只会挂在自己名下。
+///
+/// 所以给邮件规则或解析流程加 owner 是错的——那会把用户自己的解析配置锁死。
+/// 将来真出现全局配置（比如所有人共享的渠道规则），才是这个函数的用武之地。
 pub(crate) fn owner(headers: &HeaderMap) -> Result<Actor, ApiError> {
     let actor = actor(headers)?;
     if actor.role == "owner" {
@@ -943,6 +952,38 @@ mod tests {
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         let body: Value = response.json().await.unwrap();
         assert_eq!(body["reason"], "Unauthenticated");
+    }
+
+    /// 每个模块挑一条，外加 `/internal` 和 `/admin`：验签是挂在整个 router 上的，
+    /// 将来谁新增一条路由忘了鉴权，这里会连带塌掉一片。
+    #[tokio::test]
+    async fn every_module_is_behind_the_signature_check() {
+        let base = spawn_app(build_app(offline_state())).await;
+        let client = reqwest::Client::new();
+        let cases: [(&str, &str); 10] = [
+            ("GET", "/v1/mailboxes"),
+            ("GET", "/v1/mail-messages"),
+            ("GET", "/v1/mail-rules"),
+            ("GET", "/v1/parser-flows"),
+            ("GET", "/v1/bill-documents"),
+            ("GET", "/v1/bill-rows"),
+            ("GET", "/v1/profile-doc"),
+            ("GET", "/v1/feedback"),
+            ("GET", "/v1/admin/feedback/items"),
+            ("POST", "/internal/v1/bill-imports/prepare"),
+        ];
+        for (method, path) in cases {
+            let request = match method {
+                "POST" => client.post(format!("{base}{path}")).json(&json!({})),
+                _ => client.get(format!("{base}{path}")),
+            };
+            let response = request.send().await.unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::UNAUTHORIZED,
+                "{method} {path} 没有被验签挡住"
+            );
+        }
     }
 
     #[tokio::test]
