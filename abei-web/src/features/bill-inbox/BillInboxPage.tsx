@@ -18,6 +18,7 @@ import {
   useRetryBillImportAttempt,
   useSyncBillInbox,
 } from '../../api/queries'
+import { useBillInboxSelection } from './useBillInboxSelection'
 import { AssistantApiError, runAutofill } from '../../api/assistant'
 import type { BillImportResponse, BillQueueRow, BillTask } from '../../api/schemas'
 import { EmptyState } from '../../components/abei/EmptyState'
@@ -83,11 +84,9 @@ export function BillInboxPage() {
 
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [accountMappingsOpen, setAccountMappingsOpen] = useState(false)
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [anchorIndex, setAnchorIndex] = useState<number | null>(null)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [cursorIndex, setCursorIndex] = useState(0)
+  /** 勾选 / 光标 / 展开 / 编辑：一起变的东西收在一个 reducer 里 */
+  const [selection, dispatchSelection] = useBillInboxSelection()
+  const { selected, expandedId, editingId, cursorIndex } = selection
   const [dryRun, setDryRun] = useState<BillImportResponse | null>(null)
   const [confirmRowIds, setConfirmRowIds] = useState<string[]>([])
   const [autofillRunning, setAutofillRunning] = useState(false)
@@ -185,13 +184,9 @@ export function BillInboxPage() {
   // 换 tab / 换渠道 / 换邮件后，之前选中的行已经不在屏幕上了，留着选中状态只会误伤。
   // 进度也一并归零：它数的是「这一屏清掉了多少」，换了一屏就该重新数。
   useEffect(() => {
-    setSelected(new Set())
-    setAnchorIndex(null)
-    setExpandedId(null)
-    setEditingId(null)
-    setCursorIndex(0)
+    dispatchSelection({ type: 'reset' })
     setHandledCount(0)
-  }, [source, view, taskFilter])
+  }, [source, view, taskFilter, dispatchSelection])
 
   /**
    * 两层粘性要对齐：顶部条钉在滚动区顶端，日期分组头贴着它的下沿。
@@ -258,27 +253,18 @@ export function BillInboxPage() {
   }
 
   function toggleSelect(rowId: string, index: number, shift: boolean) {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (shift && anchorIndex !== null) {
-        const [from, to] = anchorIndex <= index ? [anchorIndex, index] : [index, anchorIndex]
-        // 区间选统一改成「选上」，不做逐行反转：反转出来的结果没人能预期
-        for (let i = from; i <= to; i += 1) {
-          const id = cursorRows[i]?.id
-          if (id && selectableIds.includes(id)) next.add(id)
-        }
-        return next
-      }
-      if (next.has(rowId)) next.delete(rowId)
-      else next.add(rowId)
-      return next
+    dispatchSelection({
+      type: 'toggle',
+      rowId,
+      index,
+      shift,
+      selectableIds,
+      orderedIds: cursorRows.map((row) => row.id),
     })
-    setAnchorIndex(index)
   }
 
   function toggleSelectAll() {
-    setSelected(allSelected ? new Set() : new Set(selectableIds))
-    setAnchorIndex(null)
+    dispatchSelection({ type: 'selectAll', selectableIds })
   }
 
   useEffect(() => {
@@ -378,8 +364,7 @@ export function BillInboxPage() {
 
   async function runImport(rowIds: string[]) {
     const res = await importMutation.mutateAsync({ rowIds, confirm: true })
-    setSelected(new Set())
-    setAnchorIndex(null)
+    dispatchSelection({ type: 'clearSelection' })
     reportImportResult(res)
   }
 
@@ -474,11 +459,7 @@ export function BillInboxPage() {
     try {
       await dismissMutation.mutateAsync({ row_ids: rowIds })
       setHandledCount((value) => value + rowIds.length)
-      setSelected((prev) => {
-        const next = new Set(prev)
-        rowIds.forEach((id) => next.delete(id))
-        return next
-      })
+      dispatchSelection({ type: 'forget', rowIds })
       showToast({
         kind: 'success',
         message: `已忽略 ${rowIds.length} 笔`,
@@ -541,16 +522,16 @@ export function BillInboxPage() {
 
       if (event.key === 'j' || event.key === 'ArrowDown') {
         event.preventDefault()
-        setCursorIndex(Math.min(index + 1, list.length - 1))
+        dispatchSelection({ type: 'cursor', index: Math.min(index + 1, list.length - 1) })
       } else if (event.key === 'k' || event.key === 'ArrowUp') {
         event.preventDefault()
-        setCursorIndex(Math.max(index - 1, 0))
+        dispatchSelection({ type: 'cursor', index: Math.max(index - 1, 0) })
       } else if (event.key === 'x') {
         event.preventDefault()
         if (isRowSelectable(row)) keyActions.current.toggleSelect(row.id, index, false)
       } else if (event.key === 'e') {
         event.preventDefault()
-        setEditingId(row.id)
+        dispatchSelection({ type: 'edit', rowId: row.id })
       } else if (event.key === 'd') {
         event.preventDefault()
         void keyActions.current.handleDismiss([row.id])
@@ -588,10 +569,11 @@ export function BillInboxPage() {
       onSelect: (shift: boolean) => toggleSelect(row.id, index, shift),
       focused: cursorRowId === row.id,
       expanded: expandedId === row.id,
-      onToggleExpand: () => setExpandedId(expandedId === row.id ? null : row.id),
+      onToggleExpand: () =>
+        dispatchSelection({ type: 'expand', rowId: expandedId === row.id ? null : row.id }),
       editing: editingId === row.id,
-      onStartEdit: () => setEditingId(row.id),
-      onEndEdit: () => setEditingId(null),
+      onStartEdit: () => dispatchSelection({ type: 'edit', rowId: row.id }),
+      onEndEdit: () => dispatchSelection({ type: 'edit', rowId: null }),
       onDismiss: selectable ? () => void handleDismiss([row.id]) : undefined,
       onRestore: view === 'dismissed' ? () => void handleRestore([row.id]) : undefined,
       onReconcile: attempt?.status === 'uncertain'
@@ -869,7 +851,7 @@ export function BillInboxPage() {
             >
               忽略 {selectedCount} 笔
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+            <Button variant="ghost" size="sm" onClick={() => dispatchSelection({ type: 'clearSelection' })}>
               取消
             </Button>
           </div>
