@@ -12,6 +12,7 @@ import {
   isInboxView,
   isRowSelectable,
   mailStateBadge,
+  narrowMetaLine,
   needsAutofill,
   relativeDayLabel,
   rowMerchant,
@@ -307,5 +308,16 @@ describe('relativeDayLabel', () => {
   it('日期不成形或在未来就不说话', () => {
     expect(relativeDayLabel('--', '2026-08-09')).toBeNull()
     expect(relativeDayLabel('2026-08-10', '2026-08-09')).toBeNull()
+  })
+})
+
+describe('narrowMetaLine', () => {
+  it('窄屏第二行给出渠道、时间和状态', () => {
+    const row = makeRow({ task: { id: '7', source: 'cmb', summary: null, received_at: null } })
+    expect(narrowMetaLine(row.attributes, '待确认')).toBe('招商银行 · 10:00 · 待确认')
+  })
+
+  it('缺的部分不留空占位', () => {
+    expect(narrowMetaLine(makeRow({ occurred_at: null }).attributes)).toBe('')
   })
 })

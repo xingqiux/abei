@@ -97,6 +97,18 @@ export function dismissReasonLabel(reason: string | null | undefined): string {
   return DISMISS_REASON_LABELS[key] ?? key
 }
 
+/**
+ * 窄屏第二行那句话：渠道 · 时间 · 状态。
+ *
+ * 宽屏上这三样各占一列，窄屏排不下就都藏了，结果一行只剩商户和金额——
+ * 同一家店同一个金额刷两次就分不出谁是谁。收成一句放在第二行。
+ */
+export function narrowMetaLine(a: BillQueueRow['attributes'], badgeLabel?: string): string {
+  const channel = a.task ? channelDisplayName(a.task.source) : ''
+  const time = (a.occurred_at ?? '').slice(11, 16)
+  return [channel, time, badgeLabel].filter((part) => (part ?? '').trim() !== '').join(' · ')
+}
+
 export function syncResultFeedback(
   attributes: BillMailboxSyncResult,
 ): { kind: 'success' | 'inbox' | 'error'; message: string } {

@@ -71,7 +71,8 @@ export function ChannelBar({
 
   return (
     <nav aria-label="来源渠道" className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-1.5">
+      {/* 窄屏渠道多起来会换两三行，把顶部条撑得很高，改成横向滚动 */}
+      <div className="flex items-center gap-1.5 overflow-x-auto sm:flex-wrap sm:overflow-x-visible">
         <ChannelChip
           label="全部来源"
           count={totalCount}
@@ -140,7 +141,7 @@ function ChannelChip({
       type="button"
       aria-pressed={selected}
       onClick={onClick}
-      className={`flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[12.5px] transition-colors ${
+      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[12.5px] transition-colors ${
         selected
           ? 'border-[var(--brand)] bg-[var(--brand-soft)] font-semibold text-[var(--brand-text)]'
           : 'border-[var(--border-subtle)] bg-[var(--surface-1)] text-[var(--text-primary)] hover:bg-[var(--surface-hover)]'

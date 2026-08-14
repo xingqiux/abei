@@ -677,7 +677,12 @@ export function BillInboxPage() {
         className="sticky z-20 -mx-4 flex flex-col gap-2 border-b border-[var(--border-subtle)] bg-[var(--surface-0)] px-4 pt-2 pb-2 md:-mx-8 md:px-8"
         style={{ top: 'calc(var(--stick-pad, 0px) * -1)' }}
       >
-        <div role="tablist" aria-label="流水状态" className="flex flex-wrap items-center gap-1 border-b border-[var(--border-subtle)]">
+        {/* 窄屏上四个 tab 换行会把内容顶下去半屏，改成横向滚动 */}
+        <div
+          role="tablist"
+          aria-label="流水状态"
+          className="flex items-center gap-1 overflow-x-auto border-b border-[var(--border-subtle)] sm:flex-wrap sm:overflow-x-visible"
+        >
           {INBOX_VIEWS.map((candidate) => (
             <button
               key={candidate}
@@ -686,7 +691,7 @@ export function BillInboxPage() {
               aria-selected={view === candidate}
               aria-controls="bill-inbox-queue"
               onClick={() => setView(candidate)}
-              className={`-mb-px border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors ${
+              className={`-mb-px shrink-0 border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors ${
                 view === candidate
                   ? 'border-[var(--brand)] text-[var(--brand-text)]'
                   : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
@@ -840,9 +845,15 @@ export function BillInboxPage() {
         </Card>
       </div>
 
-      {/* 批量操作栏：选中就吸底出现，动词开头带数量 */}
+      {/*
+        批量操作栏：选中就吸底出现，动词开头带数量。
+        手机底部有小白条（home indicator），不留出安全区的话「取消」会被它压住。
+      */}
       {selectedCount > 0 && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-4">
+        <div
+          className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-4"
+          style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}
+        >
           <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-lg bg-[var(--surface-2)] px-3 py-2 shadow-[var(--shadow-pop)] ring-1 ring-[var(--border-subtle)]">
             <span className="text-[12.5px] text-[var(--text-primary)]">
               已选 <span className="num">{selectedCount}</span> 笔

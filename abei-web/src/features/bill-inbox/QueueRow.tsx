@@ -13,6 +13,7 @@ import {
   dismissReasonLabel,
   fundingAccount,
   isAiSuggested,
+  narrowMetaLine,
   rowAmount,
   rowBadge,
   rowDescription,
@@ -178,7 +179,11 @@ export function QueueRow({
         「08-08」印九遍，现在搬去了粘性的日期分组头。
         动作按钮浮在行右端盖住账户列（金额要一直看得见），靠 opacity 收起来，不占高度。
       */}
-      <div className="relative flex h-[var(--row-h)] items-center gap-2 bg-inherit px-2 text-[12.5px]">
+      {/*
+        窄屏排不下五列，也没有悬停这回事：换成两行卡片——上行商户和金额，
+        下行渠道、时间、状态，动作常驻。宽屏还是原来那一行。
+      */}
+      <div className="relative flex min-h-[var(--row-h)] flex-wrap items-center gap-x-2 gap-y-1 bg-inherit px-2 py-1.5 text-[12.5px] sm:h-[var(--row-h)] sm:flex-nowrap sm:py-0">
         {selectable ? (
           <input
             type="checkbox"
@@ -231,9 +236,14 @@ export function QueueRow({
           动作浮在金额左侧那片区域上（bg 跟着行走，盖住的是账户列）。
           以前它们占着 150px 的常驻宽度，金额就永远和分组头上的当日合计对不齐。
         */}
+        {/* 窄屏第二行：渠道、时间、状态。这三样在宽屏是各自成列的，窄屏收成一句。 */}
+        <span className="mt-0.5 min-w-0 basis-[55%] grow truncate text-[11px] text-[var(--text-secondary)] sm:hidden">
+          {narrowMetaLine(a, badge?.label)}
+        </span>
+
         <span
-          className={`absolute inset-y-0 right-[112px] flex shrink-0 items-center justify-end gap-1 pl-4 ${
-            mode === 'attention' ? 'w-[196px]' : 'w-[150px]'
+          className={`ml-auto flex w-auto shrink-0 items-center justify-end gap-1 sm:absolute sm:inset-y-0 sm:right-[112px] sm:ml-0 sm:pl-4 ${
+            mode === 'attention' ? 'sm:w-[196px]' : 'sm:w-[150px]'
           } ${
             // 常驻内容（状态签、恢复/查看交易）得有底色盖住账户列；纯悬停动作的行不能常驻底色，
             // 否则整列账户名被一片同色挡住，看着像根本没渲染。
@@ -303,7 +313,7 @@ export function QueueRow({
                 悬停才显形，但键盘聚焦时必须现出来，否则 Tab 过去是几个隐形按钮。
                 用 opacity 而不是 hidden，正是为了让它们始终可聚焦。
               */}
-              <span className="pointer-events-none flex items-center gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
+              <span className="flex items-center gap-1 transition-opacity sm:pointer-events-none sm:opacity-0 sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 sm:focus-within:pointer-events-auto sm:focus-within:opacity-100">
                 {mode === 'attention' && attentionKind === 'transfer' && (
                   <Button
                     size="xs"
