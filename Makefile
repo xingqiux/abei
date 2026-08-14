@@ -1,6 +1,7 @@
 SHELL := /bin/sh
 COMPOSE := docker compose
 WEB_DIR := abei-web
+ADMIN_DIR := abei-admin
 APP_DIR := firefly-iii
 AGENT_DIR := abei-agent
 ABEI_DIR := abei
@@ -12,6 +13,8 @@ ABEI_API_PORT := $(or $(ABEI_API_PORT),18002)
 ABEI_AGENT_PORT := $(or $(ABEI_AGENT_PORT),18003)
 ABEI_SERVER_PORT := $(or $(ABEI_SERVER_PORT),18005)
 WEB_PORT := $(or $(WEB_PORT),5173)
+# 后台的 dev 端口。5174 被 abei-web 的 playwright 占着，所以往后排到 5175。
+ADMIN_PORT := $(or $(ADMIN_PORT),5175)
 
 # 本机 artisan serve 用 root .env 的同套 PostgreSQL（db 容器映射在 127.0.0.1:15432）。
 DEV_DB_ENV := DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=$(or $(POSTGRES_PORT),15432) \
@@ -23,33 +26,34 @@ ABEI_SERVER_DB_ENV := POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=$(or $(POSTGRES_PORT
 
 .DEFAULT_GOAL := help
 
-.PHONY: help free-ports install-cli man dev dev-web up down logs test test-web test-backend test-agent test-rust test-e2e build build-image
+.PHONY: help free-ports install-cli man dev dev-web dev-admin up down logs test test-web test-admin test-backend test-agent test-rust test-e2e build build-image
 
 help:
 	@echo "dev         本地开发：清端口、重装 abei 命令行，再起 db/mail + 本机 Firefly/abei-server/api/agent + vite (5173)"
 	@echo "dev-web     只开发前端：先清掉占着开发端口的旧进程，Firefly、abei-api 与 agent 用容器跑，本机起 vite (5173)"
-	@echo "up          起 7 个容器：db mail app abei-server abei-api abei-agent abei-web"
+	@echo "dev-admin   只开发后台：后端同 dev-web，本机起后台的 vite (5175)"
+	@echo "up          起 8 个容器：db mail app abei-server abei-api abei-agent abei-web abei-admin"
 	@echo "down        停本地容器"
 	@echo "logs        跟随 app、abei-server、abei-api、abei-agent 与 abei-web 日志"
 	@echo "man         生成 abei 的 man 页到 abei/target/man/abei.1"
-	@echo "test        全部测试：web vitest + Firefly PHPUnit + agent vitest + abei 三道闸"
+	@echo "test        全部测试：web/admin vitest + Firefly PHPUnit + agent vitest + abei 三道闸"
 	@echo "test-e2e    浏览器主路径：起 db/mail/app/abei-api + playwright（自己拉 vite，数据现播）"
-	@echo "build       出产物：abei-web 静态 + abei-agent 打包 + abei release 二进制 + composer 装依赖"
-	@echo "build-image 构建 app、abei-api、abei-agent 与 abei-web 镜像"
+	@echo "build       出产物：abei-web/abei-admin 静态 + abei-agent 打包 + abei release 二进制 + composer 装依赖"
+	@echo "build-image 构建 app、abei-api、abei-agent、abei-web 与 abei-admin 镜像"
 	@echo ""
-	@echo "宿主端口：18001 Firefly / 18002 abei-api / 18003 abei-agent / 18004 abei-web / 18005 abei-server"
+	@echo "宿主端口：18001 Firefly / 18002 abei-api / 18003 abei-agent / 18004 abei-web / 18005 abei-server / 18006 abei-admin"
 
 .env:
 	cp .env.example .env
 
 up: .env
-	$(COMPOSE) up -d --build --wait db mail app abei-server abei-api abei-agent abei-web
+	$(COMPOSE) up -d --build --wait db mail app abei-server abei-api abei-agent abei-web abei-admin
 
 down:
 	$(COMPOSE) down --remove-orphans
 
 logs:
-	$(COMPOSE) logs -f app abei-server abei-api abei-agent abei-web
+	$(COMPOSE) logs -f app abei-server abei-api abei-agent abei-web abei-admin
 
 free-ports:
 	@command -v lsof >/dev/null || { echo "需要 lsof 才能清理开发端口" >&2; exit 2; }
@@ -133,10 +137,21 @@ dev-web: .env
 	@$(COMPOSE) stop abei-web >/dev/null 2>&1 || true
 	cd $(WEB_DIR) && npm run dev
 
-test: test-web test-backend test-agent test-rust
+# 后台和前台共用同一套后端容器，区别只在本机起哪个 vite。
+dev-admin: .env
+	@$(COMPOSE) stop app abei-server abei-api abei-agent >/dev/null 2>&1 || true
+	@$(MAKE) free-ports
+	ABEI_WEB_URL=http://127.0.0.1:5173 GOOGLE_OAUTH_REDIRECT_URL=http://127.0.0.1:$(ADMIN_PORT)/oauth/google/callback $(COMPOSE) up -d --build --wait db mail app abei-server abei-api abei-agent
+	@$(COMPOSE) stop abei-admin >/dev/null 2>&1 || true
+	cd $(ADMIN_DIR) && npm run dev
+
+test: test-web test-admin test-backend test-agent test-rust
 
 test-web:
 	cd $(WEB_DIR) && npm run test:run
+
+test-admin:
+	cd $(ADMIN_DIR) && npm run test:run
 
 # test-db 的数据在 tmpfs 里，随容器存活。跑前跑后都清掉，保证每次都是空库开始，
 # 中途失败也不会把半截迁移状态留给下一次。
@@ -165,9 +180,10 @@ test-e2e: .env
 
 build:
 	cd $(WEB_DIR) && npm run build
+	cd $(ADMIN_DIR) && npm run build
 	$(COMPOSE) run --rm agent-test sh -lc 'npm ci && npm run build'
 	cd $(ABEI_DIR) && cargo build --release --workspace
 	cd $(APP_DIR) && composer install --no-interaction --no-progress
 
 build-image: .env
-	$(COMPOSE) build app abei-server abei-api abei-agent abei-web
+	$(COMPOSE) build app abei-server abei-api abei-agent abei-web abei-admin

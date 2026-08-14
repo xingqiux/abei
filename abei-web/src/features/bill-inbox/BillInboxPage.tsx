@@ -24,7 +24,7 @@ import type { BillImportResponse, BillQueueRow, BillTask } from '../../api/schem
 import { EmptyState } from '../../components/abei/EmptyState'
 import { Skeleton } from '../../components/abei/Skeleton'
 import { ErrorState, InlineError } from '../../components/abei/ErrorState'
-import { Button, IconButton } from '../../components/ui/Button'
+import { Button, buttonClass, IconButton } from '../../components/ui/Button'
 import { Card } from '../../components/ui/Card'
 import { showToast } from '../../store/toastStore'
 import { AbeiApiError } from '../../api/client'
@@ -51,6 +51,7 @@ import {
   workloadOf,
   type InboxView,
 } from './billInboxHelpers'
+import { adminUrl } from '../../lib/adminUrl'
 import { formatAmount, formatMonthDay } from '../../lib/format'
 
 /**
@@ -72,6 +73,8 @@ export function BillInboxPage() {
   const taskFilter = search.task ?? null
 
   const queryClient = useQueryClient()
+  // 邮件工作台已经搬去 abei-admin，是另一个源，只能给绝对地址
+  const mailWorkbenchHref = adminUrl('/mail')
   const summaryQuery = useBillInboxSummary()
   const syncMutation = useSyncBillInbox()
   const dismissMutation = useDismissBillRows()
@@ -544,7 +547,8 @@ export function BillInboxPage() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [selectable, editingId, cursorRows, cursorIndex, selected])
+    // dispatchSelection 是 useReducer 给的，跨渲染稳定，列进来只是让 lint 闭嘴不改行为。
+  }, [selectable, editingId, cursorRows, cursorIndex, selected, dispatchSelection])
 
   useEffect(() => {
     const row = cursorRows[cursorIndex]
@@ -638,9 +642,13 @@ export function BillInboxPage() {
           <span className="text-[var(--text-secondary)]">
             有 {summaryQuery.data?.unclassified_mail} 封邮件尚未匹配账单规则，因此不会出现在账单收件箱。
           </span>
-          <Button variant="secondary" size="sm" onClick={() => void navigate({ to: '/mail-workbench' })}>
-            前往邮件工作台
-          </Button>
+          {/* 邮件工作台在后台（另一个源）。没配后台地址时不显示按钮，但这句话仍然要说，
+              否则用户只会觉得「怎么少了几笔」。 */}
+          {mailWorkbenchHref && (
+            <a href={mailWorkbenchHref} className={buttonClass({ variant: 'secondary', size: 'sm' })}>
+              前往邮件工作台
+            </a>
+          )}
         </div>
       )}
 

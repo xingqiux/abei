@@ -11,7 +11,8 @@
     "check:colors": "! rg -n '(text|bg|border|ring|from|to|divide|fill|stroke)-(gray|slate|zinc|neutral|stone|red|emerald|indigo|amber|green|blue|sky|purple|violet|orange|teal|cyan|rose)-[0-9]{2,3}' src",
     "test": "vitest",
     "test:run": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.10",
@@ -27,6 +28,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",

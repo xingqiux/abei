@@ -1,5 +1,5 @@
 import { Link, useRouterState } from '@tanstack/react-router'
-import { NAV_ITEMS, type NavItemDef } from '../../routes/navItems'
+import { ACCOUNT_ITEMS, NAV_ITEMS, type NavItemDef } from '../../routes/navItems'
 import { useNavBadges, type NavBadge } from '../../routes/useNavBadges'
 import { AbeiMark } from '../abei/AbeiMark'
 import { NavCountBadge } from './NavCountBadge'
@@ -14,12 +14,15 @@ interface NavItem extends NavItemDef {
  * 当前项是「中性底 + 左边一根 3px 品牌色竖条 + 品牌色图标」。整块底色上品牌色
  * 试过，一屏九项里有一项是实心色块，眼睛全被它拽走，剩下八项等于不存在。
  * 竖条同时兼顾色觉障碍：位置本身就是信号，不靠颜色也读得出来。
+ *
+ * 分两段：上面是「我要做的事」，沉在底部的是「关于我这个账号」。
+ * 两段之间隔着一整片空白，比原来那条分隔线更省事——不用再给某一项特判样式。
  */
 export function Sidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const badges = useNavBadges()
 
-  const navItems: NavItem[] = NAV_ITEMS.map((item) => ({ ...item, badge: badges[item.to] }))
+  const withBadge = (item: NavItemDef): NavItem => ({ ...item, badge: badges[item.to] })
 
   return (
     <aside className="hidden h-full w-60 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--surface-1)] md:flex">
@@ -36,45 +39,57 @@ export function Sidebar() {
       </div>
 
       <nav aria-label="主导航" className="flex flex-col gap-0.5 px-3 py-2">
-        {navItems.map((item) => {
-          const active = item.to === '/' ? pathname === '/' : pathname.startsWith(item.to)
-          const Icon = item.icon
-          return (
-            <Link
-              key={item.to}
-              to={item.to}
-              aria-current={active ? 'page' : undefined}
-              className={`group relative flex items-center justify-between gap-x-3 rounded-md py-2 pr-2 pl-3 text-sm font-medium transition-colors ${item.to === '/feedback' ? 'mt-3 border-t border-[var(--border-subtle)] pt-3' : ''} ${
-                active
-                  ? 'bg-[var(--surface-selected)] font-semibold text-[var(--text-primary)]'
-                  : 'text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]'
-              }`}
-            >
-              {/* 竖条：不依赖颜色也能看出选中，色觉障碍下同样成立 */}
-              {active && (
-                <span
-                  aria-hidden
-                  className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-[var(--brand)]"
-                />
-              )}
-              <span className="flex items-center gap-x-3">
-                <Icon
-                  aria-hidden
-                  className={`size-5 shrink-0 ${
-                    active
-                      ? 'text-[var(--brand-text)]'
-                      : 'text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)]'
-                  }`}
-                />
-                {item.label}
-              </span>
-              {item.badge && (
-                <NavCountBadge count={item.badge.text} hasDanger={item.badge.hasDanger} />
-              )}
-            </Link>
-          )
-        })}
+        <NavList items={NAV_ITEMS.map(withBadge)} pathname={pathname} />
+      </nav>
+
+      <nav aria-label="账号" className="mt-auto flex flex-col gap-0.5 px-3 pt-2 pb-4">
+        <NavList items={ACCOUNT_ITEMS.map(withBadge)} pathname={pathname} />
       </nav>
     </aside>
+  )
+}
+
+function NavList({ items, pathname }: { items: NavItem[]; pathname: string }) {
+  return (
+    <>
+      {items.map((item) => {
+        const active = item.to === '/' ? pathname === '/' : pathname.startsWith(item.to)
+        const Icon = item.icon
+        return (
+          <Link
+            key={item.to}
+            to={item.to}
+            aria-current={active ? 'page' : undefined}
+            className={`group relative flex items-center justify-between gap-x-3 rounded-md py-2 pr-2 pl-3 text-sm font-medium transition-colors ${
+              active
+                ? 'bg-[var(--surface-selected)] font-semibold text-[var(--text-primary)]'
+                : 'text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            {/* 竖条：不依赖颜色也能看出选中，色觉障碍下同样成立 */}
+            {active && (
+              <span
+                aria-hidden
+                className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-[var(--brand)]"
+              />
+            )}
+            <span className="flex items-center gap-x-3">
+              <Icon
+                aria-hidden
+                className={`size-5 shrink-0 ${
+                  active
+                    ? 'text-[var(--brand-text)]'
+                    : 'text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)]'
+                }`}
+              />
+              {item.label}
+            </span>
+            {item.badge && (
+              <NavCountBadge count={item.badge.text} hasDanger={item.badge.hasDanger} />
+            )}
+          </Link>
+        )
+      })}
+    </>
   )
 }

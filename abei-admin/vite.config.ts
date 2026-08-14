@@ -13,8 +13,8 @@ export default defineConfig({
   },
   server: {
     host: '127.0.0.1',
-    // 5173 是 abei-web 的号，两边同时开着是常态，所以后台固定 5174。
-    port: 5174,
+    // 5173 是 abei-web 的 dev、5174 是它 e2e 自起的那个，后台只能往后排。
+    port: 5175,
     strictPort: true,
     proxy: {
       // 后台只吃 abei-api 这一面：邮件、解析器、反馈都在 /v1 下。

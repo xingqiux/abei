@@ -96,7 +96,7 @@ beforeEach(() => {
 })
 
 describe('FeedbackPage', () => {
-  it('owner 可以从用户反馈页进入管理端', async () => {
+  it('owner 可以从用户反馈页进入后台', async () => {
     mocks.apiGet.mockImplementation((path: string) => {
       if (path === '/v1/session') return Promise.resolve({ data: { user_id: 1, actor: 'owner', role: 'owner', is_owner: true } })
       return Promise.resolve(listResponse)
@@ -104,7 +104,21 @@ describe('FeedbackPage', () => {
 
     renderPage()
 
-    expect(await screen.findByRole('link', { name: '管理反馈' })).toHaveAttribute('href', '/admin/feedback')
+    // 反馈管理搬去 abei-admin 之后是跨源的绝对地址，不再是站内路由。
+    const link = await screen.findByRole('link', { name: '管理反馈' })
+    expect(link.getAttribute('href')).toMatch(/^https?:\/\/[^/]+\/feedback$/)
+  })
+
+  it('非 owner 看不到后台入口', async () => {
+    mocks.apiGet.mockImplementation((path: string) => {
+      if (path === '/v1/session') return Promise.resolve({ data: { user_id: 2, actor: 'someone', role: 'user', is_owner: false } })
+      return Promise.resolve(listResponse)
+    })
+
+    renderPage()
+
+    await screen.findByRole('heading', { name: '反馈' })
+    expect(screen.queryByRole('link', { name: '管理反馈' })).not.toBeInTheDocument()
   })
 
   it('列出归一后的反馈并能查看自己的提交', async () => {

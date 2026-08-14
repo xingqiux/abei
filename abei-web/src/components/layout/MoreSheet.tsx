@@ -5,14 +5,11 @@ import { SignOut } from '@phosphor-icons/react'
 import gsap from 'gsap'
 import { useMoreSheetStore } from '../../store/moreSheetStore'
 import { useNavBadges } from '../../routes/useNavBadges'
-import { NAV_ITEMS, type NavPath } from '../../routes/navItems'
+import { MORE_ITEMS } from '../../routes/navItems'
 import { prefersReducedMotion } from '../../motion/reducedMotion'
 import { useDialogBehavior } from '../abei/useDialogBehavior'
 import { requestTokenReset } from '../tokenEvents'
 import { NavCountBadge } from './NavCountBadge'
-
-/** 「我的」sheet 里列出的剩余导航项（概况/交易/收件箱已在底部 tab 常驻，此处不重复）。 */
-const MORE_PATHS: NavPath[] = ['/mail-workbench', '/parser-workbench', '/assistant', '/accounts', '/budgets', '/reference-data', '/analysis', '/profile', '/feedback', '/settings']
 
 /**
  * 移动端底部弹出 sheet：列出侧栏剩余导航项，240ms 上滑入场。
@@ -34,8 +31,8 @@ export function MoreSheet() {
 
   if (!open) return null
 
-  // 顺序跟着侧栏走，MORE_PATHS 只决定哪几项出现在这里
-  const items = NAV_ITEMS.filter((item) => MORE_PATHS.includes(item.to))
+  // 顺序跟着侧栏走；哪几项出现在这里由 navItems.ts 算，不在这边再抄一份
+  const items = MORE_ITEMS
 
   return createPortal(
     <div className="fixed inset-0 z-[200] md:hidden" role="presentation">
