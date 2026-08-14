@@ -6,6 +6,7 @@ import {
   invalidateBillInbox,
   useBillInboxSummary,
   useBillRows,
+  useBillInboxSettings,
   useBillRowCounts,
   flattenBillRows,
   BILL_ROWS_PAGE_SIZE,
@@ -20,7 +21,7 @@ import {
 } from '../../api/queries'
 import { useBillInboxSelection } from './useBillInboxSelection'
 import { AssistantApiError, runAutofill } from '../../api/assistant'
-import type { BillImportResponse, BillQueueRow, BillTask } from '../../api/schemas'
+import type { BillImportResponse, BillQueueRow, BillRowGroup, BillTask } from '../../api/schemas'
 import { EmptyState } from '../../components/abei/EmptyState'
 import { Skeleton } from '../../components/abei/Skeleton'
 import { ErrorState, InlineError } from '../../components/abei/ErrorState'
@@ -31,6 +32,7 @@ import { AbeiApiError } from '../../api/client'
 import { BillInboxSettingsDialog } from './BillInboxSettingsDialog'
 import { AccountMappingDialog } from './AccountMappingDialog'
 import { ImportConfirmDialog } from './ImportConfirmDialog'
+import { InboxOnboardingCard } from './InboxOnboardingCard'
 import { QueueRow } from './QueueRow'
 import { ProcessingSummaryCard } from './ProcessingSummaryCard'
 import { ChannelBar, type SourceGroup } from './ChannelBar'
@@ -184,6 +186,16 @@ export function BillInboxPage() {
   const mailboxSync = summaryQuery.data?.mailbox_sync
   const mailboxSyncActive = mailboxSync?.status === 'queued' || mailboxSync?.status === 'running'
   const syncBusy = syncMutation.isPending || mailboxSyncActive
+
+  // 空箱引导：邮箱连没连、有没有解析出过流水，决定卡在哪一步。
+  const settingsQuery = useBillInboxSettings()
+  const mailbox = settingsQuery.data?.data.attributes
+  const mailboxReady = !!mailbox
+    && mailbox.email.trim() !== ''
+    && (mailbox.has_password || mailbox.google_connected)
+  const hasAnyRows = ['importable', 'attention', 'dismissed', 'imported']
+    .some((group) => counts.countFor(group as BillRowGroup) > 0)
+  const inboxIsBlank = !hasAnyRows && taskFilter === null && source === undefined
 
   // 换 tab / 换渠道 / 换邮件后，之前选中的行已经不在屏幕上了，留着选中状态只会误伤。
   // 进度也一并归零：它数的是「这一屏清掉了多少」，换了一屏就该重新数。
@@ -626,7 +638,7 @@ export function BillInboxPage() {
           </Button>
           <Button variant="secondary" size="sm" onClick={() => setAccountMappingsOpen(true)}>
             <ArrowsLeftRight aria-hidden className="size-4" />
-            账户映射
+            对上账户
           </Button>
           <IconButton label="邮箱设置" onClick={() => setSettingsOpen(true)}>
             <Gear aria-hidden className="size-4" />
@@ -776,7 +788,19 @@ export function BillInboxPage() {
           ) : rowsQuery.isError ? (
             <ErrorState message="流水加载失败" error={rowsQuery.error} onRetry={() => void rowsQuery.refetch()} />
           ) : rows.length === 0 ? (
-            <EmptyState compact statusIcon="inbox" {...emptyStateFor(view, { onSync: () => void handleSync(), onGoImportable: () => setView('importable') })} />
+            // 整箱都空（邮箱没连，或者连了还没解析出东西）时给引导，别只丢一句「没有待入账的流水」
+            inboxIsBlank ? (
+              <InboxOnboardingCard
+                mailboxReady={mailboxReady}
+                hasRows={hasAnyRows}
+                hasImported={counts.countFor('imported') > 0}
+                syncing={syncBusy}
+                onConnect={() => setSettingsOpen(true)}
+                onSync={() => void handleSync()}
+              />
+            ) : (
+              <EmptyState compact statusIcon="inbox" {...emptyStateFor(view, { onSync: () => void handleSync(), onGoImportable: () => setView('importable') })} />
+            )
           ) : view === 'attention' ? (
             <div className="flex flex-col gap-3">
               {attentionSections.map((section) => (

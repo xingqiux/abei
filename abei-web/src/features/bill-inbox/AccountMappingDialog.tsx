@@ -118,7 +118,7 @@ export function AccountMappingDialog({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="账户映射" width={680}>
+    <Modal open={open} onClose={onClose} title="对上账户" width={680}>
       <div className="flex flex-col gap-3">
         {mappingsQuery.isError && (
           <InlineError

@@ -16,6 +16,14 @@
 
 根目录是唯一入口，需要 Make、Docker Compose v2；`make dev` 另需本机装 PHP、Composer 与 Rust。
 
+第一次起服务前先备好 `.env`。`ABEI_INTERNAL_SECRET` 是 abei-api 和 abei-server 之间的
+共享密钥，没有兜底默认值，不配就起不来：
+
+```bash
+cp .env.example .env
+echo "ABEI_INTERNAL_SECRET=$(openssl rand -hex 32)" >> .env   # 覆盖示例里的占位值
+```
+
 ```bash
 make dev          # db/mail 容器 + 本机 Firefly/abei-server/api/agent + vite (5173)
 make dev-web      # Firefly、abei-server、abei-api、agent 用容器跑，本机只起 vite (5173)
