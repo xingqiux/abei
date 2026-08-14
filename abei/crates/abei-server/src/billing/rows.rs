@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 
 use rust_decimal::Decimal;
@@ -909,6 +909,42 @@ impl Service {
             )
             .await
             .map_err(ApiError::database)?;
+        // 渠道 × 四状态的分桶。刻意和 list_rows 用同一套 FROM/WHERE：两边一旦有出入，
+        // 就会出现「tab 上写 12 条、点进去 11 行」这种对不上的数。
+        let channel_counts = client
+            .query(
+                &format!(
+                    "SELECT d.channel_key,
+                            count(*) FILTER (WHERE {} = 'importable')::bigint,
+                            count(*) FILTER (WHERE {} = 'attention')::bigint,
+                            count(*) FILTER (WHERE {} = 'dismissed')::bigint,
+                            count(*) FILTER (WHERE {} = 'imported')::bigint
+                     {} WHERE r.user_id = $1 AND d.active_revision = r.revision
+                     GROUP BY d.channel_key",
+                    row_group_predicate(),
+                    row_group_predicate(),
+                    row_group_predicate(),
+                    row_group_predicate(),
+                    row_from()
+                ),
+                &[&user_id],
+            )
+            .await
+            .map_err(ApiError::database)?;
+        let channel_counts: HashMap<String, [i64; 4]> = channel_counts
+            .iter()
+            .map(|row| {
+                (
+                    row.get::<_, String>(0),
+                    [
+                        row.get::<_, i64>(1),
+                        row.get::<_, i64>(2),
+                        row.get::<_, i64>(3),
+                        row.get::<_, i64>(4),
+                    ],
+                )
+            })
+            .collect();
         let jobs = client
             .query(
                 "SELECT id, bill_document_id, status, stage, progress, waiting_reason,
@@ -998,17 +1034,28 @@ impl Service {
             "unprocessed": unprocessed,
             "failed": failed,
             "unclassified_mail": unclassified_mail,
-            "channels": channels.iter().map(|row| json!({
-                "key": row.get::<_, String>(0),
-                "name": row.get::<_, String>(0),
-                "last_received_at": row.get::<_, Option<String>>(1),
-                "needs_code": row.get::<_, i64>(2),
-                "unprocessed": row.get::<_, i64>(3),
-                "failed": row.get::<_, i64>(4),
-                "parsed": row.get::<_, i64>(5),
-                "to_store": row.get::<_, i64>(6),
-                "last_status": row.get::<_, Option<String>>(7),
-            })).collect::<Vec<_>>(),
+            "channels": channels.iter().map(|row| {
+                let key = row.get::<_, String>(0);
+                let bucket = channel_counts.get(&key).copied().unwrap_or([0; 4]);
+                json!({
+                    "key": key,
+                    "name": key,
+                    "last_received_at": row.get::<_, Option<String>>(1),
+                    "needs_code": row.get::<_, i64>(2),
+                    "unprocessed": row.get::<_, i64>(3),
+                    "failed": row.get::<_, i64>(4),
+                    "parsed": row.get::<_, i64>(5),
+                    "to_store": row.get::<_, i64>(6),
+                    "last_status": row.get::<_, Option<String>>(7),
+                    // 渠道条按 tab 取这里的数，不再每渠道发一次 limit=1 的探测请求。
+                    "counts": {
+                        "importable": bucket[0],
+                        "attention": bucket[1],
+                        "dismissed": bucket[2],
+                        "imported": bucket[3],
+                    },
+                })
+            }).collect::<Vec<_>>(),
             "todo": {
                 "importable": importable,
                 "attention": attention,

@@ -6,8 +6,8 @@ import {
   invalidateBillInbox,
   useBillInboxSummary,
   useBillRows,
-  useBillRowsCount,
-  useBillRowsCountByChannel,
+  useBillRowCounts,
+  flattenBillRows,
   useBillTasks,
   useDeleteTransaction,
   useDismissBillRows,
@@ -57,12 +57,6 @@ const DIRECT_IMPORT_LIMIT = 20
 /** 撤销那条 toast 留久一点：8 秒里没点，就当人是认下了 */
 const UNDO_TOAST_DURATION = 8000
 
-/**
- * 滚动加载一次续多少行。不做分页器：这一页的活是「从上往下清掉」，
- * 翻页会把「清到哪儿了」这条线打断。到底了会明说「共 N 笔」，不留悬念。
- */
-const SCROLL_STEP = 40
-
 export function BillInboxPage() {
   const search = useSearch({ from: '/bill-inbox' })
   const navigate = useNavigate({ from: '/bill-inbox' })
@@ -91,8 +85,6 @@ export function BillInboxPage() {
   const [dryRun, setDryRun] = useState<BillImportResponse | null>(null)
   const [confirmRowIds, setConfirmRowIds] = useState<string[]>([])
   const [autofillRunning, setAutofillRunning] = useState(false)
-  /** 滚动加载已经放出来多少行 */
-  const [shown, setShown] = useState(SCROLL_STEP)
   /** 这一趟处理掉了多少笔，工作量条上的进度就是它 */
   const [handledCount, setHandledCount] = useState(0)
   const pageRef = useRef<HTMLDivElement | null>(null)
@@ -101,19 +93,18 @@ export function BillInboxPage() {
 
   /** 当前 tab 的行；其余三个 tab 不请求，切过去再拉 */
   const rowsQuery = useBillRows(view, { source })
-  const counts = {
-    importable: useBillRowsCount('importable', { source }),
-    attention: useBillRowsCount('attention', { source }),
-    dismissed: useBillRowsCount('dismissed', { source }),
-    imported: useBillRowsCount('imported', { source }),
-  }
+  /** 四个 tab 和渠道条上的数字都从 summary 里取，不再各自发请求 */
+  const counts = useBillRowCounts(summaryQuery.data)
 
   // 来源面板要的是整箱邮件，故意不跟着当前渠道过滤走：面板本身就是换渠道的地方，
   // 跟着过滤会把「换一个渠道看看」这条路自己堵死。
   const tasksQuery = useBillTasks()
   const billTasks = useMemo(() => tasksQuery.data?.data ?? [], [tasksQuery.data])
 
-  const allRows = useMemo(() => rowsQuery.data?.data ?? [], [rowsQuery.data])
+  const { rows: allRows, total: loadedTotal } = useMemo(
+    () => flattenBillRows(rowsQuery.data?.pages),
+    [rowsQuery.data],
+  )
   const rows = useMemo(
     () => (taskFilter === null ? allRows : allRows.filter((row) => String(row.attributes.bill_task_id) === taskFilter)),
     [allRows, taskFilter],
@@ -151,25 +142,16 @@ export function BillInboxPage() {
       .sort((a, b) => a.label.localeCompare(b.label, 'zh-Hans-CN'))
   }, [billTasks, summaryQuery.data, channelName])
 
-  /** 渠道 chip 上的笔数：每个渠道一个 limit=1 的轻请求，只取 meta 总数 */
+  /** 渠道 chip 上的笔数：跟着当前 tab 走，数字全部来自 summary */
   const channelKeys = useMemo(() => sourceGroups.map((group) => group.key), [sourceGroups])
-  const channelCountQueries = useBillRowsCountByChannel(view, channelKeys)
   const channelCounts = useMemo(() => {
     const out: Record<string, number | undefined> = {}
-    channelKeys.forEach((key, index) => {
-      out[key] = channelCountQueries[index]?.data
-    })
+    for (const key of channelKeys) out[key] = counts.countFor(view, key)
     return out
-  }, [channelKeys, channelCountQueries])
+  }, [channelKeys, counts, view])
 
-  /**
-   * 滚动加载：只渲染前 shown 行。待确认 tab 按判断类型分小节，本来就不长，整段出。
-   * 真上到几千行时这里还得再加虚拟滚动，眼下 DOM 里最多 SCROLL_STEP 的整数倍。
-   */
-  const visibleRows = useMemo(
-    () => (view === 'attention' ? rows : rows.slice(0, shown)),
-    [view, rows, shown],
-  )
+  /** 拉回来多少就渲染多少；再往下由 sentinel 触发续页 */
+  const visibleRows = rows
   const dayGroups = useMemo(() => groupRowsByDay(visibleRows), [visibleRows])
   const workload = useMemo(() => workloadOf(rows), [rows])
   const currencySymbol = rows[0]?.attributes.currency_symbol ?? rows[0]?.attributes.currency_code ?? ''
@@ -194,14 +176,15 @@ export function BillInboxPage() {
   const mailboxSyncActive = mailboxSync?.status === 'queued' || mailboxSync?.status === 'running'
   const syncBusy = syncMutation.isPending || mailboxSyncActive
 
-  // 换 tab / 换渠道 / 换邮件后，之前选中的行已经不在屏幕上了，留着选中状态只会误伤
+  // 换 tab / 换渠道 / 换邮件后，之前选中的行已经不在屏幕上了，留着选中状态只会误伤。
+  // 进度也一并归零：它数的是「这一屏清掉了多少」，换了一屏就该重新数。
   useEffect(() => {
     setSelected(new Set())
     setAnchorIndex(null)
     setExpandedId(null)
     setEditingId(null)
     setCursorIndex(0)
-    setShown(SCROLL_STEP)
+    setHandledCount(0)
   }, [source, view, taskFilter])
 
   /**
@@ -228,16 +211,18 @@ export function BillInboxPage() {
     return () => observer.disconnect()
   }, [])
 
-  /** 滚到底就再放一批。没有 IntersectionObserver 的环境（jsdom）直接不装，列表照常渲染 */
+  /** 滚到底就向后端要下一页。没有 IntersectionObserver 的环境（jsdom）直接不装，列表照常渲染 */
+  const { fetchNextPage, hasNextPage, isFetchingNextPage } = rowsQuery
   useEffect(() => {
     const element = sentinelRef.current
     if (!element || typeof IntersectionObserver === 'undefined') return
+    if (!hasNextPage) return
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) setShown((value) => value + SCROLL_STEP)
+      if (entries.some((entry) => entry.isIntersecting) && !isFetchingNextPage) void fetchNextPage()
     }, { rootMargin: '400px' })
     observer.observe(element)
     return () => observer.disconnect()
-  }, [rows.length, shown])
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage])
 
   function setView(next: InboxView) {
     void navigate({ search: { source, view: next === DEFAULT_INBOX_VIEW ? undefined : next, task: taskFilter ?? undefined }, replace: true })
@@ -697,7 +682,7 @@ export function BillInboxPage() {
             >
               {INBOX_VIEW_LABELS[candidate]}
               <span className="num ml-1.5 text-[11.5px] text-[var(--text-tertiary)]">
-                {counts[candidate].data ?? 0}
+                {counts.countFor(candidate, source)}
               </span>
             </button>
           ))}
@@ -706,7 +691,7 @@ export function BillInboxPage() {
         <ChannelBar
           groups={sourceGroups}
           counts={channelCounts}
-          totalCount={counts[view].data ?? 0}
+          totalCount={counts.countFor(view, source)}
           loading={tasksQuery.isLoading}
           error={tasksQuery.error}
           onRetryLoad={() => void tasksQuery.refetch()}
@@ -829,8 +814,8 @@ export function BillInboxPage() {
           {/* 滚动加载：到底了要明说共多少笔，不留「是不是还有」的悬念 */}
           {view !== 'attention' && rows.length > 0 && (
             <div ref={sentinelRef} className="px-2 pt-3 pb-1 text-center text-[11.5px] text-[var(--text-tertiary)]">
-              {visibleRows.length < rows.length
-                ? `正在加载…已显示 ${visibleRows.length} / ${rows.length} 笔`
+              {hasNextPage
+                ? `正在加载…已显示 ${rows.length} / ${loadedTotal} 笔`
                 : `到底了 · 共 ${rows.length} 笔`}
             </div>
           )}

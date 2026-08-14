@@ -44,7 +44,6 @@ import {
   getBillTaskReview,
   getAllBillTasks,
   getBillTaskRows,
-  getAllBillRows,
   getBillRows,
   dismissBillRows,
   restoreBillRows,
@@ -120,7 +119,12 @@ import {
   updateCategoryRule,
   type CategoryFeedbackInput,
 } from './assistant'
-import type { BillRowGroup, BillRowsResponse } from './schemas'
+import type {
+  BillInboxSummary,
+  BillRowGroup,
+  BillRowGroupCounts,
+  BillRowsResponse,
+} from './schemas'
 import { CONFIRMED, DRY_RUN } from './gate'
 import { getCatalog, indexCapabilities, type Capability } from './catalog'
 import { hasActiveToken } from './client'
@@ -364,6 +368,11 @@ export function useBillInboxSettings(opts: { enabled?: boolean } = {}) {
   })
 }
 
+/**
+ * 全量失效：批量操作、导入尝试对账这类会牵动多份缓存的动作才用它。
+ * 单行的忽略/恢复/入账走 applyBillRowRemoval 的乐观更新，别退回到这里——
+ * 点一下「忽略」就重新拉全部行加全部计数，感知延迟等于一次冷启动。
+ */
 export function invalidateBillInbox(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'] })
   queryClient.invalidateQueries({ queryKey: ['bill-rows'] })
@@ -394,44 +403,146 @@ export function useDisconnectGoogleMailbox() {
   })
 }
 
+/** 一页拉多少行。滚到底再续下一页，不再开局就把整组拉进内存。 */
+export const BILL_ROWS_PAGE_SIZE = 50
+
 /**
  * GET /api/v1/bill-rows —— 收件箱队列的主数据源。
  * group 一次只读一组：三组各自的分页、空态、加载态互不牵连。
  */
 export function useBillRows(group: BillRowGroup, opts: { source?: string; enabled?: boolean } = {}) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['bill-rows', group, opts.source ?? 'all'],
-    queryFn: () => getAllBillRows({ group, source: opts.source }),
+    queryFn: ({ pageParam }) =>
+      getBillRows({ group, source: opts.source, page: pageParam, limit: BILL_ROWS_PAGE_SIZE }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, pages) => {
+      const pagination = lastPage.meta?.pagination
+      if (!pagination) return undefined
+      return pages.length < (pagination.total_pages ?? 1) ? pages.length + 1 : undefined
+    },
     enabled: opts.enabled ?? true,
     staleTime: 15_000,
   })
 }
 
-/**
- * 状态 tab 上的数字（待入账 N / 待确认 N / 已忽略 N / 已入账 N）。
- * 只取 meta 的总数，不把整组行拉下来——没打开的 tab 不值这个流量。
- */
-export function useBillRowsCount(group: BillRowGroup, opts: { source?: string } = {}) {
-  return useQuery({
-    queryKey: ['bill-rows', 'count', group, opts.source ?? 'all'],
-    queryFn: () => getBillRows({ group, source: opts.source, page: 1, limit: 1 }),
-    select: (response) => response.meta?.pagination?.total ?? response.data.length,
-    staleTime: 30_000,
-  })
+/** 把分页结果摊平成一个数组，外加后端给的总数。 */
+export function flattenBillRows(pages: BillRowsResponse[] | undefined) {
+  const rows = pages?.flatMap((page) => page.data) ?? []
+  return { rows, total: pages?.[0]?.meta?.pagination?.total ?? rows.length }
+}
+
+const EMPTY_GROUP_COUNTS: BillRowGroupCounts = {
+  importable: 0,
+  attention: 0,
+  dismissed: 0,
+  imported: 0,
 }
 
 /**
- * 顶部渠道条上每个渠道的笔数。和上面那个共用 queryKey，选中某个渠道时
- * 两边命中同一份缓存，不会多发一次请求。
+ * 四个 tab 和渠道条上的数字，全部来自 /v1/bill-inbox/summary 这一个请求。
+ *
+ * 以前是四个状态各发一次 limit=1、每个渠道再各发一次，一屏十几个请求；
+ * 而且计数和列表是两套数据源各刷各的，会刷出「tab 写 12 条、点进去 11 行」。
  */
-export function useBillRowsCountByChannel(group: BillRowGroup, channelKeys: string[]) {
-  return useQueries({
-    queries: channelKeys.map((key) => ({
-      queryKey: ['bill-rows', 'count', group, key],
-      queryFn: () => getBillRows({ group, source: key, page: 1, limit: 1 }),
-      select: (response: BillRowsResponse) => response.meta?.pagination?.total ?? response.data.length,
-      staleTime: 30_000,
-    })),
+export function useBillRowCounts(summary: BillInboxSummary | undefined) {
+  return useMemo(() => {
+    const total = summary?.counts ?? EMPTY_GROUP_COUNTS
+    const byChannel = new Map<string, BillRowGroupCounts>()
+    for (const channel of summary?.channels ?? []) {
+      byChannel.set(channel.key, channel.counts ?? EMPTY_GROUP_COUNTS)
+    }
+    return {
+      total,
+      countFor: (group: BillRowGroup, source?: string) =>
+        source ? (byChannel.get(source)?.[group] ?? 0) : total[group],
+    }
+  }, [summary])
+}
+
+type BillRowsPages = { pages: BillRowsResponse[]; pageParams: unknown[] }
+
+/**
+ * 把几行从当前列表里摘掉，并把 tab / 渠道条上的数字同步挪过去。
+ *
+ * 行原来属于哪个状态、哪个渠道，都从缓存的 queryKey（['bill-rows', group, source]）
+ * 上读——行体里没有渠道字段，而 key 一定是准的。目标组的缓存直接丢掉让它下次进入时
+ * 重拉，省得在前端重算它该插在哪个排序位置。这里改的都是估算值，
+ * 下一次 summary 重拉会以后端为准覆盖掉。
+ */
+function applyBillRowRemoval(
+  queryClient: ReturnType<typeof useQueryClient>,
+  rowIds: string[],
+  moveTo: BillRowGroup,
+) {
+  const removed = new Set(rowIds)
+  // 从哪个渠道的哪个状态各摘走几行：source -> group -> 条数
+  const taken = new Map<string, Map<BillRowGroup, number>>()
+
+  for (const [key, cached] of queryClient.getQueriesData<BillRowsPages>({ queryKey: ['bill-rows'] })) {
+    const [, group, source] = key as [string, BillRowGroup, string]
+    if (!cached?.pages || group === moveTo) continue
+    let dropped = 0
+    const pages = cached.pages.map((page) => {
+      const kept = page.data.filter((row) => !removed.has(row.id))
+      if (kept.length === page.data.length) return page
+      dropped += page.data.length - kept.length
+      const pagination = page.meta?.pagination
+      return {
+        ...page,
+        data: kept,
+        meta: pagination
+          ? {
+              ...page.meta,
+              pagination: {
+                ...pagination,
+                total: Math.max(0, (pagination.total ?? 0) - (page.data.length - kept.length)),
+              },
+            }
+          : page.meta,
+      }
+    })
+    if (dropped === 0) continue
+    queryClient.setQueryData(key, { ...cached, pages })
+    const perGroup = taken.get(source) ?? new Map<BillRowGroup, number>()
+    perGroup.set(group, (perGroup.get(group) ?? 0) + dropped)
+    taken.set(source, perGroup)
+  }
+
+  if (taken.size === 0) return
+  queryClient.removeQueries({ queryKey: ['bill-rows', moveTo] })
+  queryClient.setQueryData<BillInboxSummary>(['bill-inbox-summary'], (summary) => {
+    if (!summary) return summary
+    const shift = (base: BillRowGroupCounts, moves: Map<BillRowGroup, number>) => {
+      let next = base
+      for (const [from, amount] of moves) {
+        next = {
+          ...next,
+          [from]: Math.max(0, next[from] - amount),
+          [moveTo]: next[moveTo] + amount,
+        }
+      }
+      return next
+    }
+    // 同一行可能同时挂在 'all' 和某个具体渠道的两份缓存里，全局数只能按一份算：
+    // 有 'all' 就用它，否则把各渠道的加起来。
+    const globalMoves =
+      taken.get('all') ??
+      [...taken.entries()]
+        .filter(([source]) => source !== 'all')
+        .reduce((acc, [, moves]) => {
+          for (const [group, amount] of moves) acc.set(group, (acc.get(group) ?? 0) + amount)
+          return acc
+        }, new Map<BillRowGroup, number>())
+    return {
+      ...summary,
+      counts: shift(summary.counts ?? EMPTY_GROUP_COUNTS, globalMoves),
+      channels: summary.channels.map((channel) => {
+        const moves = taken.get(channel.key)
+        if (!moves) return channel
+        return { ...channel, counts: shift(channel.counts ?? EMPTY_GROUP_COUNTS, moves) }
+      }),
+    }
   })
 }
 
@@ -439,7 +550,15 @@ export function useDismissBillRows() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (body: { row_ids: string[] } | { filter: 'machine_duplicates' }) => dismissBillRows(body),
-    onSuccess: () => invalidateBillInbox(queryClient),
+    onSuccess: (_data, body) => {
+      // 按 filter 批量清扫会动到多少行是后端说了算，前端算不出来，只能整片失效。
+      if (!('row_ids' in body)) {
+        invalidateBillInbox(queryClient)
+        return
+      }
+      applyBillRowRemoval(queryClient, body.row_ids, 'dismissed')
+      queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'], refetchType: 'none' })
+    },
   })
 }
 
@@ -447,7 +566,10 @@ export function useRestoreBillRows() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (rowIds: string[]) => restoreBillRows(rowIds),
-    onSuccess: () => invalidateBillInbox(queryClient),
+    onSuccess: (_data, rowIds) => {
+      applyBillRowRemoval(queryClient, rowIds, 'importable')
+      queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'], refetchType: 'none' })
+    },
   })
 }
 
@@ -459,7 +581,10 @@ export function useImportBillRows() {
       importBillRows({ row_ids: rowIds, confirm }),
     onSuccess: (_data, variables) => {
       if (!variables.confirm) return
-      invalidateBillInbox(queryClient)
+      applyBillRowRemoval(queryClient, variables.rowIds, 'imported')
+      // 入账改了账本，交易那边该重拉；收件箱这边只标记过期，不立刻打请求。
+      queryClient.invalidateQueries({ queryKey: ['bill-inbox-summary'], refetchType: 'none' })
+      queryClient.invalidateQueries({ queryKey: ['bill-tasks'], refetchType: 'none' })
       invalidateTransactionCaches(queryClient)
     },
   })

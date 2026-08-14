@@ -430,28 +430,6 @@ export async function getBillRows(opts: {
   return billRowsResponseSchema.parse(raw)
 }
 
-/** 整组读完：队列要按理由分小节并支持「全部入账」，分页读一半没法给准数 */
-export async function getAllBillRows(opts: {
-  group: BillRowGroup
-  source?: string
-  limit?: number
-}): Promise<BillRowsResponse> {
-  const limit = opts.limit ?? 200
-  const first = await getBillRows({ ...opts, limit, page: 1 })
-  const totalPages = first.meta?.pagination?.total_pages ?? 1
-  if (totalPages <= 1) return first
-
-  const remaining = await Promise.all(
-    Array.from({ length: totalPages - 1 }, (_, index) =>
-      getBillRows({ ...opts, limit, page: index + 2 }),
-    ),
-  )
-  return {
-    ...first,
-    data: [first, ...remaining].flatMap((page) => page.data),
-  }
-}
-
 /**
  * POST /api/v1/bill-rows/dismiss —— 忽略流水。
  * 要么点名 row_ids，要么用 filter 一次清掉机器判重的存量。
