@@ -125,6 +125,7 @@ mod tests {
             parser,
             config.job_secret_cipher(),
             config.reliability(),
+            crate::firefly::Firefly::from_env(),
         )
     }
 

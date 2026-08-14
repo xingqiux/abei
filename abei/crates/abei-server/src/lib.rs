@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 
 mod billing;
 mod feedback;
+mod firefly;
 mod mail;
 pub mod mailbox;
 mod migrations;
@@ -132,6 +133,7 @@ impl AppState {
             parser.clone(),
             mailbox.job_secret_cipher(),
             mailbox.reliability(),
+            firefly::Firefly::from_env(),
         );
         let mailbox = mailbox::Service::new(pool.clone(), mailbox, mail.clone(), billing.clone());
         Self {
@@ -285,6 +287,10 @@ pub fn build_app(state: AppState) -> Router {
         .route(
             "/v1/bill-import-attempts/{id}",
             get(billing::api::get_import_attempt),
+        )
+        .route(
+            "/internal/v1/bill-imports/run",
+            post(billing::api::run_import),
         )
         .route(
             "/internal/v1/bill-imports/prepare",
@@ -827,6 +833,34 @@ impl ApiError {
             title: "服务内部出错",
             message: "数据库操作失败。".to_owned(),
         }
+    }
+
+    /// 上游（目前只有 Firefly）没给出可用结果。502 而不是 500：错不在我们这边。
+    pub(crate) fn upstream(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_GATEWAY,
+            problem_type: "https://abei.local/problems/upstream-error",
+            reason: "UpstreamError",
+            title: "上游服务出错",
+            message: message.into(),
+        }
+    }
+
+    /// 把 `reason` 换成更具体的机器码。
+    ///
+    /// `reason` 原先只有八个值，全由构造函数决定——前端想区分「账户没映射」和「金额非法」
+    /// 只能去匹配中文 detail 文案。这里允许调用方在保持 HTTP 状态码和文案不变的前提下，
+    /// 换上一个具体的码（`account_unmapped`、`import_in_flight`……）。
+    /// detail 一个字都不动，老前端的字符串匹配照旧能跑。
+    pub(crate) fn with_reason(mut self, reason: &'static str) -> Self {
+        self.reason = reason;
+        self
+    }
+
+    /// 给人看的那句话。入账 saga 要把单条流水的失败原因塞进结果行里，而不是让
+    /// 整批请求以这个错误收场。
+    pub(crate) fn detail(&self) -> String {
+        self.message.clone()
     }
 }
 

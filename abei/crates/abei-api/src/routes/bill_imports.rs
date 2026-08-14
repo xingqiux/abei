@@ -6,9 +6,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::auth::{AuthIdentity, AuthToken};
-use crate::existing_transactions;
 use crate::extract::{Gate, ValidJson, check_id};
-use crate::firefly::{FireflyWriteError, VerifiedUser};
+use crate::firefly::VerifiedUser;
 use crate::problem::Problem;
 use crate::state::AppState;
 
@@ -306,6 +305,15 @@ pub async fn delete_mapping(
     Ok(Json(value))
 }
 
+/// 把整批入账转发给 abei-server 跑完。
+///
+/// 这里以前是 saga 本身：prepare → 校账户 → 查重 → mark-sending → 写 Firefly →
+/// complete，六步里有五步是打回 abei-server 的 HTTP 调用。谁都不真正拥有这条流程——
+/// abei-api 崩在中间，abei-server 就留下一条没人收尾的 `sending`。
+///
+/// 现在整条 saga 在 abei-server 进程内跑完（见 `billing::runner`），abei-api 只做
+/// 它本来该做的事：校验用户令牌，然后把令牌和行号交过去。响应逐字来自 abei-server，
+/// 字段和以前一模一样。
 async fn run_imports(
     state: &AppState,
     identity: &VerifiedUser,
@@ -315,294 +323,36 @@ async fn run_imports(
     include_payload: bool,
 ) -> Value {
     let dry_run = gate.previewing();
-    if row_ids.is_empty() {
-        let mut response = import_response(Vec::new());
-        if dry_run {
-            response["dry_run"] = Value::Bool(true);
-        }
-        return response;
-    }
-    let mut rows = Vec::with_capacity(row_ids.len());
-    for row_id in row_ids {
-        rows.push(import_one(state, identity, token, *row_id, dry_run, include_payload).await);
-    }
-    let mut response = import_response(rows);
-    if dry_run {
-        response["dry_run"] = Value::Bool(true);
-    }
-    response
-}
-
-async fn import_one(
-    state: &AppState,
-    identity: &VerifiedUser,
-    token: &str,
-    row_id: i64,
-    dry_run: bool,
-    include_payload: bool,
-) -> Value {
-    let prepared = match server_json(
+    match super::server::request_json_with_token(
         state,
         identity,
         Method::POST,
-        "/internal/v1/bill-imports/prepare",
-        &json!({ "row_id": row_id, "dry_run": dry_run }),
+        "/internal/v1/bill-imports/run",
+        &json!({
+            "row_ids": row_ids,
+            "dry_run": dry_run,
+            "include_payload": include_payload,
+        }),
+        token,
     )
     .await
     {
         Ok((_, value)) => value,
-        Err(problem) => return failed_row(row_id, "skip", problem_detail(&problem), None),
-    };
-    let data = &prepared["data"];
-    let preview = data["preview"].clone();
-    let payload = data["payload"].clone();
-    let attempt_id = data["attempt_id"].as_str().map(str::to_owned);
-
-    for account_id in data["account_ids"].as_array().into_iter().flatten() {
-        let Some(account_id) = parse_positive_id(account_id) else {
-            return failed_row(
-                row_id,
-                "failed",
-                "账户映射包含无效 ID。".to_owned(),
-                attempt_id,
-            );
-        };
-        if let Err(problem) = verified_account(state, token, account_id).await {
-            if let Some(attempt_id) = &attempt_id {
-                let _ = reject_attempt(
-                    state,
-                    identity,
-                    attempt_id,
-                    false,
-                    None,
-                    "account_validation_failed",
-                    &problem_detail(&problem),
-                )
-                .await;
-            }
-            return failed_row(row_id, "failed", problem_detail(&problem), attempt_id);
-        }
-    }
-
-    // Re-check immediately before sending. Review is advisory and Firefly may have
-    // received the same transaction since the preview was generated.
-    let existing_candidates = match existing_transactions::candidates_for_payload(
-        &state.firefly,
-        token,
-        &payload,
-    )
-    .await
-    {
-        Ok(candidates) => candidates,
+        // 整批都没跑起来（abei-server 连不上、令牌被拒……）。仍然按逐行的形状回，
+        // 让界面用同一套渲染路径显示失败，而不是撞上一个它不认识的错误体。
         Err(problem) => {
-            let reason = problem_detail(&problem);
+            let detail = problem_detail(&problem);
+            let rows = row_ids
+                .iter()
+                .map(|row_id| failed_row(*row_id, "failed", detail.clone(), None))
+                .collect::<Vec<_>>();
+            let mut response = import_response(rows);
             if dry_run {
-                return excluded_row(
-                    preview,
-                    "existing_transaction_lookup_failed",
-                    reason,
-                    None,
-                    include_payload.then_some(payload),
-                );
+                response["dry_run"] = Value::Bool(true);
             }
-            if let Some(attempt_id) = &attempt_id {
-                let _ = reject_attempt(
-                    state,
-                    identity,
-                    attempt_id,
-                    true,
-                    None,
-                    "existing_transaction_lookup_failed",
-                    &reason,
-                )
-                .await;
-            }
-            return failed_row_with_reason(
-                row_id,
-                "retryable",
-                reason,
-                attempt_id,
-                "existing_transaction_lookup_failed",
-                None,
-            );
-        }
-    };
-    if existing_transactions::has_high_confidence(&existing_candidates) {
-        let reason = "Firefly 中已有高置信匹配交易，必须人工确认后再处理。".to_owned();
-        if let Some(attempt_id) = &attempt_id {
-            let _ = reject_attempt(
-                state,
-                identity,
-                attempt_id,
-                false,
-                None,
-                "existing_firefly_transaction",
-                &reason,
-            )
-            .await;
-        }
-        let mut result = excluded_row(
-            preview,
-            "existing_firefly_transaction",
-            reason,
-            attempt_id,
-            include_payload.then_some(payload),
-        );
-        result["existing_transaction_candidates"] = Value::Array(existing_candidates);
-        return result;
-    }
-
-    if dry_run {
-        let mut result = preview;
-        result["status"] = Value::String("pending".to_owned());
-        result["action"] = Value::String("would_import".to_owned());
-        result["attempt_id"] = Value::Null;
-        result["existing_transaction_candidates"] = Value::Array(existing_candidates);
-        if include_payload {
-            result["payload"] = payload;
-        }
-        return result;
-    }
-
-    let Some(attempt_id) = attempt_id else {
-        return failed_row(
-            row_id,
-            "failed",
-            "Server 没有创建导入尝试。".to_owned(),
-            None,
-        );
-    };
-    if let Err(problem) = server_json(
-        state,
-        identity,
-        Method::POST,
-        &format!("/internal/v1/bill-imports/{attempt_id}/mark-sending"),
-        &json!({}),
-    )
-    .await
-    {
-        return failed_row(row_id, "failed", problem_detail(&problem), Some(attempt_id));
-    }
-
-    match state
-        .firefly
-        .send_json_raw(token, Method::POST, "/api/v1/transactions", &payload)
-        .await
-    {
-        Ok((status, response)) => {
-            let Some(group_id) = parse_positive_id(&response["data"]["id"]) else {
-                let message = "Firefly 已接受请求，但响应没有交易组 ID，正在按 external_id 对账。";
-                let _ = uncertain_attempt(state, identity, &attempt_id, message).await;
-                return failed_row(row_id, "uncertain", message.to_owned(), Some(attempt_id));
-            };
-            match server_json(
-                state,
-                identity,
-                Method::POST,
-                &format!("/internal/v1/bill-imports/{attempt_id}/complete"),
-                &json!({ "transaction_group_id": group_id, "reconciled": false }),
-            )
-            .await
-            {
-                Ok(_) => {
-                    let mut result = preview;
-                    result["status"] = Value::String("imported".to_owned());
-                    result["action"] = Value::String("imported".to_owned());
-                    result["attempt_id"] = Value::String(attempt_id);
-                    result["transaction_group_id"] = Value::String(group_id.to_string());
-                    result["firefly_status"] = Value::from(status.as_u16());
-                    if include_payload {
-                        result["payload"] = payload;
-                    }
-                    result
-                }
-                Err(problem) => {
-                    let message = format!(
-                        "Firefly 已返回交易组 {group_id}，但本地完成状态保存失败：{}",
-                        problem_detail(&problem)
-                    );
-                    let _ = uncertain_attempt(state, identity, &attempt_id, &message).await;
-                    failed_row(row_id, "uncertain", message, Some(attempt_id))
-                }
-            }
-        }
-        Err(FireflyWriteError::Http { status, body }) => {
-            let retryable = status.is_server_error();
-            let message = firefly_error_message(&body, status.as_u16());
-            let _ = reject_attempt(
-                state,
-                identity,
-                &attempt_id,
-                retryable,
-                Some(i32::from(status.as_u16())),
-                if retryable {
-                    "firefly_5xx"
-                } else {
-                    "firefly_rejected"
-                },
-                &message,
-            )
-            .await;
-            failed_row(
-                row_id,
-                if retryable { "retryable" } else { "failed" },
-                message,
-                Some(attempt_id),
-            )
-        }
-        Err(FireflyWriteError::Transport(error)) => {
-            let message = format!("Firefly 请求结果不确定：{error}");
-            let _ = uncertain_attempt(state, identity, &attempt_id, &message).await;
-            failed_row(row_id, "uncertain", message, Some(attempt_id))
-        }
-        Err(FireflyWriteError::InvalidResponse(error)) => {
-            let message = format!("Firefly 响应无法确认：{error}");
-            let _ = uncertain_attempt(state, identity, &attempt_id, &message).await;
-            failed_row(row_id, "uncertain", message, Some(attempt_id))
+            response
         }
     }
-}
-
-async fn reject_attempt(
-    state: &AppState,
-    identity: &VerifiedUser,
-    attempt_id: &str,
-    retryable: bool,
-    firefly_status: Option<i32>,
-    error_code: &str,
-    error_message: &str,
-) -> Result<(), Problem> {
-    server_json(
-        state,
-        identity,
-        Method::POST,
-        &format!("/internal/v1/bill-imports/{attempt_id}/reject"),
-        &json!({
-            "retryable": retryable,
-            "firefly_status": firefly_status,
-            "error_code": error_code,
-            "error_message": error_message,
-        }),
-    )
-    .await
-    .map(|_| ())
-}
-
-async fn uncertain_attempt(
-    state: &AppState,
-    identity: &VerifiedUser,
-    attempt_id: &str,
-    error_message: &str,
-) -> Result<(), Problem> {
-    server_json(
-        state,
-        identity,
-        Method::POST,
-        &format!("/internal/v1/bill-imports/{attempt_id}/uncertain"),
-        &json!({ "error_message": error_message }),
-    )
-    .await
-    .map(|_| ())
 }
 
 async fn document_row_ids(
@@ -794,25 +544,6 @@ fn failed_row_with_reason(
     })
 }
 
-fn excluded_row(
-    mut preview: Value,
-    reason_code: &str,
-    reason: String,
-    attempt_id: Option<String>,
-    payload: Option<Value>,
-) -> Value {
-    preview["status"] = Value::String("attention".to_owned());
-    preview["action"] = Value::String("skip".to_owned());
-    preview["attempt_id"] = attempt_id.map(Value::String).unwrap_or(Value::Null);
-    preview["reason_code"] = Value::String(reason_code.to_owned());
-    preview["exclusion_reason"] = Value::String(reason.clone());
-    preview["error"] = Value::String(reason);
-    if let Some(payload) = payload {
-        preview["payload"] = payload;
-    }
-    preview
-}
-
 fn parse_positive_id(value: &Value) -> Option<i64> {
     value
         .as_i64()
@@ -830,14 +561,6 @@ fn validate_attempt_id(value: &str) -> Result<(), Problem> {
     } else {
         Err(Problem::invalid_params("导入尝试 id 不对。"))
     }
-}
-
-fn firefly_error_message(body: &Value, status: u16) -> String {
-    body.get("message")
-        .and_then(Value::as_str)
-        .or_else(|| body.get("detail").and_then(Value::as_str))
-        .map(|value| value.chars().take(2_000).collect())
-        .unwrap_or_else(|| format!("Firefly 返回 HTTP {status}。"))
 }
 
 fn problem_detail(problem: &Problem) -> String {

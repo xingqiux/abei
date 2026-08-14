@@ -1,3 +1,13 @@
+//! 拿一条待入账的流水去 Firefly 里找「是不是已经有这一笔了」。
+//!
+//! 从 abei-api 原样搬过来的（原 `existing_transactions.rs`），逻辑一行没改，只是把错误
+//! 类型换成 abei-server 的 `ApiError`。搬家的原因是入账 saga 整条沉进了 abei-server：
+//! 发给 Firefly 之前的最后一次查重必须和写入在同一个进程里，中间隔一次网络调用的话，
+//! 「查完到写入」之间的窗口就没法收窄。
+//!
+//! 这是幂等性的最后一道闸：`external_id` 挡住我们自己的重复提交，这里挡住用户在别处
+//! （手输、别的导入工具）已经记过的同一笔账。
+
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::str::FromStr;
@@ -5,8 +15,8 @@ use std::str::FromStr;
 use rust_decimal::Decimal;
 use serde_json::{Map, Value, json};
 
+use crate::ApiError;
 use crate::firefly::Firefly;
-use crate::problem::Problem;
 
 const PAGE_SIZE: u32 = 500;
 const MAX_PAGES: u64 = 100;
@@ -40,11 +50,16 @@ struct ExistingGroup {
     transaction_count: usize,
 }
 
+/// 给一份账单复核结果标注「Firefly 里可能已经有了」。
+///
+/// 目前只有 abei-api 那份拷贝在用；等复核接口也从 abei-api 转发下来之后，这份接手，
+/// 那时候 abei-api 的 `existing_transactions.rs` 整个删掉。
+#[allow(dead_code, reason = "等复核接口下沉后接手，见上面的注释")]
 pub(crate) async fn enrich_review(
     firefly: &Firefly,
     token: &str,
     review: &mut Value,
-) -> Result<(), Problem> {
+) -> Result<(), ApiError> {
     let Some(groups) = review.pointer("/data/groups").and_then(Value::as_object) else {
         return Ok(());
     };
@@ -63,14 +78,11 @@ pub(crate) async fn enrich_review(
     Ok(())
 }
 
-/// 入账路径的查重已经跟着 saga 一起下沉到 abei-server（`billing::existing`），
-/// 这里只剩复核标注在用。等复核接口也转发下去，整个文件删掉。
-#[allow(dead_code, reason = "复核标注还在用本文件；入账那半边已经搬走")]
 pub(crate) async fn candidates_for_payload(
     firefly: &Firefly,
     token: &str,
     payload: &Value,
-) -> Result<Vec<Value>, Problem> {
+) -> Result<Vec<Value>, ApiError> {
     let Some(target) = MatchTarget::from_payload(payload) else {
         return Ok(Vec::new());
     };
@@ -89,7 +101,7 @@ async fn fetch_groups(
     token: &str,
     start: &str,
     end: &str,
-) -> Result<Vec<ExistingGroup>, Problem> {
+) -> Result<Vec<ExistingGroup>, ApiError> {
     let mut page = 1_u32;
     let mut groups = Vec::new();
     loop {
@@ -587,7 +599,6 @@ impl MatchTarget {
         })
     }
 
-    #[allow(dead_code, reason = "见 candidates_for_payload 上的注释")]
     fn from_payload(payload: &Value) -> Option<Self> {
         let transactions = payload.get("transactions")?.as_array()?;
         if transactions.is_empty() {

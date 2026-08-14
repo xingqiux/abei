@@ -16,6 +16,8 @@ use axum::{Json, Router};
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
+use abei_core::internal_auth::FIREFLY_TOKEN_HEADER;
+
 use crate::config::Config;
 use crate::state::AppState;
 
@@ -231,6 +233,69 @@ fn mock_feedback_detail(feedback: &MockFeedback, item_id: usize) -> Option<Value
     }))
 }
 
+/// 假 abei-server 跑完整批入账后回的东西。
+///
+/// 真的 saga 在 abei-server 的 `billing::runner` 里，这里只按它的响应形状造一份：
+/// 逐行结果 + 汇总 + `empty_reason` + `balance_chain`。干跑和真跑给的行动作不同，
+/// 测试据此确认 abei-api 把 `dry_run` 如实带了过来。`served_by` 是假服务独有的
+/// 记号，用来确认响应逐字透传、没被 abei-api 重新拼过。
+fn mock_import_run_result(body: &Value) -> Value {
+    let dry_run = body["dry_run"].as_bool().unwrap_or(false);
+    let include_payload = body["include_payload"].as_bool().unwrap_or(false);
+    let row_ids = body["row_ids"].as_array().cloned().unwrap_or_default();
+    let rows = row_ids
+        .iter()
+        .map(|row_id| {
+            let row_id = row_id
+                .as_i64()
+                .map_or_else(|| row_id.to_string(), |value| value.to_string());
+            let action = if dry_run { "would_import" } else { "imported" };
+            json!({
+                "row_id": row_id,
+                "status": action,
+                "action": action,
+                "attempt_id": if dry_run {
+                    Value::Null
+                } else {
+                    json!(format!("00000000-0000-0000-0000-{row_id:0>12}"))
+                },
+                "error": Value::Null,
+                "reason_code": Value::Null,
+                "exclusion_reason": Value::Null,
+                "payload": if include_payload {
+                    json!({ "transactions": [{ "external_id": format!("abei-bill-row-{row_id}") }] })
+                } else {
+                    Value::Null
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    let count = rows.len();
+    let mut result = json!({
+        "summary": {
+            "total": count,
+            "imported": if dry_run { 0 } else { count },
+            "skipped": 0,
+            "failed": 0,
+            "retryable": 0,
+            "uncertain": 0,
+            "would_import": if dry_run { count } else { 0 }
+        },
+        "rows": rows,
+        "empty_reason": if count == 0 {
+            Some("没有可处理的待处理流水。")
+        } else {
+            None
+        },
+        "balance_chain": [],
+        "served_by": "abei-server-billing-runner"
+    });
+    if dry_run {
+        result["dry_run"] = Value::Bool(true);
+    }
+    result
+}
+
 /// CLI e2e 用的假 abei-server，保留本进程内创建的反馈。
 pub fn mock_server() -> Router {
     mock_server_recording(Recorder::default())
@@ -242,6 +307,7 @@ pub fn mock_server_recording(recorder: Recorder) -> Router {
     let bill_actions = recorder.clone();
     let row_updates = recorder.clone();
     let row_splits = recorder.clone();
+    let import_runs = recorder.clone();
     let import_prepares = recorder.clone();
     let import_transitions = recorder.clone();
     let mapping_updates = recorder.clone();
@@ -495,6 +561,10 @@ pub fn mock_server_recording(recorder: Recorder) -> Router {
                     "built_in_channels": [],
                     "authenticated_user_id": headers
                         .get("x-abei-authenticated-user-id")
+                        .and_then(|value| value.to_str().ok()),
+                    // 回显令牌头，测试用它确认通用转发把调用方自带的同名头丢掉了。
+                    "firefly_token": headers
+                        .get(FIREFLY_TOKEN_HEADER)
                         .and_then(|value| value.to_str().ok())
                 } } }),
                 )
@@ -742,6 +812,23 @@ pub fn mock_server_recording(recorder: Recorder) -> Router {
                     Json(json!({ "data": { "id": id, "split_into":
                             body.get("splits").and_then(Value::as_array).map(Vec::len).unwrap_or(0)
                         } }))
+                }
+            }),
+        )
+        .route(
+            "/internal/v1/bill-imports/run",
+            post(move |headers: HeaderMap, Json(body): Json<Value>| {
+                let import_runs = import_runs.clone();
+                async move {
+                    let token = headers
+                        .get(FIREFLY_TOKEN_HEADER)
+                        .and_then(|value| value.to_str().ok())
+                        .map(str::to_owned);
+                    import_runs.lock().unwrap().push((
+                        "POST /internal/v1/bill-imports/run".to_owned(),
+                        json!({ "body": body, "firefly_token": token }),
+                    ));
+                    Json(mock_import_run_result(&body))
                 }
             }),
         )

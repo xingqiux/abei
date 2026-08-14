@@ -1281,6 +1281,7 @@ mod tests {
             parser,
             config.job_secret_cipher(),
             config.reliability(),
+            crate::firefly::Firefly::from_env(),
         );
 
         let response = service
@@ -1401,6 +1402,7 @@ mod tests {
             parser,
             config.job_secret_cipher(),
             config.reliability(),
+            crate::firefly::Firefly::from_env(),
         );
         let updated = service
             .update_row(
@@ -1610,6 +1612,7 @@ mod tests {
             parser,
             config.job_secret_cipher(),
             config.reliability(),
+            crate::firefly::Firefly::from_env(),
         );
 
         let updated = service

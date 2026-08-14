@@ -1,8 +1,10 @@
 mod analysis;
 pub(crate) mod api;
+mod existing;
 mod imports;
 mod mappings;
 mod rows;
+pub(crate) mod runner;
 mod store;
 mod sweeper;
 mod worker;
@@ -24,6 +26,8 @@ pub(crate) struct Service {
     pub(super) notify: Arc<Notify>,
     pub(super) worker_id: Arc<String>,
     pub(super) reliability: ReliabilityConfig,
+    /// 替用户写账本用。整条入账 saga 现在在这个进程里跑完，见 [`runner`]。
+    pub(super) firefly: crate::firefly::Firefly,
 }
 
 impl Service {
@@ -33,12 +37,14 @@ impl Service {
         parser: parser::Service,
         secret_cipher: mailbox::SecretCipher,
         reliability: ReliabilityConfig,
+        firefly: crate::firefly::Firefly,
     ) -> Self {
         Self {
             pool,
             mail,
             parser,
             secret_cipher,
+            firefly,
             notify: Arc::new(Notify::new()),
             worker_id: Arc::new(format!(
                 "{}-{}",

@@ -21,6 +21,14 @@ pub const USER_ID_HEADER: &str = "x-abei-authenticated-user-id";
 /// 覆盖上面三个头的签名。
 pub const SIGNATURE_HEADER: &str = "x-abei-internal-signature";
 
+/// 用户的 Firefly 令牌，abei-api 校验通过后转交给 abei-server。
+///
+/// 只有入账 saga 用得上：abei-server 要替用户写账本，就得拿着用户自己的令牌。
+/// 刻意**不**纳入 [`SIGNATURE_HEADER`] 的签名内容——签名保护的是「你是谁」这件事，
+/// 令牌本身就是凭证，伪造一个没用，重放一个也只能重放持有者本来就能做的事。
+/// abei-server 不存它、不记日志，只在一次请求的调用栈里传递。
+pub const FIREFLY_TOKEN_HEADER: &str = "x-abei-firefly-token";
+
 /// 签名允许的时间偏差。两个服务通常在同一台机器上，5 分钟足够容忍时钟漂移，
 /// 又不至于让抓到的签名长期可重放。
 pub const MAX_SKEW: u64 = 300;

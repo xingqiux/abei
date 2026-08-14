@@ -468,10 +468,14 @@ async fn dry_run_reaches_the_upstream_without_committing() {
     assert_eq!(preview[0]["action"], "would_import");
 
     let calls = sent.lock().unwrap();
-    let (path, body) = calls.first().expect("干跑也该打到上游拿预览");
-    assert_eq!(path, "POST /internal/v1/bill-imports/prepare");
-    assert_eq!(body["dry_run"], true, "干跑不能创建导入尝试");
-    assert_eq!(body["row_id"], 7);
+    let (path, recorded) = calls
+        .iter()
+        .find(|(path, _)| path == "POST /internal/v1/bill-imports/run")
+        .expect("干跑也该打到上游拿预览");
+    assert_eq!(path, "POST /internal/v1/bill-imports/run");
+    // 整条入账 saga 现在在 abei-server 里跑，abei-api 只转发一次，干跑标记在这个请求体里。
+    assert_eq!(recorded["body"]["dry_run"], true, "干跑不能创建导入尝试");
+    assert_eq!(recorded["body"]["row_ids"][0], 7);
 }
 
 /// --yes 要变成服务端认的 confirm=true，否则会被 409 挡回来。
@@ -495,12 +499,19 @@ async fn yes_becomes_a_server_side_confirmation() {
     assert_eq!(result.out.trim(), "2");
 
     let calls = sent.lock().unwrap();
+    let runs = calls
+        .iter()
+        .filter(|(path, _)| path == "POST /internal/v1/bill-imports/run")
+        .collect::<Vec<_>>();
+    assert_eq!(runs.len(), 1, "整批只该转发一次");
+    assert_eq!(runs[0].1["body"]["dry_run"], false, "--yes 要落成真跑");
+    // 写 Firefly 这一步已经搬进 abei-server，abei-api 在入账路径上不再碰 Firefly。
     assert_eq!(
         calls
             .iter()
             .filter(|(path, _)| path == "POST /api/v1/transactions")
             .count(),
-        2
+        0
     );
 }
 

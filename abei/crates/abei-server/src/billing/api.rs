@@ -676,6 +676,72 @@ pub(crate) async fn prepare_import(
     ))
 }
 
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct RunImportInput {
+    row_ids: Vec<i64>,
+    dry_run: bool,
+    include_payload: bool,
+}
+
+/// 跑完整条入账 saga。
+///
+/// 这是 [`prepare_import`] 那一组细粒度端点的替代：它们把状态机的每一步暴露成一次
+/// HTTP 调用，于是编排者（abei-api）成了 saga 的实际拥有者，它一挂中间状态就没人收。
+/// 这个端点把整条流程收在一次调用里。细粒度端点保留不动——对账和重试还在用。
+pub(crate) async fn run_import(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    payload: Result<Json<RunImportInput>, JsonRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = authenticated_user_id(&headers)?;
+    let token = firefly_token(&headers)?;
+    let Json(input) = payload.map_err(json_error)?;
+    if input.row_ids.iter().any(|id| *id <= 0) {
+        return Err(ApiError::invalid_params("row_id 必须是正整数。"));
+    }
+    if input.row_ids.len() > MAX_IMPORT_ROWS {
+        return Err(ApiError::invalid_params(format!(
+            "每次最多处理 {MAX_IMPORT_ROWS} 条流水。"
+        )));
+    }
+
+    // 逐条串行跑。并行会让「同一账户余额链」的顺序不可控，也更容易撞 Firefly 的限流。
+    let mut rows = Vec::with_capacity(input.row_ids.len());
+    for row_id in input.row_ids {
+        rows.push(
+            state
+                .billing
+                .run_import(super::runner::ImportRequest {
+                    user_id,
+                    token: &token,
+                    row_id,
+                    dry_run: input.dry_run,
+                    include_payload: input.include_payload,
+                })
+                .await,
+        );
+    }
+    Ok(Json(super::runner::import_response(rows, input.dry_run)))
+}
+
+/// 一次请求最多处理多少条。和 abei-api 的 `MAX_IMPORT_SELECTION` 保持一致。
+const MAX_IMPORT_ROWS: usize = 5_000;
+
+/// 取出 abei-api 转交的 Firefly 令牌。
+fn firefly_token(headers: &HeaderMap) -> Result<String, ApiError> {
+    headers
+        .get(abei_core::internal_auth::FIREFLY_TOKEN_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            ApiError::unauthenticated("入账需要 abei-api 转交的 Firefly 令牌。")
+                .with_reason("firefly_token_missing")
+        })
+}
+
 pub(crate) async fn get_import_attempt(
     State(state): State<AppState>,
     headers: HeaderMap,

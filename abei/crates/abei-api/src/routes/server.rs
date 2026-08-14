@@ -14,7 +14,8 @@ use crate::state::AppState;
 const MAX_BODY: usize = 8 * 1024 * 1024;
 const MAX_EML_BODY: usize = 26 * 1024 * 1024;
 use abei_core::internal_auth::{
-    ACTOR_HEADER, Identity, ROLE_HEADER, SIGNATURE_HEADER, USER_ID_HEADER, sign,
+    ACTOR_HEADER, FIREFLY_TOKEN_HEADER, Identity, ROLE_HEADER, SIGNATURE_HEADER, USER_ID_HEADER,
+    sign,
 };
 
 /// 给一次转发装上可信身份头和覆盖它们的签名。
@@ -91,17 +92,47 @@ pub async fn request_json(
     path: &str,
     body: &Value,
 ) -> Result<(StatusCode, Value), Problem> {
-    let upstream = sign_identity(
+    request_json_inner(state, identity, method, path, body, None).await
+}
+
+/// 和 [`request_json`] 一样，另外把用户的 Firefly 令牌转交给 abei-server。
+///
+/// 只有入账用得上：整条入账 saga 已经沉到 abei-server，它要替用户写账本就得拿着
+/// 用户自己的令牌。别的转发一律走 [`request_json`]——令牌给得越少越好。
+pub async fn request_json_with_token(
+    state: &AppState,
+    identity: &VerifiedUser,
+    method: Method,
+    path: &str,
+    body: &Value,
+    token: &str,
+) -> Result<(StatusCode, Value), Problem> {
+    request_json_inner(state, identity, method, path, body, Some(token)).await
+}
+
+async fn request_json_inner(
+    state: &AppState,
+    identity: &VerifiedUser,
+    method: Method,
+    path: &str,
+    body: &Value,
+    token: Option<&str>,
+) -> Result<(StatusCode, Value), Problem> {
+    let mut request = sign_identity(
         state
             .http
             .request(method, format!("{}{path}", state.server_url)),
         &state.internal_secret,
         identity,
-    )
-    .json(body)
-    .send()
-    .await
-    .map_err(server_unavailable)?;
+    );
+    if let Some(token) = token {
+        request = request.header(FIREFLY_TOKEN_HEADER, token);
+    }
+    let upstream = request
+        .json(body)
+        .send()
+        .await
+        .map_err(server_unavailable)?;
     let status = upstream.status();
     let text = upstream.text().await.unwrap_or_default();
     let value = if text.trim().is_empty() {
@@ -130,12 +161,14 @@ async fn forward(
     for (name, value) in headers {
         // 浏览器传来的身份头和签名头一律丢掉，只有下面这一份是可信的；
         // 留着会变成同名的第二个值，abei-server 读到哪个就说不准了。
+        // 令牌头同理：它只能由 request_json_with_token 注入，不能被调用方自带。
         if !crate::firefly::is_hop_by_hop(name)
             && name != "authorization"
             && name != ACTOR_HEADER
             && name != ROLE_HEADER
             && name != USER_ID_HEADER
             && name != SIGNATURE_HEADER
+            && name != FIREFLY_TOKEN_HEADER
         {
             upstream = upstream.header(name, value);
         }

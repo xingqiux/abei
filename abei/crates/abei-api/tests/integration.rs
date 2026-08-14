@@ -7,6 +7,7 @@ use abei_api::state::AppState;
 use abei_api::testkit::{
     GOOD_TOKEN, Recorder, mock_firefly, spawn, start_api, start_api_recording,
 };
+use abei_core::internal_auth::FIREFLY_TOKEN_HEADER;
 use axum::http::{Method, StatusCode};
 use serde_json::{Value, json};
 
@@ -452,104 +453,141 @@ async fn confirm_capabilities_are_blocked_without_confirmation() {
     assert_eq!(harness.upstream_calls(), 0);
 }
 
-/// 干跑只向 Server 准备预览，不向 Firefly 写交易，也不创建导入尝试。
+/// 入账整条 saga 已经在 abei-server 里，abei-api 只转发一次，自己不碰 Firefly。
 #[tokio::test]
-async fn dry_run_import_previews_without_committing() {
-    let harness = Harness::recording().await;
-    let response = harness
-        .post("/v1/bills/42/import?dry_run=true", json!({ "all": true }))
-        .await;
-
-    assert_eq!(response.status(), 200);
-    let body: Value = response.json().await.unwrap();
-    assert_eq!(body["dry_run"], true, "预览要打记号，免得被当成已执行");
-    assert_eq!(body["summary"]["would_import"], 2);
-    assert_eq!(body["summary"]["imported"], 0);
-    assert_eq!(body["rows"].as_array().unwrap().len(), 2);
-    assert!(body["rows"][0]["attempt_id"].is_null());
-
-    let sent = harness
-        .upstream("/internal/v1/bill-imports/prepare")
-        .unwrap();
-    assert_eq!(sent["dry_run"], true);
-    assert!(harness.upstream("/api/v1/transactions").is_none());
-}
-
-#[tokio::test]
-async fn dry_run_import_explains_the_existing_transaction_exclusion() {
-    let harness = Harness::recording().await;
-    let response = harness
-        .post(
-            "/v1/bills/53/import?dry_run=true",
-            json!({ "all": true, "include_payload": true }),
-        )
-        .await;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body: Value = response.json().await.unwrap();
-    assert_eq!(body["summary"]["total"], 1);
-    assert_eq!(body["summary"]["would_import"], 0);
-    assert_eq!(body["summary"]["skipped"], 1);
-    assert_eq!(body["rows"][0]["row_id"], "802");
-    assert_eq!(
-        body["rows"][0]["reason_code"],
-        "existing_firefly_transaction"
-    );
-    assert!(
-        body["rows"][0]["exclusion_reason"]
-            .as_str()
-            .unwrap()
-            .contains("已有高置信")
-    );
-    assert_eq!(
-        body["rows"][0]["existing_transaction_candidates"][0]["transaction_group_ids"],
-        json!(["397", "398"])
-    );
-    assert!(body["rows"][0]["payload"].is_object());
-    assert_eq!(harness.upstream_count("POST /api/v1/transactions"), 0);
-}
-
-#[tokio::test]
-async fn confirmed_import_commits_upstream() {
+async fn confirmed_import_forwards_one_run_call_and_never_touches_firefly() {
     let harness = Harness::recording().await;
     let response = harness
         .post("/v1/bills/42/import?confirm=true", json!({ "all": true }))
         .await;
 
-    assert_eq!(response.status(), 200);
-    let body: Value = response.json().await.unwrap();
-    assert!(body.get("dry_run").is_none(), "真跑不该打预览记号");
-    assert_eq!(body["summary"]["imported"], 2);
-    assert_eq!(body["summary"]["uncertain"], 0);
-
+    assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
-        harness
-            .upstream("/internal/v1/bill-imports/prepare")
-            .unwrap()["dry_run"],
-        false
+        harness.upstream_count("/internal/v1/bill-imports/run"),
+        1,
+        "一次入账只该打一次 abei-server"
     );
-    assert!(harness.upstream("/api/v1/transactions").is_some());
-    assert!(harness.upstream("/complete").is_some());
+    assert_eq!(
+        harness.upstream_count("POST /api/v1/transactions"),
+        0,
+        "写账本是 abei-server 的事，abei-api 不该自己发交易"
+    );
+    assert_eq!(
+        harness.upstream_count("/internal/v1/bill-imports/prepare"),
+        0,
+        "逐步 saga 已经不在这一侧了"
+    );
+
+    let sent = harness
+        .upstream("/internal/v1/bill-imports/run")
+        .expect("应当转发给 abei-server");
+    assert_eq!(sent["body"]["row_ids"], json!([7, 8]));
+    assert_eq!(sent["body"]["dry_run"], false, "带 confirm 就是真跑");
+
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["summary"]["imported"], 2);
+    assert!(body.get("dry_run").is_none(), "真跑不该打预览记号");
 }
 
+/// abei-server 回什么，客户端就该收到什么，abei-api 不重新拼一份。
 #[tokio::test]
-async fn confirmed_import_rechecks_existing_transactions_before_sending() {
+async fn import_passes_the_server_response_through_untouched() {
+    let harness = Harness::recording().await;
+    let response = harness
+        .post(
+            "/v1/bill-rows/import",
+            json!({ "row_ids": [7], "include_payload": true }),
+        )
+        .await;
+
+    assert_eq!(response.status(), StatusCode::CONFLICT, "缺 confirm 要被挡");
+
+    let response = harness
+        .post(
+            "/v1/bill-rows/import?confirm=true",
+            json!({ "row_ids": [7], "include_payload": true }),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(
+        body["served_by"], "abei-server-billing-runner",
+        "server 的字段要原样出现在响应里"
+    );
+    assert!(body["empty_reason"].is_null());
+    assert_eq!(body["balance_chain"], json!([]));
+    assert!(
+        body["rows"][0]["payload"].is_object(),
+        "include_payload 要带过去"
+    );
+
+    let sent = harness
+        .upstream("/internal/v1/bill-imports/run")
+        .expect("应当转发给 abei-server");
+    assert_eq!(sent["body"]["row_ids"], json!([7]));
+    assert_eq!(sent["body"]["include_payload"], true);
+    assert_eq!(harness.upstream_count("/internal/v1/bill-imports/run"), 1);
+    assert_eq!(harness.upstream_count("POST /api/v1/transactions"), 0);
+}
+
+/// 只有不带 confirm 的那次才是干跑，标记要如实带给 abei-server。
+#[tokio::test]
+async fn dry_run_import_marks_the_forwarded_run_as_a_preview() {
+    let harness = Harness::recording().await;
+    let response = harness
+        .post("/v1/bills/42/import?dry_run=true", json!({ "all": true }))
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["dry_run"], true, "预览要打记号，免得被当成已执行");
+    assert_eq!(body["summary"]["would_import"], 2);
+    assert_eq!(body["summary"]["imported"], 0);
+
+    let sent = harness
+        .upstream("/internal/v1/bill-imports/run")
+        .expect("应当转发给 abei-server");
+    assert_eq!(sent["body"]["dry_run"], true);
+    assert_eq!(harness.upstream_count("/internal/v1/bill-imports/run"), 1);
+    assert_eq!(harness.upstream_count("POST /api/v1/transactions"), 0);
+}
+
+/// abei-server 要拿用户自己的令牌去写账本，转发时必须把它带上。
+#[tokio::test]
+async fn import_hands_the_users_firefly_token_to_the_server() {
+    let harness = Harness::recording().await;
+    let response = harness
+        .post("/v1/bills/42/import?confirm=true", json!({ "all": true }))
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let sent = harness
+        .upstream("/internal/v1/bill-imports/run")
+        .expect("应当转发给 abei-server");
+    assert_eq!(
+        sent["firefly_token"], GOOD_TOKEN,
+        "转发要带上调用方验过的那个令牌"
+    );
+}
+
+/// all=true 时行号仍由 abei-api 自己查出来，再整批交给 abei-server。
+#[tokio::test]
+async fn whole_document_import_resolves_row_ids_before_forwarding() {
     let harness = Harness::recording().await;
     let response = harness
         .post("/v1/bills/53/import?confirm=true", json!({ "all": true }))
         .await;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body: Value = response.json().await.unwrap();
-    assert_eq!(body["summary"]["imported"], 0);
-    assert_eq!(body["summary"]["skipped"], 1);
+    let sent = harness
+        .upstream("/internal/v1/bill-imports/run")
+        .expect("应当转发给 abei-server");
     assert_eq!(
-        body["rows"][0]["reason_code"],
-        "existing_firefly_transaction"
+        sent["body"]["row_ids"],
+        json!([802]),
+        "整份导入要先查出这份文档的待处理行"
     );
-    assert_eq!(harness.upstream_count("POST /api/v1/transactions"), 0);
-    assert_eq!(harness.upstream_count("mark-sending"), 0);
-    assert_eq!(harness.upstream_count("/reject"), 1);
+    assert_eq!(harness.upstream_count("/internal/v1/bill-imports/run"), 1);
 }
 
 #[tokio::test]
@@ -594,8 +632,9 @@ async fn uncertain_import_can_be_reconciled_by_external_id() {
     );
 }
 
+/// 重试也走同一条转发：查出这次尝试对应的行，再交给 abei-server 跑。
 #[tokio::test]
-async fn retryable_import_runs_the_new_import_protocol() {
+async fn retryable_import_forwards_the_attempts_row_to_the_server() {
     let harness = Harness::recording().await;
     let attempt_id = "00000000-0000-0000-0000-000000000002";
     let response = harness
@@ -608,13 +647,37 @@ async fn retryable_import_runs_the_new_import_protocol() {
     assert_eq!(response.status(), StatusCode::OK);
     let body: Value = response.json().await.unwrap();
     assert_eq!(body["summary"]["imported"], 1);
+    assert_eq!(body["served_by"], "abei-server-billing-runner");
+
+    let sent = harness
+        .upstream("/internal/v1/bill-imports/run")
+        .expect("应当转发给 abei-server");
+    assert_eq!(sent["body"]["row_ids"], json!([7]));
+    assert_eq!(sent["body"]["dry_run"], false);
+    assert_eq!(sent["firefly_token"], GOOD_TOKEN);
+    assert_eq!(harness.upstream_count("/internal/v1/bill-imports/run"), 1);
+    assert_eq!(harness.upstream_count("POST /api/v1/transactions"), 0);
+}
+
+/// 令牌头只能由 abei-api 注入；调用方自己塞一个进来，通用转发要丢掉。
+#[tokio::test]
+async fn client_supplied_firefly_token_header_is_not_forwarded() {
+    let harness = Harness::recording().await;
+    let response = harness
+        .client
+        .get(format!("{}/v1/bills/mailbox", harness.base))
+        .bearer_auth(GOOD_TOKEN)
+        .header(FIREFLY_TOKEN_HEADER, "injected-token")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
     assert!(
-        harness
-            .upstream("/internal/v1/bill-imports/prepare")
-            .is_some()
+        body["data"]["attributes"]["firefly_token"].is_null(),
+        "调用方自带的令牌头不能被转发给 abei-server"
     );
-    assert!(harness.upstream("/api/v1/transactions").is_some());
-    assert!(harness.upstream("/complete").is_some());
 }
 
 /// 导入要么整份要么挑行，两个都给或都不给都是参数错。
