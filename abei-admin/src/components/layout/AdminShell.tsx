@@ -24,7 +24,7 @@ export function AdminShell() {
     <div className="flex min-h-dvh flex-col bg-[var(--surface-0)]">
       <header className="sticky top-0 z-40 flex h-12 shrink-0 items-center gap-4 border-b border-[var(--border-subtle)] bg-[var(--surface-1)] px-4">
         <Link to="/mail" className="flex items-center gap-2" aria-label="阿贝后台首页">
-          <AbeiMark className="size-5" />
+          <AbeiMark size={20} />
           <span className="text-[13px] font-semibold text-[var(--text-primary)]">阿贝后台</span>
         </Link>
 

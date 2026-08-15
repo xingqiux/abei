@@ -76,7 +76,7 @@ export function TokenGate({ children }: { children?: ReactNode }) {
       <Card ref={cardRef} tabIndex={-1} className="flex w-full max-w-[420px] flex-col gap-4 p-5">
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center gap-2">
-            <AbeiMark className="size-6" />
+            <AbeiMark size={24} />
             <span className="text-[15px] font-semibold text-[var(--text-primary)]">阿贝</span>
           </div>
           <p className="text-[12.5px] leading-relaxed text-[var(--text-secondary)]">

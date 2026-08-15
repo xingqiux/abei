@@ -27,7 +27,7 @@ export function Sidebar() {
   return (
     <aside className="hidden h-full w-60 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--surface-1)] md:flex">
       <div className="flex h-16 shrink-0 items-center gap-2.5 px-5">
-        <AbeiMark className="size-6 text-[var(--brand-text)]" />
+        <AbeiMark size={24} />
         <span className="flex flex-col leading-none">
           <span className="text-[13px] font-semibold tracking-tight text-[var(--text-primary)]">
             abei

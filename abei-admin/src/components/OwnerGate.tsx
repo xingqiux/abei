@@ -63,7 +63,7 @@ function Centered({ children }: { children: ReactNode }) {
   return (
     <div className="fixed inset-0 flex flex-col items-center justify-center gap-4 bg-[var(--surface-0)] p-4">
       <div className="flex items-center gap-2">
-        <AbeiMark className="size-6" />
+        <AbeiMark size={24} />
         <span className="text-[15px] font-semibold text-[var(--text-primary)]">阿贝后台</span>
       </div>
       {children}

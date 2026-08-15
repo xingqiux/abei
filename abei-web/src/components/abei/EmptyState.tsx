@@ -20,7 +20,7 @@ export interface EmptyStateAction {
  * 所以这里用类型逼着每个调用点想清楚「那现在该干什么」。
  */
 export function EmptyState({
-  icon = <AbeiMark className="size-8" />,
+  icon = <AbeiMark size={32} />,
   statusIcon,
   message,
   action,
