@@ -20,7 +20,6 @@ import { FireflyHttpClient } from '../core/http-client.js';
 import type { AbeiApi } from './abei-api.js';
 import { decideApproval } from './approvals.js';
 import type { AutofillWorker } from './autofill.js';
-import { normalizeMerchant } from './categorization.js';
 import { displayMessages, streamChat } from './chat.js';
 import { errorStatus, HttpError, publicErrorMessage } from './http-error.js';
 import type { ModelConfig } from './model-config.js';
@@ -31,16 +30,14 @@ import {
   optionalConfigString,
   parseModelConfig,
   parseModelConnection,
-  requiredConfigString,
   runtimeForOwner,
 } from './model-settings.js';
 import { record } from './shared.js';
 import {
   AiStore,
   DEFAULT_AUTOFILL_INTERVAL_SECONDS,
-  FEEDBACK_RULE_THRESHOLD,
+  type AiRunKind,
   type AutofillConfig,
-  type CategoryRulePatternType,
 } from './store.js';
 import { describeApprovals } from './tools.js';
 
@@ -150,37 +147,32 @@ export function createApp(deps: AgentDeps) {
     return c.json({ data: stats });
   });
 
-  app.post('/api/ai/category-feedback', async (c) =>
-    c.json(
-      await recordCategoryFeedback({
-        body: await readJson(c.req.raw, 8_192),
-        ownerKey: c.get('ownerKey'),
-        store: deps.store,
-      }),
-    ),
-  );
-
-  app.get('/api/ai/category-rules', async (c) =>
-    c.json({ data: await deps.store.listCategoryRules(c.get('ownerKey')) }),
-  );
-
-  app.patch(`/api/ai/category-rules/${LOOSE_UUID}`, async (c) => {
-    const body = await readJson(c.req.raw, 4_096);
-    if (typeof body.enabled !== 'boolean') throw new HttpError(422, 'enabled 必须是布尔值。');
-    const rule = await deps.store.setCategoryRuleEnabled(
-      c.get('ownerKey'),
-      c.req.param('id'),
-      body.enabled,
-    );
-    if (!rule) throw new HttpError(404, '规则不存在。');
-    return c.json({ data: rule });
+  app.post('/api/ai/learn/run', async (c) => {
+    const ownerKey = c.get('ownerKey');
+    if (deps.autofill.isRunning(ownerKey)) throw new HttpError(409, '还有一轮在跑，请等这一轮结束。');
+    const stats = await deps.autofill
+      .runLearnNow({ ownerKey, client: c.get('client') })
+      .catch(rethrowWorkerFailure('学习没跑起来，请稍后再试。'));
+    return c.json({ data: stats });
   });
 
-  app.delete(`/api/ai/category-rules/${LOOSE_UUID}`, async (c) => {
-    if (!(await deps.store.deleteCategoryRule(c.get('ownerKey'), c.req.param('id')))) {
-      throw new HttpError(404, '规则不存在。');
-    }
-    return c.json({ status: 'ok' });
+  // 阿贝干过的活。列表不带明细（会把一页撑爆），单条才带。
+  app.get('/api/ai/runs', async (c) => {
+    const limit = parsePositiveInt(c.req.query('limit'), 'limit', 200);
+    const offset = parsePositiveInt(c.req.query('offset'), 'offset', 100_000);
+    return c.json({
+      data: await deps.store.listAiRuns(c.get('ownerKey'), {
+        limit,
+        offset,
+        kind: parseRunKind(c.req.query('kind')),
+      }),
+    });
+  });
+
+  app.get(`/api/ai/runs/${LOOSE_UUID}`, async (c) => {
+    const run = await deps.store.getAiRun(c.get('ownerKey'), c.req.param('id'));
+    if (!run) throw new HttpError(404, '这条记录不存在。');
+    return c.json({ data: run });
   });
 
   app.post('/api/ai/backfill/run', async (c) => {
@@ -354,57 +346,30 @@ function rethrowWorkerFailure(message: string) {
   };
 }
 
-/**
- * 纠正即学习的唯一入口。勾了「以后都归这个分类」就立即立规则；
- * 没勾只记样本，同一模式攒够 FEEDBACK_RULE_THRESHOLD 次落一条停用规则，
- * 由用户在规则列表里点开——机器不替人做主。
- */
-async function recordCategoryFeedback(args: {
-  body: Record<string, unknown>;
-  ownerKey: string;
-  store: AiStore;
-}): Promise<Record<string, unknown>> {
-  const { body, ownerKey, store } = args;
-  const patternType = parsePatternType(body.pattern_type);
-  const raw = requiredConfigString(body.pattern, '商户或关键词', 255);
-  // 归一化后再存：规则匹配两头走同一套清洗，不然「美团-朝阳店」永远命不中。
-  const pattern = patternType === 'merchant' ? normalizeMerchant(raw) : raw.toLowerCase();
-  if (pattern.length < 2) throw new HttpError(422, '商户或关键词太短，认不出来。');
-  const categoryName = requiredConfigString(body.category_name, '分类名', 255);
-  if (body.make_rule !== undefined && typeof body.make_rule !== 'boolean') {
-    throw new HttpError(422, 'make_rule 必须是布尔值。');
+/** 分页参数：给了就得是合法的非负整数，别把 `?limit=abc` 当没看见。 */
+function parsePositiveInt(
+  value: string | undefined,
+  name: string,
+  max: number,
+): number | undefined {
+  if (value === undefined || value === '') return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > max) {
+    throw new HttpError(422, `${name} 必须是 0 到 ${max} 之间的整数。`);
   }
-
-  if (body.make_rule === true) {
-    const rule = await store.upsertCategoryRule(ownerKey, {
-      patternType,
-      pattern,
-      categoryName,
-      origin: 'correction',
-      enabled: true,
-    });
-    return { rule_id: rule.id, suggested: false, data: rule };
-  }
-
-  const count = await store.recordFeedbackSample(ownerKey, pattern, categoryName);
-  if (count < FEEDBACK_RULE_THRESHOLD) return { suggested: false, sample_count: count };
-
-  const rule = await store.upsertCategoryRule(ownerKey, {
-    patternType,
-    pattern,
-    categoryName,
-    origin: 'correction',
-    enabled: false,
-    keepExistingEnabled: true,
-  });
-  return { rule_id: rule.id, suggested: true, sample_count: count, data: rule };
+  return parsed;
 }
 
-function parsePatternType(value: unknown): CategoryRulePatternType {
-  if (value === undefined || value === null || value === 'merchant') return 'merchant';
-  if (value === 'keyword') return 'keyword';
-  throw new HttpError(422, 'pattern_type 必须是 merchant 或 keyword。');
+/** 按类别筛工作记录。认不出的类别一律拒掉，免得筛出个空列表让人以为没干过活。 */
+function parseRunKind(value: string | undefined): AiRunKind | undefined {
+  if (value === undefined || value === '') return undefined;
+  if (!AI_RUN_KINDS.includes(value as AiRunKind)) {
+    throw new HttpError(422, `kind 只能是 ${AI_RUN_KINDS.join('、')}。`);
+  }
+  return value as AiRunKind;
 }
+
+const AI_RUN_KINDS: AiRunKind[] = ['autofill', 'backfill', 'vocab_scan', 'learn'];
 
 function autofillStatus(config?: AutofillConfig) {
   return {

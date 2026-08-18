@@ -1,19 +1,25 @@
 import type { FireflyHttpClient } from '../core/http-client.js';
+import type { RunLog } from './ai-runs.js';
 import {
   allowedCategoryNames,
   categoryIdsByName,
+  CATEGORY_DOMAINS,
   domainsForTransactionType,
-  knownCategoryNames,
   loadCategoryCatalog,
-  matchCategoryRule,
-  RULE_DISABLED_CATEGORY_GONE,
   ruleSubject,
   type CategoryCatalog,
 } from './categorization.js';
 import { askModelRows, pairAnswers } from './model-json.js';
 import type { ModelRuntime } from './model-runtime.js';
+import {
+  loadRulesDoc,
+  matchDocRule,
+  rulesSystemSection,
+  unknownCategoryRules,
+  type DocRule,
+} from './rule-doc.js';
 import { chunk, errorMessage, hasNextPage, isBlank, prune, record, trimmed } from './shared.js';
-import type { AiStore, CategoryRule } from './store.js';
+import type { AiStore } from './store.js';
 
 /** 一轮回填最多处理这么多笔，防止账本超大时把模型额度烧光。 */
 const MAX_JOURNALS = 1_000;
@@ -56,10 +62,13 @@ interface BackfillJournal {
 export async function runBackfill(args: {
   ownerKey: string;
   client: FireflyHttpClient;
+  /** abei-api 地址。规则文档从这里读，和账单接口同一条路。 */
+  abeiUrl: string;
   store: AiStore;
   runtime: ModelRuntime;
+  log: RunLog;
 }): Promise<BackfillRunStats> {
-  const { ownerKey, client, store, runtime } = args;
+  const { ownerKey, client, store, runtime, log } = args;
   const stats: BackfillRunStats = {
     journals: 0,
     rule_suggestions: 0,
@@ -69,30 +78,37 @@ export async function runBackfill(args: {
   };
   if (!runtime.model || runtime.error) throw new Error(runtime.error ?? '模型不可用。');
 
-  const [journals, catalog] = await Promise.all([
+  const [journals, catalog, doc] = await Promise.all([
     uncategorizedJournals(client),
     loadCategoryCatalog(client, { includeDisabled: true }),
+    // 没有规则文档只是回到「全靠模型」，不该让整轮回填失败。
+    loadRulesDoc(client, args.abeiUrl).catch((error: unknown) => {
+      console.error(`[backfill] 规则文档读取失败：${errorMessage(error)}`);
+      return undefined;
+    }),
   ]);
-  // 目标分类被删的规则先停用，免得拿一个不存在的分类名去回填。
-  await store.disableRulesForMissingCategories(
-    ownerKey,
-    knownCategoryNames(catalog),
-    RULE_DISABLED_CATEGORY_GONE,
-  );
-  const rules = await store.listCategoryRules(ownerKey, { enabledOnly: true });
+  const rules = doc?.rules ?? [];
+  for (const rule of unknownCategoryRules(
+    rules,
+    allowedCategoryNames(catalog, [...CATEGORY_DOMAINS]),
+  )) {
+    log.note(`规则指向不存在的分类：${rule.line}`);
+  }
+  const systemPrompt = doc
+    ? `${SYSTEM_PROMPT}\n\n${rulesSystemSection(doc.contentMd)}`
+    : SYSTEM_PROMPT;
   const categoryIds = categoryIdsByName(catalog);
   stats.journals = journals.length;
   if (journals.length === 0) return stats;
 
-  const ruleHits: string[] = [];
   const pending: BackfillJournal[] = [];
 
   for (const journal of journals) {
     const allowed = allowedFor(catalog, journal);
     const rule = matchRuleFor(rules, journal, allowed);
     if (rule) {
-      await write(store, ownerKey, journal, rule.category_name, 'rule', categoryIds);
-      ruleHits.push(rule.id);
+      await write(store, ownerKey, journal, rule.categoryName, 'rule', categoryIds);
+      log.add(entryFor(journal, rule.categoryName, `rule:${rule.line}`));
       stats.rule_suggestions += 1;
     } else if (allowed.size > 0) {
       pending.push(journal);
@@ -100,7 +116,6 @@ export async function runBackfill(args: {
       stats.skipped += 1;
     }
   }
-  await store.recordRuleHits(ownerKey, ruleHits);
 
   // 按域分批问模型：一批里的候选清单必须一致，否则白名单校验没意义。
   for (const [domainKey, group] of groupByDomain(pending).entries()) {
@@ -111,7 +126,7 @@ export async function runBackfill(args: {
       try {
         answers = await askModelRows({
           runtime,
-          systemPrompt: SYSTEM_PROMPT,
+          systemPrompt,
           prompt: classifyPrompt(batch, names),
           onCall: () => {
             stats.model_calls += 1;
@@ -127,6 +142,7 @@ export async function runBackfill(args: {
         const category = trimmed(answer.category_name, 255);
         if (!category || !allowed.has(category)) continue;
         await write(store, ownerKey, journal, category, 'model', categoryIds);
+        log.add(entryFor(journal, category, doc ? 'doc' : 'model'));
         answered.add(journal.journalId);
         stats.model_suggestions += 1;
       }
@@ -135,6 +151,17 @@ export async function runBackfill(args: {
   }
 
   return stats;
+}
+
+function entryFor(journal: BackfillJournal, categoryName: string, basis: string) {
+  return {
+    kind: 'transaction',
+    journal_id: journal.journalId,
+    transaction_group_id: journal.groupId,
+    description: journal.description,
+    values: { category_name: categoryName },
+    basis,
+  };
 }
 
 function write(
@@ -163,11 +190,11 @@ function allowedFor(catalog: CategoryCatalog, journal: BackfillJournal): Set<str
 }
 
 function matchRuleFor(
-  rules: CategoryRule[],
+  rules: DocRule[],
   journal: BackfillJournal,
   allowed: Set<string>,
-): CategoryRule | undefined {
-  return matchCategoryRule(rules, ruleSubject(journal.texts), allowed);
+): DocRule | undefined {
+  return matchDocRule(rules, ruleSubject(journal.texts), allowed);
 }
 
 function groupByDomain(journals: BackfillJournal[]): Map<string, BackfillJournal[]> {

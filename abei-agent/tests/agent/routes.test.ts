@@ -40,9 +40,9 @@ function deps(overrides: Partial<AgentDeps> = {}): AgentDeps {
   const store = {
     getModelConfig: async () => undefined,
     getAutofillConfig: async () => undefined,
-    listCategoryRules: async () => [],
     listSessions: async () => [{ id: 'session-1' }],
-    deleteCategoryRule: async () => false,
+    listAiRuns: async () => [],
+    getAiRun: async () => undefined,
     resolveVocabSuggestion: async () => undefined,
     listVocabSuggestions: async () => [],
     listBackfillSuggestions: async () => [],
@@ -168,7 +168,7 @@ describe('路由表', () => {
   });
 
   test('请求体不是 JSON 对象就退 400', async () => {
-    const response = await call(createApp(deps()), '/api/ai/category-feedback', {
+    const response = await call(createApp(deps()), '/api/ai/autofill-config', {
       method: 'POST',
       body: '"just a string"',
     });
@@ -177,9 +177,9 @@ describe('路由表', () => {
   });
 
   test('请求体超限退 413，不把整个体读进内存', async () => {
-    const response = await call(createApp(deps()), '/api/ai/category-feedback', {
+    const response = await call(createApp(deps()), '/api/ai/autofill-config', {
       method: 'POST',
-      body: JSON.stringify({ pattern: 'x'.repeat(9_000) }),
+      body: JSON.stringify({ token: 'x'.repeat(20_000) }),
     });
     expect(response.status).toBe(413);
   });
@@ -207,14 +207,105 @@ describe('路由表', () => {
     const app = createApp(
       deps({
         store: {
-          listCategoryRules: async () => {
+          listAiRuns: async () => {
             throw new Error('connection to 10.0.0.5:5432 refused');
           },
         } as unknown as AiStore,
       }),
     );
-    const response = await call(app, '/api/ai/category-rules');
+    const response = await call(app, '/api/ai/runs');
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: 'AI 服务内部错误。' });
+  });
+
+  test('工作记录列表按 owner 取，分页参数原样透给 store', async () => {
+    let seen: unknown;
+    const app = createApp(
+      deps({
+        store: {
+          listAiRuns: async (ownerKey: string, options: unknown) => {
+            seen = { ownerKey, options };
+            return [{ id: 'run-1', kind: 'autofill' }];
+          },
+        } as unknown as AiStore,
+      }),
+    );
+    const response = await call(app, '/api/ai/runs?limit=10&offset=20');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ data: [{ id: 'run-1', kind: 'autofill' }] });
+    expect(seen).toEqual({ ownerKey: OWNER, options: { limit: 10, offset: 20 } });
+  });
+
+  test('分页参数不是整数就退 422', async () => {
+    const response = await call(createApp(deps()), '/api/ai/runs?limit=abc');
+    expect(response.status).toBe(422);
+  });
+
+  test('工作记录能按类别筛，/profile 只要 learn 那些', async () => {
+    let seen: unknown;
+    const app = createApp(
+      deps({
+        store: {
+          listAiRuns: async (_ownerKey: string, options: unknown) => {
+            seen = options;
+            return [];
+          },
+        } as unknown as AiStore,
+      }),
+    );
+    expect((await call(app, '/api/ai/runs?kind=learn')).status).toBe(200);
+    expect(seen).toMatchObject({ kind: 'learn' });
+  });
+
+  test('认不出的类别退 422，别筛出个空列表骗人', async () => {
+    const response = await call(createApp(deps()), '/api/ai/runs?kind=nonsense');
+    expect(response.status).toBe(422);
+  });
+
+  test('手动学习一轮，回统计数', async () => {
+    const app = createApp(
+      deps({
+        autofill: {
+          isRunning: () => false,
+          runLearnNow: async () => ({ signals: 9, learned: 2, retired: 1 }),
+        } as unknown as AutofillWorker,
+      }),
+    );
+    const response = await call(app, '/api/ai/learn/run', { method: 'POST' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ data: { signals: 9, learned: 2, retired: 1 } });
+  });
+
+  test('还有一轮在跑就不让学习插队', async () => {
+    const app = createApp(
+      deps({ autofill: { isRunning: () => true } as unknown as AutofillWorker }),
+    );
+    const response = await call(app, '/api/ai/learn/run', { method: 'POST' });
+    expect(response.status).toBe(409);
+  });
+
+  test('单条工作记录带明细；库里没有就 404', async () => {
+    const id = '0a5f6ce4-6b4a-4f6d-9c2e-1b2c3d4e5f60';
+    const found = createApp(
+      deps({
+        store: {
+          getAiRun: async () => ({ id, kind: 'autofill', detail: [{ row_id: '7' }] }),
+        } as unknown as AiStore,
+      }),
+    );
+    expect(await (await call(found, `/api/ai/runs/${id}`)).json()).toEqual({
+      data: { id, kind: 'autofill', detail: [{ row_id: '7' }] },
+    });
+
+    const missing = await call(createApp(deps()), `/api/ai/runs/${id}`);
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toEqual({ error: '这条记录不存在。' });
+  });
+
+  test('已经删掉的分类规则接口不该还在', async () => {
+    const app = createApp(deps());
+    for (const path of ['/api/ai/category-rules', '/api/ai/category-feedback']) {
+      expect((await call(app, path)).status).toBe(404);
+    }
   });
 });

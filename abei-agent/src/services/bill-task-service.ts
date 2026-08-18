@@ -55,12 +55,13 @@ export class BillTaskService {
   }
 
   /**
-   * 机器写入的唯一通路：永远带 as_suggestion，服务端据此落 suggested_by='ai'，
-   * 由人在收件箱确认。
+   * 机器写入的唯一通路。as_suggestion 不由这里带：abei-api 的 rows.update
+   * 会强制补上（它的参数校验是白名单制，body 里多带这个字段反而 400），
+   * 服务端据此落 suggested_by='ai'，由人在收件箱确认。
    */
   suggestRow(rowId: string, values: Record<string, unknown>): Promise<unknown> {
     return this.client.request('PATCH', rowPath(rowId), {
-      json: { ...values, as_suggestion: true },
+      json: { ...values },
     });
   }
 }

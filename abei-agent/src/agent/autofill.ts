@@ -1,18 +1,26 @@
 import { FireflyHttpClient } from '../core/http-client.js';
 import { BillTaskService } from '../services/bill-task-service.js';
+import { withAiRun, type RunLog } from './ai-runs.js';
 import { runBackfill, type BackfillRunStats } from './backfill.js';
 import {
   allowedCategoryNames,
+  CATEGORY_DOMAINS,
   INCOME_EXPENSE_DOMAINS,
-  knownCategoryNames,
   loadCategoryCatalog,
-  matchCategoryRule,
-  RULE_DISABLED_CATEGORY_GONE,
   ruleSubject,
   TRANSFER_DOMAINS,
 } from './categorization.js';
+import { runLearning, type LearnRunStats } from './learn.js';
 import { askModelRows, pairAnswers } from './model-json.js';
 import type { ModelRuntime } from './model-runtime.js';
+import {
+  loadRulesDoc,
+  matchDocRule,
+  rulesSystemSection,
+  unknownCategoryRules,
+  type DocRule,
+  type RulesDoc,
+} from './rule-doc.js';
 import {
   chunk as chunked,
   errorMessage,
@@ -23,7 +31,7 @@ import {
   trimmed,
   unique,
 } from './shared.js';
-import type { AiStore, AutofillConfig, CategoryRule } from './store.js';
+import type { AiRunTrigger, AiStore, AutofillConfig } from './store.js';
 import { scanVocabulary } from './vocab-scan.js';
 
 /** 跨源判重意见的固定前缀，人在收件箱里一眼认出这句话是机器写的。 */
@@ -125,24 +133,94 @@ export class AutofillWorker {
     client: FireflyHttpClient;
     taskIds?: number[];
   }): Promise<AutofillRunStats> {
-    return this.guard(args.ownerKey, () => this.run(args));
+    return this.guard(args.ownerKey, async () => {
+      const stats = await this.run({ ...args, trigger: 'manual' });
+      await this.learnQuietly(args.ownerKey, args.client);
+      return stats;
+    });
+  }
+
+  /** 手动触发一轮学习。和预填共用同一把并发闸。 */
+  runLearnNow(args: { ownerKey: string; client: FireflyHttpClient }): Promise<LearnRunStats> {
+    return this.guard(args.ownerKey, () => this.learn({ ...args, trigger: 'manual' }));
+  }
+
+  /**
+   * 记一笔并跑一轮学习。学不到东西（没信号、没变化）就不留记录——
+   * 时间线上不该出现一条「什么也没学到」。
+   */
+  private learn(args: {
+    ownerKey: string;
+    client: FireflyHttpClient;
+    trigger: AiRunTrigger;
+  }): Promise<LearnRunStats> {
+    return withAiRun({
+      store: this.options.store,
+      ownerKey: args.ownerKey,
+      kind: 'learn',
+      trigger: args.trigger,
+      run: (log) =>
+        runLearning({
+          ownerKey: args.ownerKey,
+          client: args.client,
+          abeiUrl: this.options.abeiUrl,
+          store: this.options.store,
+          log,
+        }),
+      isEmpty: (result) => result.learned === 0 && result.retired === 0,
+      summarize: (result) => ({
+        signals: result.signals,
+        learned: result.learned,
+        retired: result.retired,
+      }),
+    });
+  }
+
+  /** 预填跑完顺手学一次。学习炸了不该让预填看起来失败，记一行日志就够。 */
+  private async learnQuietly(ownerKey: string, client: FireflyHttpClient): Promise<void> {
+    try {
+      const stats = await this.learn({ ownerKey, client, trigger: 'auto' });
+      if (stats.learned > 0 || stats.retired > 0) {
+        console.log(`[learn] 新学 ${stats.learned} 条规则，停用 ${stats.retired} 条。`);
+      }
+    } catch (error) {
+      console.error(`[learn] 本轮失败：${errorMessage(error)}`);
+    }
   }
 
   /** 回填走同一把并发闸：预填在跑就不让回填插队，反过来也一样。 */
   runBackfillNow(args: { ownerKey: string; client: FireflyHttpClient }): Promise<BackfillRunStats> {
-    return this.guard(args.ownerKey, () => this.backfill(args));
+    return this.guard(args.ownerKey, () => this.backfill({ ...args, trigger: 'manual' }));
   }
 
   private async backfill(args: {
     ownerKey: string;
     client: FireflyHttpClient;
+    trigger: AiRunTrigger;
   }): Promise<BackfillRunStats> {
     const runtime = await this.options.resolveRuntime(args.ownerKey);
-    const stats = await runBackfill({
-      ownerKey: args.ownerKey,
-      client: args.client,
+    const stats = await withAiRun({
       store: this.options.store,
-      runtime,
+      ownerKey: args.ownerKey,
+      kind: 'backfill',
+      trigger: args.trigger,
+      run: (log) =>
+        runBackfill({
+          ownerKey: args.ownerKey,
+          client: args.client,
+          abeiUrl: this.options.abeiUrl,
+          store: this.options.store,
+          runtime,
+          log,
+        }),
+      isEmpty: (result) => result.rule_suggestions + result.model_suggestions === 0,
+      summarize: (result, log) => ({
+        transactions: result.journals,
+        rows: log.entries.length,
+        ...basisCounts(log),
+        skipped: result.skipped,
+        model_calls: result.model_calls,
+      }),
     });
     console.log(
       `[backfill] 未分类 ${stats.journals} 笔，规则 ${stats.rule_suggestions} 条，` +
@@ -195,7 +273,7 @@ export class AutofillWorker {
       });
       await this.guard(ownerKey, async () => {
         try {
-          const stats = await this.run({ ownerKey, client });
+          const stats = await this.run({ ownerKey, client, trigger: 'auto' });
           if (stats.candidate_rows > 0 || stats.skipped_tasks > 0) {
             console.log(
               `[autofill] 任务 ${stats.tasks} 个，候选行 ${stats.candidate_rows} 条，` +
@@ -206,6 +284,8 @@ export class AutofillWorker {
         } catch (error) {
           console.error(`[autofill] 本轮失败：${errorMessage(error)}`);
         }
+        // 预填刚写完一批建议，人也刚改过上一批，这时候回头看信号最全。
+        await this.learnQuietly(ownerKey, client);
         await this.scanVocabularyIfDue(ownerKey, client);
       });
     }
@@ -219,7 +299,19 @@ export class AutofillWorker {
     if (Date.now() - last < VOCAB_SCAN_INTERVAL_MS) return;
     this.lastVocabScan.set(ownerKey, Date.now());
     try {
-      const stats = await scanVocabulary({ ownerKey, client, store: this.options.store });
+      const stats = await withAiRun({
+        store: this.options.store,
+        ownerKey,
+        kind: 'vocab_scan',
+        trigger: 'auto',
+        run: (log) => scanVocabulary({ ownerKey, client, store: this.options.store, log }),
+        isEmpty: (result) => result.created === 0,
+        summarize: (result) => ({
+          splits: result.splits,
+          patterns: result.patterns,
+          rows: result.created,
+        }),
+      });
       if (stats.created > 0) {
         console.log(
           `[vocab] 扫描 ${stats.splits} 条流水、${stats.patterns} 个模式，新建议 ${stats.created} 条。`,
@@ -230,11 +322,34 @@ export class AutofillWorker {
     }
   }
 
-  private async run(args: {
+  /** 记一笔工作记录，再跑一轮。定时和手动共用这一个入口，所以只包这一处。 */
+  private run(args: {
     ownerKey: string;
     client: FireflyHttpClient;
     taskIds?: number[];
+    trigger: AiRunTrigger;
   }): Promise<AutofillRunStats> {
+    return withAiRun({
+      store: this.options.store,
+      ownerKey: args.ownerKey,
+      kind: 'autofill',
+      trigger: args.trigger,
+      run: (log) => this.execute(args, log),
+      isEmpty: (result) => result.updated_rows === 0 && result.skipped_tasks === 0,
+      summarize: (result, log) => ({
+        tasks: result.tasks,
+        rows: result.updated_rows,
+        ...basisCounts(log),
+        skipped_tasks: result.skipped_tasks,
+        model_calls: result.model_calls,
+      }),
+    });
+  }
+
+  private async execute(
+    args: { ownerKey: string; client: FireflyHttpClient; taskIds?: number[] },
+    log: RunLog,
+  ): Promise<AutofillRunStats> {
     const stats = emptyStats();
     const runtime = await this.options.resolveRuntime(args.ownerKey);
     const model = runtime.model;
@@ -246,25 +361,34 @@ export class AutofillWorker {
       : (await parsedTaskIds(service)).slice(0, MAX_TASKS_PER_RUN);
     if (taskIds.length === 0) return stats;
 
-    const catalog = await loadCatalog(args.client);
-    // 目标分类被删的规则自动停用并写原因，再读回还能用的那批。
-    await this.options.store.disableRulesForMissingCategories(
-      args.ownerKey,
-      catalog.knownNames,
-      RULE_DISABLED_CATEGORY_GONE,
-    );
-    const rules = await this.options.store.listCategoryRules(args.ownerKey, { enabledOnly: true });
+    const [catalog, doc] = await Promise.all([
+      loadCatalog(args.client),
+      // 规则文档读不到不该拖垮预填：没有它只是回到「全靠模型」。
+      loadRulesDoc(args.client, this.options.abeiUrl).catch((error: unknown) => {
+        console.error(`[autofill] 规则文档读取失败：${errorMessage(error)}`);
+        return undefined;
+      }),
+    ]);
+    const rules = doc?.rules ?? [];
+    for (const rule of unknownCategoryRules(rules, catalog.allNames)) {
+      log.note(`规则指向不存在的分类：${rule.line}`);
+    }
+    const systemPrompt = doc
+      ? `${SYSTEM_PROMPT}\n\n${rulesSystemSection(doc.contentMd)}`
+      : SYSTEM_PROMPT;
 
     for (const taskId of taskIds) {
       try {
         await this.runTask({
           taskId,
-          ownerKey: args.ownerKey,
           service,
           runtime,
+          systemPrompt,
           catalog,
           rules,
+          doc,
           stats,
+          log,
         });
         stats.tasks += 1;
       } catch (error) {
@@ -277,14 +401,16 @@ export class AutofillWorker {
 
   private async runTask(args: {
     taskId: number;
-    ownerKey: string;
     service: BillTaskService;
     runtime: ModelRuntime;
+    systemPrompt: string;
     catalog: UserCatalog;
-    rules: CategoryRule[];
+    rules: DocRule[];
+    doc?: RulesDoc;
     stats: AutofillRunStats;
+    log: RunLog;
   }): Promise<void> {
-    const { taskId, service, runtime, catalog, rules, stats } = args;
+    const { taskId, service, runtime, systemPrompt, catalog, rules, doc, stats, log } = args;
     const [review, rowList] = await Promise.all([
       service.review(String(taskId)),
       service.rows(String(taskId), { status: 'pending' }),
@@ -318,32 +444,23 @@ export class AutofillWorker {
     stats.candidate_rows += classify.length + transfers.length + notes.length + crossSource.length;
 
     // 判定顺序：先规则后模型。规则命中的行不再送进模型批次。
-    const ruleHits: string[] = [];
-    const askClassify = applyRules(plan, classify, rules, catalog.categories, ruleHits, stats);
-    const askTransfers = applyRules(
-      plan,
-      transfers,
-      rules,
-      catalog.transferCategories,
-      ruleHits,
-      stats,
-    );
-    await this.options.store.recordRuleHits(args.ownerKey, ruleHits);
+    const askClassify = applyRules(plan, classify, rules, catalog.categories, stats);
+    const askTransfers = applyRules(plan, transfers, rules, catalog.transferCategories, stats);
 
     for (const batch of chunked(askClassify, MAX_ROWS_PER_CALL)) {
-      const answers = await this.ask(runtime, classifyPrompt(batch, catalog), stats);
+      const answers = await this.ask(runtime, systemPrompt, classifyPrompt(batch, catalog), stats);
       mergeClassify(plan, answers, batch, catalog.categories);
     }
     for (const batch of chunked(askTransfers, MAX_ROWS_PER_CALL)) {
-      const answers = await this.ask(runtime, transferPrompt(batch, catalog), stats);
+      const answers = await this.ask(runtime, systemPrompt, transferPrompt(batch, catalog), stats);
       mergeTransfer(plan, answers, batch, catalog);
     }
     for (const batch of chunked(notes, MAX_ROWS_PER_CALL)) {
-      const answers = await this.ask(runtime, notePrompt(batch), stats);
+      const answers = await this.ask(runtime, systemPrompt, notePrompt(batch), stats);
       mergeNote(plan, answers, batch);
     }
     for (const batch of chunked(crossSource, MAX_ROWS_PER_CALL)) {
-      const answers = await this.ask(runtime, crossSourcePrompt(batch), stats);
+      const answers = await this.ask(runtime, systemPrompt, crossSourcePrompt(batch), stats);
       mergeVerdict(plan, answers, batch);
     }
 
@@ -352,23 +469,44 @@ export class AutofillWorker {
       if (!values) continue;
       await service.suggestRow(rowId, values);
       stats.updated_rows += 1;
+      log.add({
+        kind: 'bill_row',
+        task_id: taskId,
+        row_id: rowId,
+        values,
+        basis: suggestion.basis ?? (doc ? 'doc' : 'model'),
+      });
     }
   }
 
   private ask(
     runtime: ModelRuntime,
+    systemPrompt: string,
     prompt: string,
     stats: AutofillRunStats,
   ): Promise<Array<Record<string, unknown>>> {
     return askModelRows({
       runtime,
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt,
       prompt,
       onCall: () => {
         stats.model_calls += 1;
       },
     });
   }
+}
+
+/** 时间线那一行要的「规则 N / 模型 M」。依据前缀是 `rule:` 的算规则命中。 */
+export function basisCounts(log: RunLog): { by_rule: number; by_model: number; by_doc: number } {
+  let byRule = 0;
+  let byDoc = 0;
+  let byModel = 0;
+  for (const entry of log.entries) {
+    if (entry.basis.startsWith('rule:')) byRule += 1;
+    else if (entry.basis === 'doc') byDoc += 1;
+    else byModel += 1;
+  }
+  return { by_rule: byRule, by_model: byModel, by_doc: byDoc };
 }
 
 /**
@@ -378,9 +516,8 @@ export class AutofillWorker {
 function applyRules(
   plan: Map<string, RowSuggestion>,
   candidates: Candidate[],
-  rules: CategoryRule[],
+  rules: DocRule[],
   allowed: Set<string>,
-  ruleHits: string[],
   stats: AutofillRunStats,
 ): Candidate[] {
   if (rules.length === 0) return candidates;
@@ -390,13 +527,14 @@ function applyRules(
       remaining.push(candidate);
       continue;
     }
-    const rule = matchCategoryRule(rules, subjectOf(candidate.row), allowed);
+    const rule = matchDocRule(rules, subjectOf(candidate.row), allowed);
     if (!rule) {
       remaining.push(candidate);
       continue;
     }
-    planFor(plan, candidate.row.rowId).categoryName = rule.category_name;
-    ruleHits.push(rule.id);
+    const target = planFor(plan, candidate.row.rowId);
+    target.categoryName = rule.categoryName;
+    target.basis = `rule:${rule.line}`;
     stats.rule_rows += 1;
     const fill = candidate.fill.filter((field) => field !== 'category_name');
     if (fill.length) remaining.push({ ...candidate, fill });
@@ -420,8 +558,8 @@ interface UserCatalog {
   categories: Set<string>;
   /** 转账桶专用：只有 v0.1 判出来的转账候选才允许资金往来域。 */
   transferCategories: Set<string>;
-  /** 账本里现存的全部分类名（含禁用），用来判断规则的目标分类是不是被删了。 */
-  knownNames: string[];
+  /** 三个域合起来的可用分类名，用来挑出「规则指向了不存在的分类」。 */
+  allNames: Set<string>;
   accounts: string[];
 }
 
@@ -454,6 +592,8 @@ interface RowSuggestion {
   sourceName?: string;
   destinationName?: string;
   notes: string[];
+  /** 代码层规则命中时写成 `rule:<原文行>`；模型给的留空，落记录时再定。 */
+  basis?: string;
 }
 
 function suggestionValues(suggestion: RowSuggestion): Record<string, unknown> | undefined {
@@ -673,7 +813,7 @@ async function loadCatalog(client: FireflyHttpClient): Promise<UserCatalog> {
   return {
     categories: allowedCategoryNames(categories, INCOME_EXPENSE_DOMAINS),
     transferCategories: allowedCategoryNames(categories, TRANSFER_DOMAINS),
-    knownNames: knownCategoryNames(categories),
+    allNames: allowedCategoryNames(categories, [...CATEGORY_DOMAINS]),
     accounts: unique([...assets, ...liabilities]).slice(0, MAX_LIST_NAMES),
   };
 }

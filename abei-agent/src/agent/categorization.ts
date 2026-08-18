@@ -1,5 +1,4 @@
 import type { FireflyHttpClient } from '../core/http-client.js';
-import type { CategoryRule } from './store.js';
 import { hasNextPage, record, trimmed, unique } from './shared.js';
 
 /** 三个固定域，跟 firefly-iii 的 categories.domain 一一对应。 */
@@ -104,14 +103,6 @@ export function categoryIdsByName(catalog: CategoryCatalog): Map<string, string>
   return ids;
 }
 
-/** 规则被自动停用时写进 disabled_reason 的固定说法。 */
-export const RULE_DISABLED_CATEGORY_GONE = '目标分类已删除';
-
-/** 规则级联用：账本里现存的全部分类名（含被禁用的，禁用不等于删除）。 */
-export function knownCategoryNames(catalog: CategoryCatalog): string[] {
-  return unique(catalog.entries.map((entry) => entry.name));
-}
-
 export function parseDomain(value: unknown): CategoryDomain | undefined {
   return typeof value === 'string' && (CATEGORY_DOMAINS as readonly string[]).includes(value)
     ? (value as CategoryDomain)
@@ -183,30 +174,4 @@ export function ruleSubject(texts: Array<string | undefined>): RuleSubject {
     merchants: unique(present.map(normalizeMerchant).filter((text) => text.length >= 2)),
     haystack: present.join(' ').normalize('NFKC').toLowerCase(),
   };
-}
-
-/**
- * 规则优先于模型：商户规则要求归一化后完全相等，关键词规则做包含。
- * 规则指向的分类不在白名单里（被删、被禁用、域不对）就当没命中——
- * 分类名回写前的白名单校验对规则一视同仁。
- */
-export function matchCategoryRule(
-  rules: CategoryRule[],
-  subject: RuleSubject,
-  allowed: Set<string>,
-): CategoryRule | undefined {
-  const usable = rules.filter((rule) => rule.enabled && allowed.has(rule.category_name));
-  const merchants = new Set(subject.merchants);
-  for (const rule of usable) {
-    if (rule.pattern_type === 'merchant' && merchants.has(normalizeMerchant(rule.pattern))) {
-      return rule;
-    }
-  }
-  for (const rule of usable) {
-    const keyword = rule.pattern.normalize('NFKC').toLowerCase().trim();
-    if (rule.pattern_type === 'keyword' && keyword && subject.haystack.includes(keyword)) {
-      return rule;
-    }
-  }
-  return undefined;
 }

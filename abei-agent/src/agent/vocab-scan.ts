@@ -1,4 +1,5 @@
 import type { FireflyHttpClient } from '../core/http-client.js';
+import type { RunLog } from './ai-runs.js';
 import {
   domainsForTransactionType,
   loadCategoryCatalog,
@@ -60,8 +61,9 @@ export async function scanVocabulary(args: {
   ownerKey: string;
   client: FireflyHttpClient;
   store: AiStore;
+  log: RunLog;
 }): Promise<VocabScanStats> {
-  const { ownerKey, client, store } = args;
+  const { ownerKey, client, store, log } = args;
   const stats: VocabScanStats = { splits: 0, patterns: 0, created: 0 };
 
   const [catalog, muted, splits] = await Promise.all([
@@ -104,6 +106,14 @@ export async function scanVocabulary(args: {
       sampleCount: related.count,
       samples: related.samples,
     });
+    log.add({
+      kind: 'vocab_suggestion',
+      action: 'enable',
+      name: entry.name,
+      sample_count: related.count,
+      // 词表扫描全是本地统计，既没问模型也没读规则文档。
+      basis: 'scan',
+    });
     muted.add(entry.name);
     budget.left -= 1;
     stats.created += 1;
@@ -126,6 +136,13 @@ export async function scanVocabulary(args: {
       reason: `近半年有 ${group.count} 笔「${group.label}」落在杂项或未分类里。`,
       sampleCount: group.count,
       samples: group.samples,
+    });
+    log.add({
+      kind: 'vocab_suggestion',
+      action: 'create',
+      name: group.label,
+      sample_count: group.count,
+      basis: 'scan',
     });
     muted.add(group.label);
     budget.left -= 1;

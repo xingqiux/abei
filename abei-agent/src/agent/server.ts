@@ -44,6 +44,12 @@ export async function startAgentServer(
   const abei = new AbeiApi({ baseUrl: abeiUrl });
   const store = new AiStore(createAiPool(env), env.APP_KEY);
   await store.initialize();
+  // 过期的工作记录没人会翻。清不掉不影响起服务，记一行日志就行。
+  await store.pruneAiRuns().catch((error: unknown) => {
+    console.error(
+      `[ai-runs] 清理过期记录失败：${error instanceof Error ? error.message : String(error)}`,
+    );
+  });
   const environmentRuntime = createModelRuntime(env);
   const runtimeCache = new Map<string, ModelRuntime>();
   const activeSessions = new Set<string>();

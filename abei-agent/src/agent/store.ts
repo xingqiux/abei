@@ -36,35 +36,30 @@ export interface AutofillConfig {
   updatedAt: string;
 }
 
-export type CategoryRulePatternType = 'merchant' | 'keyword';
-export type CategoryRuleOrigin = 'correction' | 'manual';
-
 /**
- * 下面三个记录直接当 HTTP 响应体发出去，字段名是和 web 端对好的线上契约，
+ * 下面几个记录直接当 HTTP 响应体发出去，字段名是和 web 端对好的线上契约，
  * 所以用 snake_case，跟表的列名一一对应。改名字前先和前端对齐。
  */
 
-/** 纠正衍生的确定性分类规则；命中就不必再花模型钱。 */
-export interface CategoryRule {
-  id: string;
-  pattern_type: CategoryRulePatternType;
-  pattern: string;
-  category_name: string;
-  origin: CategoryRuleOrigin;
-  enabled: boolean;
-  hit_count: number;
-  last_hit_at?: string;
-  /** 自动停用的原因（目标分类被删）；人手停用的留空。 */
-  disabled_reason?: string;
-  created_at: string;
-}
+export type AiRunKind = 'autofill' | 'backfill' | 'vocab_scan' | 'learn';
+export type AiRunTrigger = 'auto' | 'manual';
+export type AiRunStatus = 'running' | 'succeeded' | 'failed';
 
-/** 还没立成规则的纠正样本，同模式攒够 3 次才提示立规则。 */
-export interface FeedbackSample {
-  pattern: string;
-  categoryName: string;
-  count: number;
-  updatedAt: string;
+/**
+ * 阿贝干过的一件活。摘要给时间线上那一行看，明细给展开后逐条看。
+ * 空跑不落库，所以这张表里的每一条都确实产出过东西（或者确实炸了）。
+ */
+export interface AiRun {
+  id: string;
+  kind: string;
+  trigger: AiRunTrigger;
+  started_at: string;
+  finished_at?: string;
+  status: AiRunStatus;
+  summary: Record<string, unknown>;
+  /** 只有单条详情接口才带；列表接口不返回，免得把整页撑爆。 */
+  detail?: unknown[];
+  error?: string;
 }
 
 export type VocabSuggestionAction = 'enable' | 'create';
@@ -108,8 +103,8 @@ export interface BackfillSuggestion {
 
 export const DEFAULT_AUTOFILL_INTERVAL_SECONDS = 300;
 
-/** 同模式纠正到这个次数就提示立规则（先落停用状态，等人点开）。 */
-export const FEEDBACK_RULE_THRESHOLD = 3;
+/** 工作记录只留这么久，过期的在进程启动时清掉。 */
+export const AI_RUN_RETENTION_DAYS = 90;
 
 /** 忽略过的词表建议在这个天数内不再重复生成。 */
 export const VOCAB_IGNORE_COOLDOWN_DAYS = 30;
@@ -174,31 +169,21 @@ export class AiStore {
         updated_at timestamptz NOT NULL DEFAULT now()
       );
 
-      CREATE TABLE IF NOT EXISTS abei_ai.category_rules (
+      CREATE TABLE IF NOT EXISTS abei_ai.ai_runs (
         id uuid PRIMARY KEY,
         owner_key text NOT NULL,
-        pattern_type text NOT NULL CHECK (pattern_type IN ('merchant', 'keyword')),
-        pattern text NOT NULL,
-        category_name text NOT NULL,
-        origin text NOT NULL CHECK (origin IN ('correction', 'manual')),
-        enabled boolean NOT NULL DEFAULT true,
-        hit_count integer NOT NULL DEFAULT 0,
-        last_hit_at timestamptz,
-        disabled_reason text,
-        created_at timestamptz NOT NULL DEFAULT now()
+        kind text NOT NULL,
+        trigger text NOT NULL CHECK (trigger IN ('auto', 'manual')),
+        started_at timestamptz NOT NULL DEFAULT now(),
+        finished_at timestamptz,
+        status text NOT NULL CHECK (status IN ('running', 'succeeded', 'failed')),
+        summary jsonb NOT NULL DEFAULT '{}'::jsonb,
+        detail jsonb NOT NULL DEFAULT '[]'::jsonb,
+        error text
       );
 
-      CREATE UNIQUE INDEX IF NOT EXISTS ai_category_rules_owner_pattern
-        ON abei_ai.category_rules (owner_key, pattern_type, pattern);
-
-      CREATE TABLE IF NOT EXISTS abei_ai.feedback_samples (
-        owner_key text NOT NULL,
-        pattern text NOT NULL,
-        category_name text NOT NULL,
-        count integer NOT NULL DEFAULT 1,
-        updated_at timestamptz NOT NULL DEFAULT now(),
-        PRIMARY KEY (owner_key, pattern, category_name)
-      );
+      CREATE INDEX IF NOT EXISTS ai_runs_owner_started
+        ON abei_ai.ai_runs (owner_key, started_at DESC);
 
       CREATE TABLE IF NOT EXISTS abei_ai.vocab_suggestions (
         id uuid PRIMARY KEY,
@@ -330,154 +315,82 @@ export class AiStore {
     };
   }
 
-  /** enabledOnly 是引擎判定用的读法；设置页要连停用的一起看。 */
-  async listCategoryRules(
-    ownerKey: string,
-    options: { enabledOnly?: boolean } = {},
-  ): Promise<CategoryRule[]> {
-    const result = await this.pool.query(
-      `SELECT ${RULE_COLUMNS}
-       FROM abei_ai.category_rules
-       WHERE owner_key = $1 AND ($2::boolean IS NOT TRUE OR enabled = true)
-       ORDER BY enabled DESC, hit_count DESC, created_at DESC
-       LIMIT 1000`,
-      [ownerKey, options.enabledOnly ?? false],
-    );
-    return result.rows.map(categoryRuleFromRow);
-  }
-
   /**
-   * 级联收尾：目标分类被删掉的规则自动停用并写明原因，不删数据。
-   * knownNames 为空时什么都不做——那多半是分类接口没拉到，不能拿它当依据。
+   * 记一件干完的活。空跑不该走到这里——调用方（ai-runs.ts）先判断有没有产出。
+   * 明细整条存成 jsonb 数组，读的时候原样发给前端。
    */
-  async disableRulesForMissingCategories(
-    ownerKey: string,
-    knownNames: string[],
-    reason: string,
-  ): Promise<number> {
-    if (knownNames.length === 0) return 0;
-    const result = await this.pool.query(
-      `UPDATE abei_ai.category_rules
-       SET enabled = false, disabled_reason = $3
-       WHERE owner_key = $1 AND enabled = true AND category_name <> ALL($2::text[])`,
-      [ownerKey, knownNames, reason],
-    );
-    return result.rowCount ?? 0;
-  }
-
-  /**
-   * 同一个 (pattern_type, pattern) 只留一条规则，重复纠正就改分类。
-   * keepExistingEnabled 给「攒够 3 次自动提示」用：已启用的规则不该被降级成停用。
-   */
-  async upsertCategoryRule(
+  async recordAiRun(
     ownerKey: string,
     args: {
-      patternType: CategoryRulePatternType;
-      pattern: string;
-      categoryName: string;
-      origin: CategoryRuleOrigin;
-      enabled: boolean;
-      keepExistingEnabled?: boolean;
+      kind: AiRunKind;
+      trigger: AiRunTrigger;
+      startedAt: Date;
+      status: Exclude<AiRunStatus, 'running'>;
+      summary: Record<string, unknown>;
+      detail: unknown[];
+      error?: string;
     },
-  ): Promise<CategoryRule> {
+  ): Promise<AiRun> {
     const result = await this.pool.query(
-      `INSERT INTO abei_ai.category_rules
-         (id, owner_key, pattern_type, pattern, category_name, origin, enabled)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (owner_key, pattern_type, pattern) DO UPDATE
-       SET category_name = excluded.category_name,
-           origin = excluded.origin,
-           enabled = CASE
-             WHEN $8::boolean THEN abei_ai.category_rules.enabled
-             ELSE excluded.enabled
-           END,
-           disabled_reason = NULL
-       RETURNING ${RULE_COLUMNS}`,
+      `INSERT INTO abei_ai.ai_runs
+         (id, owner_key, kind, trigger, started_at, finished_at, status, summary, detail, error)
+       VALUES ($1, $2, $3, $4, $5, now(), $6, $7::jsonb, $8::jsonb, $9)
+       RETURNING ${RUN_COLUMNS}, detail`,
       [
         randomUUID(),
         ownerKey,
-        args.patternType,
-        args.pattern,
-        args.categoryName,
-        args.origin,
-        args.enabled,
-        args.keepExistingEnabled ?? false,
+        args.kind,
+        args.trigger,
+        args.startedAt,
+        args.status,
+        JSON.stringify(args.summary),
+        JSON.stringify(args.detail.slice(0, MAX_RUN_DETAIL_ENTRIES)),
+        args.error ?? null,
       ],
     );
-    return categoryRuleFromRow(result.rows[0]);
+    return aiRunFromRow(result.rows[0]);
   }
 
-  async setCategoryRuleEnabled(
+  /**
+   * 时间线用：倒序分页，默认不带明细。
+   *
+   * `kind` 给页面按类别筛（/profile 只要 learn 那些）；`withDetail` 给学习闭环用：
+   * 它要从预填记录的明细里翻出「当初建议的是什么分类」。
+   */
+  async listAiRuns(
     ownerKey: string,
-    id: string,
-    enabled: boolean,
-  ): Promise<CategoryRule | undefined> {
+    options: { limit?: number; offset?: number; kind?: string; withDetail?: boolean } = {},
+  ): Promise<AiRun[]> {
+    const limit = clampInt(options.limit, 50, 1, 200);
+    const offset = clampInt(options.offset, 0, 0, 100_000);
     const result = await this.pool.query(
-      `UPDATE abei_ai.category_rules
-       SET enabled = $3, disabled_reason = NULL
-       WHERE id = $1 AND owner_key = $2
-       RETURNING ${RULE_COLUMNS}`,
-      [id, ownerKey, enabled],
+      `SELECT ${RUN_COLUMNS}${options.withDetail ? ', detail' : ''}
+       FROM abei_ai.ai_runs
+       WHERE owner_key = $1 AND ($4::text IS NULL OR kind = $4)
+       ORDER BY started_at DESC
+       LIMIT $2 OFFSET $3`,
+      [ownerKey, limit, offset, options.kind ?? null],
     );
-    return result.rowCount ? categoryRuleFromRow(result.rows[0]) : undefined;
+    return result.rows.map(aiRunFromRow);
   }
 
-  async deleteCategoryRule(ownerKey: string, id: string): Promise<boolean> {
+  async getAiRun(ownerKey: string, id: string): Promise<AiRun | undefined> {
     const result = await this.pool.query(
-      'DELETE FROM abei_ai.category_rules WHERE id = $1 AND owner_key = $2',
-      [id, ownerKey],
+      `SELECT ${RUN_COLUMNS}, detail
+       FROM abei_ai.ai_runs
+       WHERE owner_key = $1 AND id = $2`,
+      [ownerKey, id],
     );
-    return Boolean(result.rowCount);
+    return result.rowCount ? aiRunFromRow(result.rows[0]) : undefined;
   }
 
-  /** 一轮预填/回填结束后批量记账，同一条规则命中多次就加多次。 */
-  async recordRuleHits(ownerKey: string, ruleIds: string[]): Promise<void> {
-    if (ruleIds.length === 0) return;
-    await this.pool.query(
-      `UPDATE abei_ai.category_rules r
-       SET hit_count = r.hit_count + hits.total, last_hit_at = now()
-       FROM (
-         SELECT rule_id, count(*)::int AS total
-         FROM unnest($2::uuid[]) AS rule_id
-         GROUP BY rule_id
-       ) hits
-       WHERE r.id = hits.rule_id AND r.owner_key = $1`,
-      [ownerKey, ruleIds],
-    );
-  }
-
-  /** 返回累计次数，调用方据此决定要不要提示立规则。 */
-  async recordFeedbackSample(
-    ownerKey: string,
-    pattern: string,
-    categoryName: string,
-  ): Promise<number> {
+  /** 进程启动时扫一次：太老的记录没人会翻，留着只是占地方。 */
+  async pruneAiRuns(days = AI_RUN_RETENTION_DAYS): Promise<number> {
     const result = await this.pool.query(
-      `INSERT INTO abei_ai.feedback_samples (owner_key, pattern, category_name, count)
-       VALUES ($1, $2, $3, 1)
-       ON CONFLICT (owner_key, pattern, category_name) DO UPDATE
-       SET count = abei_ai.feedback_samples.count + 1, updated_at = now()
-       RETURNING count`,
-      [ownerKey, pattern, categoryName],
+      `DELETE FROM abei_ai.ai_runs WHERE started_at < now() - make_interval(days => $1::int)`,
+      [days],
     );
-    return Number(result.rows[0].count);
-  }
-
-  async listFeedbackSamples(ownerKey: string, minCount = 1): Promise<FeedbackSample[]> {
-    const result = await this.pool.query(
-      `SELECT pattern, category_name, count, updated_at
-       FROM abei_ai.feedback_samples
-       WHERE owner_key = $1 AND count >= $2
-       ORDER BY count DESC, updated_at DESC
-       LIMIT 500`,
-      [ownerKey, minCount],
-    );
-    return result.rows.map((row) => ({
-      pattern: String(row.pattern),
-      categoryName: String(row.category_name),
-      count: Number(row.count),
-      updatedAt: toIso(row.updated_at),
-    }));
+    return result.rowCount ?? 0;
   }
 
   async listVocabSuggestions(
@@ -931,8 +844,10 @@ function approvalFromRow(row: Record<string, unknown>): AiApproval {
   };
 }
 
-const RULE_COLUMNS = `id, pattern_type, pattern, category_name, origin, enabled, hit_count,
-                      last_hit_at, disabled_reason, created_at`;
+/** 一条运行记录最多存这么多条明细，防止一次大回填把整行撑到几兆。 */
+const MAX_RUN_DETAIL_ENTRIES = 500;
+
+const RUN_COLUMNS = `id, kind, trigger, started_at, finished_at, status, summary, error`;
 
 const VOCAB_COLUMNS = `id, action, domain, category_id, name, parent_id, parent_name, icon,
                        color, reason, sample_count, samples, status, created_at, resolved_at`;
@@ -940,19 +855,30 @@ const VOCAB_COLUMNS = `id, action, domain, category_id, name, parent_id, parent_
 const BACKFILL_COLUMNS = `journal_id, transaction_group_id, date, description, amount,
                           currency_code, category_id, category_name, source, status, created_at`;
 
-function categoryRuleFromRow(row: Record<string, unknown>): CategoryRule {
-  return {
+function aiRunFromRow(row: Record<string, unknown>): AiRun {
+  const summary = row.summary;
+  const run: AiRun = {
     id: String(row.id),
-    pattern_type: row.pattern_type as CategoryRulePatternType,
-    pattern: String(row.pattern),
-    category_name: String(row.category_name),
-    origin: row.origin as CategoryRuleOrigin,
-    enabled: row.enabled === true,
-    hit_count: Number(row.hit_count ?? 0),
-    last_hit_at: row.last_hit_at ? toIso(row.last_hit_at) : undefined,
-    disabled_reason: optionalText(row.disabled_reason),
-    created_at: toIso(row.created_at),
+    kind: String(row.kind),
+    trigger: row.trigger as AiRunTrigger,
+    started_at: toIso(row.started_at),
+    finished_at: row.finished_at ? toIso(row.finished_at) : undefined,
+    status: row.status as AiRunStatus,
+    summary:
+      summary !== null && typeof summary === 'object' && !Array.isArray(summary)
+        ? (summary as Record<string, unknown>)
+        : {},
+    error: optionalText(row.error),
   };
+  // detail 只在单条查询里 SELECT 出来；列表返回不带这个键。
+  if ('detail' in row) run.detail = Array.isArray(row.detail) ? row.detail : [];
+  return run;
+}
+
+function clampInt(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
 }
 
 function vocabSuggestionFromRow(row: Record<string, unknown>): VocabSuggestion {
