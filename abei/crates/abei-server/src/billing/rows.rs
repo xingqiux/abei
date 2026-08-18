@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
 use rust_decimal::Decimal;
@@ -130,8 +130,12 @@ impl Service {
         let limit_i64 = i64::from(limit);
         let client = self.pool.get().await.map_err(ApiError::database)?;
         let predicate = row_group_predicate();
+        // 归档文档的行不在收件箱里出现：入账时 validate 本来就会拒，留在列表里只会
+        // 让用户勾一批然后被整批 skip。点名要某一份文档时例外——那是「打开这封邮件
+        // 看它解析成什么样」，归档了也得看得见。
         let count_sql = format!(
             "SELECT count(*)::bigint {} WHERE r.user_id = $1 AND d.active_revision = r.revision
+               AND (d.lifecycle = 'active' OR d.id = $3::bigint)
                AND ($2 = '' OR d.channel_key = $2)
                AND ($3::bigint = 0 OR d.id = $3::bigint)
                AND ($4 = '' OR $4 = {predicate})",
@@ -144,6 +148,7 @@ impl Service {
             .get(0);
         let sql = format!(
             "{} WHERE r.user_id = $1 AND d.active_revision = r.revision
+               AND (d.lifecycle = 'active' OR d.id = $3::bigint)
                AND ($2 = '' OR d.channel_key = $2)
                AND ($3::bigint = 0 OR d.id = $3::bigint)
                AND ($4 = '' OR $4 = {predicate})
@@ -382,10 +387,14 @@ impl Service {
             .await
             .map_err(ApiError::database)?
             .execute(
+                // 被「确认重复」并掉的行不从这里放回来：那是一条配对的结论，放回它得撤回
+                // 那条配对（撤回会同时把两边的待确认标记复原）。从这里绕过去放回，
+                // 界面上会同时出现两笔同样的钱，两笔都能入账。
                 "UPDATE abei_ai.bill_rows SET status = 'pending', dismissed_reason = NULL,
                    dismissed_at = NULL, updated_at = now()
-                 WHERE user_id = $1 AND id = ANY($2) AND status = 'dismissed'",
-                &[&user_id, &row_ids],
+                 WHERE user_id = $1 AND id = ANY($2) AND status = 'dismissed'
+                   AND dismissed_reason IS DISTINCT FROM $3",
+                &[&user_id, &row_ids, &super::links::DUPLICATE_CONFIRMED],
             )
             .await
             .map_err(ApiError::database)?;
@@ -397,10 +406,18 @@ impl Service {
         user_id: i64,
         row_ids: &[i64],
     ) -> Result<Value, ApiError> {
-        let rows = self.pool.get().await.map_err(ApiError::database)?.query(
-            "SELECT id FROM abei_ai.bill_rows WHERE user_id = $1 AND id = ANY($2) AND status = 'dismissed' ORDER BY id",
-            &[&user_id, &row_ids],
-        ).await.map_err(ApiError::database)?;
+        let rows = self
+            .pool
+            .get()
+            .await
+            .map_err(ApiError::database)?
+            .query(
+                "SELECT id FROM abei_ai.bill_rows WHERE user_id = $1 AND id = ANY($2)
+               AND status = 'dismissed' AND dismissed_reason IS DISTINCT FROM $3 ORDER BY id",
+                &[&user_id, &row_ids, &super::links::DUPLICATE_CONFIRMED],
+            )
+            .await
+            .map_err(ApiError::database)?;
         let affected = rows
             .iter()
             .map(|row| row.get::<_, i64>(0).to_string())
@@ -736,10 +753,8 @@ impl Service {
         let attention = candidates(&|row| row_group(row) == "attention", "attention");
         let dismissed = candidates(&|row| row_group(row) == "dismissed", "dismissed");
         let imported = candidates(&|row| row_group(row) == "imported", "existing");
-        let cross_source = candidates(
-            &|row| has_issue(row, "cross_source_candidate"),
-            "cross_source_candidate",
-        );
+        // 下发的 issue code 已经统一成对外那套词表，这里跟着认 pair_suggested。
+        let cross_source = candidates(&|row| has_issue(row, "pair_suggested"), "pair_suggested");
         let duplicate = candidates(
             &|row| row["attributes"]["duplicate_state"] == "duplicate",
             "duplicate",
@@ -857,19 +872,17 @@ impl Service {
 
     pub(crate) async fn inbox_summary(&self, user_id: i64) -> Result<Value, ApiError> {
         let client = self.pool.get().await.map_err(ApiError::database)?;
+        let predicate = row_group_predicate();
         let counts = client
             .query_one(
                 &format!(
-                    "SELECT count(*) FILTER (WHERE {} = 'importable')::bigint,
-                            count(*) FILTER (WHERE {} = 'attention')::bigint,
-                            count(*) FILTER (WHERE {} = 'dismissed')::bigint,
-                            count(*) FILTER (WHERE {} = 'imported')::bigint
-                     {} WHERE r.user_id = $1 AND d.active_revision = r.revision",
-                    row_group_predicate(),
-                    row_group_predicate(),
-                    row_group_predicate(),
-                    row_group_predicate(),
-                    row_from()
+                    "SELECT count(*) FILTER (WHERE {predicate} = 'importable')::bigint,
+                            count(*) FILTER (WHERE {predicate} = 'attention')::bigint,
+                            count(*) FILTER (WHERE {predicate} = 'dismissed')::bigint,
+                            count(*) FILTER (WHERE {predicate} = 'imported')::bigint
+                     {from} WHERE r.user_id = $1 AND d.active_revision = r.revision
+                       AND d.lifecycle = 'active'",
+                    from = row_from()
                 ),
                 &[&user_id],
             )
@@ -884,6 +897,9 @@ impl Service {
             .await
             .map_err(ApiError::database)?
             .get(0);
+        // 渠道条要的东西一次查完：邮件侧的状态（等密码 / 处理中 / 失败）和流水侧的
+        // 四分组。以前这是两条 SQL，一条带 lifecycle 过滤一条不带，同一个响应里
+        // 「这个渠道有几笔待入账」能给出两个不同的数。
         let channels = client
             .query(
                 &format!(
@@ -892,59 +908,47 @@ impl Service {
                             count(DISTINCT d.id) FILTER (WHERE j.status IN ('queued','running'))::bigint,
                             count(DISTINCT d.id) FILTER (WHERE j.status = 'failed')::bigint,
                             count(DISTINCT d.id) FILTER (WHERE d.active_revision IS NOT NULL)::bigint,
-                            count(r.id) FILTER (WHERE {} = 'importable')::bigint,
-                            (array_agg(j.status ORDER BY d.received_at DESC NULLS LAST, d.id DESC))[1]
+                            count(r.id) FILTER (WHERE {predicate} = 'importable')::bigint,
+                            (array_agg(j.status ORDER BY d.received_at DESC NULLS LAST, d.id DESC))[1],
+                            count(r.id) FILTER (WHERE {predicate} = 'attention')::bigint,
+                            count(r.id) FILTER (WHERE {predicate} = 'dismissed')::bigint,
+                            count(r.id) FILTER (WHERE {predicate} = 'imported')::bigint
                      FROM abei_ai.bill_documents d
                      LEFT JOIN abei_ai.bill_rows r
                        ON r.bill_document_id = d.id AND r.revision = d.active_revision
+                     LEFT JOIN LATERAL (
+                       SELECT status FROM abei_ai.bill_import_attempts
+                       WHERE user_id = r.user_id AND bill_row_id = r.id
+                       ORDER BY attempt_no DESC LIMIT 1
+                     ) ia ON true
                      LEFT JOIN LATERAL (
                        SELECT status FROM abei_ai.parse_jobs
                        WHERE bill_document_id = d.id ORDER BY id DESC LIMIT 1
                      ) j ON true
                      WHERE d.user_id = $1 AND d.lifecycle = 'active'
-                     GROUP BY d.channel_key ORDER BY d.channel_key",
-                    row_group_predicate()
+                     GROUP BY d.channel_key ORDER BY d.channel_key"
                 ),
                 &[&user_id],
             )
             .await
             .map_err(ApiError::database)?;
-        // 渠道 × 四状态的分桶。刻意和 list_rows 用同一套 FROM/WHERE：两边一旦有出入，
-        // 就会出现「tab 上写 12 条、点进去 11 行」这种对不上的数。
-        let channel_counts = client
-            .query(
-                &format!(
-                    "SELECT d.channel_key,
-                            count(*) FILTER (WHERE {} = 'importable')::bigint,
-                            count(*) FILTER (WHERE {} = 'attention')::bigint,
-                            count(*) FILTER (WHERE {} = 'dismissed')::bigint,
-                            count(*) FILTER (WHERE {} = 'imported')::bigint
-                     {} WHERE r.user_id = $1 AND d.active_revision = r.revision
-                     GROUP BY d.channel_key",
-                    row_group_predicate(),
-                    row_group_predicate(),
-                    row_group_predicate(),
-                    row_group_predicate(),
-                    row_from()
-                ),
+        // 邮件侧三个数按「文档的最新一条解析任务」算，和渠道条逐渠道加起来严格相等。
+        // 以前这里是在 LIMIT 20 的展示用列表上 count，50 封等密码只会显示 20。
+        let job_counts = client
+            .query_one(
+                "SELECT count(*) FILTER (WHERE j.status = 'waiting_input')::bigint,
+                        count(*) FILTER (WHERE j.status IN ('queued','running'))::bigint,
+                        count(*) FILTER (WHERE j.status = 'failed')::bigint
+                 FROM abei_ai.bill_documents d
+                 JOIN LATERAL (
+                   SELECT status FROM abei_ai.parse_jobs
+                   WHERE bill_document_id = d.id ORDER BY id DESC LIMIT 1
+                 ) j ON true
+                 WHERE d.user_id = $1 AND d.lifecycle = 'active'",
                 &[&user_id],
             )
             .await
             .map_err(ApiError::database)?;
-        let channel_counts: HashMap<String, [i64; 4]> = channel_counts
-            .iter()
-            .map(|row| {
-                (
-                    row.get::<_, String>(0),
-                    [
-                        row.get::<_, i64>(1),
-                        row.get::<_, i64>(2),
-                        row.get::<_, i64>(3),
-                        row.get::<_, i64>(4),
-                    ],
-                )
-            })
-            .collect();
         let jobs = client
             .query(
                 "SELECT id, bill_document_id, status, stage, progress, waiting_reason,
@@ -971,18 +975,9 @@ impl Service {
         let attention = counts.get::<_, i64>(1);
         let dismissed = counts.get::<_, i64>(2);
         let imported = counts.get::<_, i64>(3);
-        let needs_code = jobs
-            .iter()
-            .filter(|row| row.get::<_, String>(2) == "waiting_input")
-            .count() as i64;
-        let unprocessed = jobs
-            .iter()
-            .filter(|row| matches!(row.get::<_, String>(2).as_str(), "queued" | "running"))
-            .count() as i64;
-        let failed = jobs
-            .iter()
-            .filter(|row| row.get::<_, String>(2) == "failed")
-            .count() as i64;
+        let needs_code: i64 = job_counts.get(0);
+        let unprocessed: i64 = job_counts.get(1);
+        let failed: i64 = job_counts.get(2);
         let stuck_tasks = needs_code + failed;
         let mailbox_sync = sync
             .map(|row| {
@@ -1036,10 +1031,9 @@ impl Service {
             "unclassified_mail": unclassified_mail,
             "channels": channels.iter().map(|row| {
                 let key = row.get::<_, String>(0);
-                let bucket = channel_counts.get(&key).copied().unwrap_or([0; 4]);
                 json!({
+                    "name": channel_name(&key),
                     "key": key,
-                    "name": key,
                     "last_received_at": row.get::<_, Option<String>>(1),
                     "needs_code": row.get::<_, i64>(2),
                     "unprocessed": row.get::<_, i64>(3),
@@ -1049,10 +1043,10 @@ impl Service {
                     "last_status": row.get::<_, Option<String>>(7),
                     // 渠道条按 tab 取这里的数，不再每渠道发一次 limit=1 的探测请求。
                     "counts": {
-                        "importable": bucket[0],
-                        "attention": bucket[1],
-                        "dismissed": bucket[2],
-                        "imported": bucket[3],
+                        "importable": row.get::<_, i64>(6),
+                        "attention": row.get::<_, i64>(8),
+                        "dismissed": row.get::<_, i64>(9),
+                        "imported": row.get::<_, i64>(10),
                     },
                 })
             }).collect::<Vec<_>>(),
@@ -1084,8 +1078,9 @@ impl Service {
     }
 }
 
-fn row_select() -> &'static str {
-    "SELECT r.id, r.bill_document_id, r.status, r.occurred_at, r.counterparty,
+fn row_select() -> String {
+    format!(
+        "SELECT r.id, r.bill_document_id, r.status, r.occurred_at, r.counterparty,
             r.signed_amount::text, r.currency_code::text, r.duplicate_state,
             r.duplicate_of_row_id, r.firefly_type, r.firefly_date::text,
             r.firefly_amount::text, r.firefly_description, r.source_name,
@@ -1094,70 +1089,206 @@ fn row_select() -> &'static str {
             r.user_modified_at::text, r.dismissed_reason, r.dismissed_at::text,
             r.issues, r.source_locator, r.raw_fields, r.description,
             d.channel_key, d.summary, d.received_at::text, r.row_number,
-            CASE
-              WHEN r.status = 'imported' THEN 'imported'
-              WHEN r.status = 'dismissed' THEN 'dismissed'
-              WHEN r.last_import_error IS NOT NULL
-                OR ia.status IN ('prepared','sending','uncertain','retryable')
-                OR r.duplicate_state <> 'unique' OR EXISTS (
-                   SELECT 1 FROM jsonb_array_elements(r.issues) issue
-                   WHERE issue->>'code' <> 'account_mapping_required')
-                OR r.firefly_type IS NULL OR r.firefly_date IS NULL
-                OR r.firefly_amount IS NULL
-                OR btrim(COALESCE(r.firefly_description, r.description, '')) = ''
-                OR (r.firefly_type = 'withdrawal' AND r.source_account_id IS NULL)
-                OR (r.firefly_type = 'deposit' AND r.destination_account_id IS NULL)
-                OR (r.firefly_type = 'transfer' AND
-                    (r.source_account_id IS NULL OR r.destination_account_id IS NULL OR
-                     r.source_account_id = r.destination_account_id))
-                THEN 'attention'
-              ELSE 'importable' END AS review_group,
+            {group} AS review_group,
             r.account_hint, ia.id, ia.status, ia.error_code, ia.error_message,
             ia.retry_after::text, ia.transaction_group_id, ia.updated_at::text,
-            r.source_account_id, r.destination_account_id
+            r.source_account_id, r.destination_account_id,
+            {kind} AS attention_kind,
+            pl.link_id, pl.relation, pl.link_state, pl.decided_by,
+            pl.other_id, pl.other_status, pl.other_occurred_at,
+            pl.other_signed_amount, pl.other_currency_code, pl.other_description,
+            pl.other_counterparty, pl.other_channel_key,
+            dup.dup_id, dup.dup_status, dup.dup_occurred_at, dup.dup_signed_amount,
+            dup.dup_currency_code, dup.dup_description, dup.dup_counterparty,
+            dup.dup_source_name, dup.dup_destination_name, dup.dup_channel_key,
+            ia.batch_id::text
      FROM abei_ai.bill_rows r
      JOIN abei_ai.bill_documents d ON d.id = r.bill_document_id
      LEFT JOIN LATERAL (
        SELECT id, status, error_code, error_message, retry_after,
-              transaction_group_id, updated_at
+              transaction_group_id, updated_at, batch_id
        FROM abei_ai.bill_import_attempts
+       WHERE user_id = r.user_id AND bill_row_id = r.id
+       ORDER BY attempt_no DESC LIMIT 1
+     ) ia ON true
+     LEFT JOIN LATERAL (
+       SELECT l.id AS link_id, l.relation, l.state AS link_state, l.decided_by,
+              o.id AS other_id, o.status AS other_status,
+              o.occurred_at::text AS other_occurred_at,
+              o.signed_amount::text AS other_signed_amount,
+              o.currency_code::text AS other_currency_code,
+              o.description AS other_description, o.counterparty AS other_counterparty,
+              od.channel_key AS other_channel_key
+       FROM abei_ai.bill_row_links l
+       JOIN abei_ai.bill_rows o
+         ON o.id = CASE WHEN l.left_row_id = r.id THEN l.right_row_id ELSE l.left_row_id END
+       JOIN abei_ai.bill_documents od ON od.id = o.bill_document_id
+       WHERE l.user_id = r.user_id AND (l.left_row_id = r.id OR l.right_row_id = r.id)
+         AND l.state <> 'rejected'
+       ORDER BY (l.state = 'confirmed') DESC, l.confidence DESC, l.id
+       LIMIT 1
+     ) pl ON true
+     LEFT JOIN LATERAL (
+       SELECT dr.id AS dup_id, dr.status AS dup_status,
+              dr.occurred_at::text AS dup_occurred_at,
+              dr.signed_amount::text AS dup_signed_amount,
+              dr.currency_code::text AS dup_currency_code,
+              dr.description AS dup_description, dr.counterparty AS dup_counterparty,
+              dr.source_name AS dup_source_name, dr.destination_name AS dup_destination_name,
+              dd.channel_key AS dup_channel_key
+       FROM abei_ai.bill_rows dr
+       JOIN abei_ai.bill_documents dd ON dd.id = dr.bill_document_id
+       WHERE dr.id = r.duplicate_of_row_id AND dr.user_id = r.user_id
+       LIMIT 1
+     ) dup ON true",
+        group = row_group_predicate(),
+        kind = attention_kind_sql(),
+    )
+}
+
+/// 一行身上挂着的配对：另一笔在哪个渠道、多少钱、是建议还是已合并。
+///
+/// 以前这份数据只有 `/bill-rows/{id}/links` 拿得到，于是「这一笔已经和另一笔
+/// 自动合并了」在列表里根本看不出来——用户看到的是一条普通待入账，
+/// 合并这件事只有点开某一行的展开层才浮出来。列表要能一眼看见，就得随行下发。
+fn pair_json(row: &Row) -> Value {
+    let Some(link_id) = row.get::<_, Option<i64>>(44) else {
+        return Value::Null;
+    };
+    json!({
+        "link_id": link_id.to_string(),
+        "relation": row.get::<_, Option<String>>(45),
+        "state": row.get::<_, Option<String>>(46),
+        // 'auto' = 强证据（订单号/交易号完全对得上）系统自己合的。界面靠它把
+        // 「系统替我做的」和「我自己确认过的」分开说，也才知道要不要给拆开的出口。
+        "decided_by": row.get::<_, Option<String>>(47),
+        "other": {
+            "id": row.get::<_, Option<i64>>(48).map(|v| v.to_string()),
+            "status": row.get::<_, Option<String>>(49),
+            "occurred_at": row.get::<_, Option<String>>(50),
+            "signed_amount": row.get::<_, Option<String>>(51),
+            "currency_code": row.get::<_, Option<String>>(52),
+            "description": row.get::<_, Option<String>>(53),
+            "counterparty": row.get::<_, Option<String>>(54),
+            "channel_key": row.get::<_, Option<String>>(55),
+        },
+    })
+}
+
+/// 判重指向的那一笔长什么样。
+///
+/// 以前行上只有一个 `duplicate_of_row_id`，界面上只能写「和已有交易很像」，
+/// 像在哪儿一个字都说不出来——用户没有任何依据能判断这是不是重复。
+fn duplicate_of_json(row: &Row) -> Value {
+    let Some(id) = row.get::<_, Option<i64>>(56) else {
+        return Value::Null;
+    };
+    json!({
+        "id": id.to_string(),
+        "status": row.get::<_, Option<String>>(57),
+        "occurred_at": row.get::<_, Option<String>>(58),
+        "signed_amount": row.get::<_, Option<String>>(59),
+        "currency_code": row.get::<_, Option<String>>(60),
+        "description": row.get::<_, Option<String>>(61),
+        "counterparty": row.get::<_, Option<String>>(62),
+        "source_name": row.get::<_, Option<String>>(63),
+        "destination_name": row.get::<_, Option<String>>(64),
+        "channel_key": row.get::<_, Option<String>>(65),
+    })
+}
+
+/// 列表和计数共用的 FROM。
+///
+/// 这里带着「最新一条入账尝试」的 LATERAL，和 [`row_select`] 里那个是同一份语义：
+/// 分组判定只看最新一条尝试。以前计数那边用的是 `EXISTS` 扫全部历史尝试，于是一行
+/// 「以前重试过、最新一条已经 rejected」在列表里算 importable、在 tab 计数里算 attention，
+/// 同一个数在两个位置对不上。
+pub(super) fn row_from() -> &'static str {
+    "FROM abei_ai.bill_rows r
+     JOIN abei_ai.bill_documents d ON d.id = r.bill_document_id
+     LEFT JOIN LATERAL (
+       SELECT status FROM abei_ai.bill_import_attempts
        WHERE user_id = r.user_id AND bill_row_id = r.id
        ORDER BY attempt_no DESC LIMIT 1
      ) ia ON true"
 }
 
-pub(super) fn row_from() -> &'static str {
-    "FROM abei_ai.bill_rows r JOIN abei_ai.bill_documents d ON d.id = r.bill_document_id"
+/// 「这一行要不要人来看」的唯一判定。分组、attention 原因、计数全从这里长出来。
+fn needs_attention_sql() -> &'static str {
+    // 支出/收入缺账户不再进「要判断的」：渠道账户由入账那一步自动建好并写下映射，
+    // 用户不需要为此先做一件配置。转账仍然要人管——它是人手动改出来的类型，
+    // 系统猜不出另一端是哪个账户。
+    "r.last_import_error IS NOT NULL
+       OR ia.status IN ('prepared','sending','uncertain','retryable')
+       OR r.duplicate_state <> 'unique' OR EXISTS (
+          SELECT 1 FROM jsonb_array_elements(r.issues) issue
+          WHERE issue->>'code' <> 'account_mapping_required')
+       OR r.firefly_type IS NULL OR r.firefly_date IS NULL
+       OR r.firefly_amount IS NULL
+       OR btrim(COALESCE(r.firefly_description, r.description, '')) = ''
+       OR (r.firefly_type = 'transfer' AND
+           (r.source_account_id IS NULL OR r.destination_account_id IS NULL OR
+            r.source_account_id = r.destination_account_id))"
 }
 
-pub(super) fn row_group_predicate() -> &'static str {
-    "CASE
-       WHEN r.status = 'imported' THEN 'imported'
-       WHEN r.status = 'dismissed' THEN 'dismissed'
-       WHEN r.last_import_error IS NOT NULL
-         OR EXISTS (
-           SELECT 1 FROM abei_ai.bill_import_attempts ia
-           WHERE ia.user_id = r.user_id AND ia.bill_row_id = r.id
-             AND ia.status IN ('prepared','sending','uncertain','retryable')
-         )
-         OR r.duplicate_state <> 'unique' OR EXISTS (
-            SELECT 1 FROM jsonb_array_elements(r.issues) issue
-            WHERE issue->>'code' <> 'account_mapping_required')
-         OR r.firefly_type IS NULL OR r.firefly_date IS NULL
-         OR r.firefly_amount IS NULL
-         OR btrim(COALESCE(r.firefly_description, r.description, '')) = ''
-         OR (r.firefly_type = 'withdrawal' AND r.source_account_id IS NULL)
-         OR (r.firefly_type = 'deposit' AND r.destination_account_id IS NULL)
-         OR (r.firefly_type = 'transfer' AND
-             (r.source_account_id IS NULL OR r.destination_account_id IS NULL OR
-              r.source_account_id = r.destination_account_id))
-         THEN 'attention'
-       ELSE 'importable' END"
+/// 四分组。要求 FROM 里有 [`row_from`] 或 [`row_select`] 提供的 `ia` 别名。
+pub(super) fn row_group_predicate() -> String {
+    format!(
+        "CASE
+           WHEN r.status = 'imported' THEN 'imported'
+           WHEN r.status = 'dismissed' THEN 'dismissed'
+           WHEN {attention} THEN 'attention'
+           ELSE 'importable' END",
+        attention = needs_attention_sql()
+    )
+}
+
+/// 待确认的行为什么要人看。非待确认的行是 NULL。
+///
+/// 前端按这个字段分节，不再拿 reasons 的中文做子串匹配。判定顺序就是优先级：
+/// 入账已经出过事的排最前，纯粹缺字段的排最后。
+fn attention_kind_sql() -> String {
+    format!(
+        "CASE
+           WHEN r.status IN ('imported','dismissed') THEN NULL::text
+           WHEN NOT ({attention}) THEN NULL::text
+           WHEN r.last_import_error IS NOT NULL OR ia.status = 'retryable'
+             THEN 'import_failed'
+           WHEN ia.status IN ('prepared','sending','uncertain') THEN 'import_pending'
+           WHEN r.duplicate_state <> 'unique' OR EXISTS (
+                  SELECT 1 FROM jsonb_array_elements(r.issues) issue
+                  WHERE issue->>'code' IN ('duplicate_duplicate','duplicate_conflict'))
+             THEN 'duplicate_suspect'
+           WHEN EXISTS (
+                  SELECT 1 FROM jsonb_array_elements(r.issues) issue
+                  WHERE issue->>'code' IN ('cross_source_candidate','refund_candidate'))
+             THEN 'pairing_suggested'
+           WHEN EXISTS (
+                  SELECT 1 FROM jsonb_array_elements(r.issues) issue
+                  WHERE issue->>'code' LIKE 'account_mapping_%')
+             OR (r.firefly_type = 'transfer' AND
+                 (r.source_account_id IS NULL OR r.destination_account_id IS NULL OR
+                  r.source_account_id = r.destination_account_id))
+             THEN 'account_unmapped'
+           ELSE 'needs_fix' END",
+        attention = needs_attention_sql()
+    )
+}
+
+/// 渠道 key 到中文显示名。认不出来的 key 原样返回，界面上至少不会是空白。
+pub(super) fn channel_name(key: &str) -> &str {
+    match key {
+        "cmb" => "招商银行",
+        "alipay" => "支付宝",
+        "wechat" => "微信支付",
+        "boc" => "中国银行",
+        other => other,
+    }
 }
 
 fn row_json(row: &Row) -> Value {
     let signed = Decimal::from_str(&row.get::<_, String>(5)).unwrap_or_default();
-    let issues: Value = row.get(24);
+    let issues = public_issues(row);
     let import_attempt = row.get::<_, Option<String>>(34).map(|id| {
         json!({
             "id": id,
@@ -1167,6 +1298,9 @@ fn row_json(row: &Row) -> Value {
             "retry_after": row.get::<_, Option<String>>(38),
             "transaction_group_id": row.get::<_, Option<i64>>(39).map(|v| v.to_string()),
             "updated_at": row.get::<_, Option<String>>(40),
+            // 「这一条是哪一次入账动作写进去的」。新列排在 SELECT 末尾而不是插在
+            // 中间：这一串取值全靠下标，插一列会把它后面每一个字段都错开一位。
+            "batch_id": row.get::<_, Option<String>>(66),
         })
     });
     let reasons = issues
@@ -1175,10 +1309,15 @@ fn row_json(row: &Row) -> Value {
         .flatten()
         .filter_map(|issue| issue["message"].as_str().map(str::to_owned))
         .collect::<Vec<_>>();
-    json!({
-        "id": row.get::<_, i64>(0).to_string(),
-        "type": "bill-row",
-        "attributes": {
+    let task = json!({
+        "id": row.get::<_, i64>(1).to_string(),
+        "source": row.get::<_, String>(28),
+        "summary": row.get::<_, Option<String>>(29),
+        "received_at": row.get::<_, Option<String>>(30),
+    });
+    // 属性单独拼一次：serde_json 的 json! 是按键递归展开的，这个对象的键足够多，
+    // 塞在外层对象里会顶到宏的递归上限。
+    let attributes = json!({
             "bill_task_id": row.get::<_, i64>(1).to_string(),
             "bill_document_id": row.get::<_, i64>(1).to_string(),
             "row_number": row.get::<_, i32>(31),
@@ -1211,19 +1350,113 @@ fn row_json(row: &Row) -> Value {
             "raw_fields": row.get::<_, Value>(26),
             "description": row.get::<_, String>(27),
             "group": row.get::<_, String>(32),
+            "attention_kind": row.get::<_, Option<String>>(43),
             "reasons": reasons,
-            "task": {
-                "id": row.get::<_, i64>(1).to_string(),
-                "source": row.get::<_, String>(28),
-                "summary": row.get::<_, Option<String>>(29),
-                "received_at": row.get::<_, Option<String>>(30),
-            },
+            "task": task,
             "account_hint": row.get::<_, Option<String>>(33),
             "source_account_id": row.get::<_, Option<i64>>(41).map(|v| v.to_string()),
             "destination_account_id": row.get::<_, Option<i64>>(42).map(|v| v.to_string()),
             "import_attempt": import_attempt,
-        }
+            "pair": pair_json(row),
+            "duplicate_of": duplicate_of_json(row),
+    });
+    json!({
+        "id": row.get::<_, i64>(0).to_string(),
+        "type": "bill-row",
+        "attributes": attributes,
     })
+}
+
+/// 库里存的 issue code 和对外下发的 code 不是一套词。库里按「谁写下的」命名
+/// （`duplicate_duplicate`、`cross_source_candidate`），对外按「用户要做什么」命名。
+/// 三端契约认对外这一套，翻译只在这里做一次。
+fn public_issue_code(code: &str) -> &str {
+    match code {
+        "duplicate_duplicate" | "duplicate_conflict" => "duplicate_suspect",
+        "cross_source_candidate" | "refund_candidate" => "pair_suggested",
+        other => other,
+    }
+}
+
+/// 一行的 issue 列表，保证每个元素都有 `code` 和 `message`。
+///
+/// 除了库里存着的，还按当前字段现补几条：进了待确认却一条 issue 都没有的行，
+/// 界面上只能显示「有问题」三个字，用户没有任何可点的下一步。缺什么补什么，
+/// 补出来的 code 和存下来的走同一套词表。
+fn public_issues(row: &Row) -> Value {
+    let mut issues = row
+        .get::<_, Value>(24)
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .map(|issue| {
+                    let mut issue = issue.clone();
+                    let code = issue["code"].as_str().unwrap_or("unknown").to_owned();
+                    let message = issue["message"]
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| format!("这条流水有一处需要确认（{code}）。"));
+                    if let Some(object) = issue.as_object_mut() {
+                        object.insert("code".to_owned(), json!(public_issue_code(&code)));
+                        object.insert("message".to_owned(), json!(message));
+                    }
+                    issue
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let mut push = |code: &str, message: String| {
+        if !issues.iter().any(|issue| issue["code"] == code) {
+            issues.push(json!({ "severity": "warning", "code": code, "message": message }));
+        }
+    };
+    let firefly_type = row.get::<_, Option<String>>(9);
+    if firefly_type.is_none() {
+        push(
+            "missing_type",
+            "还不知道这笔是支出、收入还是转账。".to_owned(),
+        );
+    }
+    if row.get::<_, Option<String>>(10).is_none() {
+        push(
+            "invalid_date",
+            format!("日期格式无法识别：{}", row.get::<_, String>(3)),
+        );
+    }
+    if row.get::<_, Option<String>>(11).is_none() {
+        push("missing_amount", "这笔没有可入账的金额。".to_owned());
+    }
+    let description = row
+        .get::<_, Option<String>>(12)
+        .unwrap_or_else(|| row.get::<_, String>(27));
+    if description.trim().is_empty() {
+        push("missing_description", "这笔还没有摘要。".to_owned());
+    }
+    if row.get::<_, String>(7) != "unique" {
+        push(
+            "duplicate_suspect",
+            "发现可能重复的流水，确认之后才能入账。".to_owned(),
+        );
+    }
+    if let Some(error) = row.get::<_, Option<String>>(19) {
+        push("import_failed", format!("上次入账没成：{error}"));
+    }
+    // 支出/收入缺账户不再报问题：入账时系统会替用户把渠道账户建好。转账是人手动改出来的
+    // 类型，系统猜不出另一端是谁，只能还给人。
+    let source_account_id = row.get::<_, Option<i64>>(41);
+    let destination_account_id = row.get::<_, Option<i64>>(42);
+    if firefly_type.as_deref() == Some("transfer")
+        && (source_account_id.is_none()
+            || destination_account_id.is_none()
+            || source_account_id == destination_account_id)
+    {
+        push(
+            "transfer_accounts_required",
+            "转账要选两个不同的 Firefly 账户。".to_owned(),
+        );
+    }
+    Value::Array(issues)
 }
 
 fn row_group(row: &Value) -> &str {
@@ -1773,14 +2006,9 @@ mod tests {
             .delete_account_mapping(user_id, first_id)
             .await
             .unwrap();
-        assert_mapping_state(
-            &pool,
-            pending_row_id,
-            None,
-            None,
-            Some("account_mapping_required"),
-        )
-        .await;
+        // 映射删光之后账户被摘掉，但这不再是一条要人处理的问题：入账那一步会替用户
+        // 把渠道账户建回来。留在行上的只有本来就无关的那条 keep_me。
+        assert_mapping_state(&pool, pending_row_id, None, None, None).await;
 
         let listed = service
             .list_account_mappings(user_id, Some("cmb"))
@@ -1917,5 +2145,273 @@ mod tests {
                 .find(|code| code.starts_with("account_mapping_")),
             expected_mapping_issue
         );
+    }
+
+    fn test_service(pool: &deadpool_postgres::Pool) -> Service {
+        let config = crate::mailbox::RuntimeConfig::test();
+        let mail = crate::mail::Service::new(pool.clone(), config.storage_root().to_path_buf());
+        let parser = crate::parser::Service::new(pool.clone(), mail.clone());
+        Service::new(
+            pool.clone(),
+            mail,
+            parser,
+            config.job_secret_cipher(),
+            config.reliability(),
+            crate::firefly::Firefly::from_env(),
+        )
+    }
+
+    /// 取出这一行在列表里的 attributes。
+    fn attributes_of(list: &Value, row_id: i64) -> Value {
+        let wanted = row_id.to_string();
+        list["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"].as_str() == Some(wanted.as_str()))
+            .unwrap_or_else(|| panic!("列表里没有 {row_id}"))["attributes"]
+            .clone()
+    }
+
+    /// 列表要能一眼看出「这一笔和另一笔是一件事」，配对和判重的对侧就得随行下发。
+    ///
+    /// 以前这两样都只有 id：配对得再发一趟 `/links` 才知道另一笔长什么样，判重
+    /// 更是只有一句「和已有交易很像」。界面于是既标不出「已合并」，也摆不出对比。
+    #[tokio::test]
+    async fn a_row_carries_the_other_side_of_its_pairing_and_of_its_duplicate() {
+        let Some(pool) = crate::testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_110_026_i64;
+        let fixture = crate::testdb::seed(&client, user_id).await;
+
+        let other_row_id: i64 = client
+            .query_one(
+                "INSERT INTO abei_ai.bill_rows
+                   (user_id, bill_document_id, revision, row_number, occurred_at,
+                    signed_amount, currency_code, description, external_key, fingerprint,
+                    counterparty, status, issues, firefly_type, firefly_date, firefly_amount,
+                    firefly_description)
+                 VALUES ($1,$2,1,7,'2026-08-11 08:30:00',-12.34,'CNY','微信支付-测试商户',
+                         $3,$4,'测试商户','pending','[]','withdrawal','2026-08-11',12.34,
+                         '测试商户')
+                 RETURNING id",
+                &[
+                    &user_id,
+                    &fixture.document_id,
+                    &format!("pair-{user_id}"),
+                    &format!("{:064x}", user_id + 1),
+                ],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        let (left, right) = if fixture.row_id < other_row_id {
+            (fixture.row_id, other_row_id)
+        } else {
+            (other_row_id, fixture.row_id)
+        };
+        client
+            .execute(
+                "INSERT INTO abei_ai.bill_row_links
+                   (user_id, left_row_id, right_row_id, relation, confidence, evidence,
+                    state, decided_by, decided_at, merged_row_id)
+                 VALUES ($1,$2,$3,'cross_source_candidate',0.9900,'{}'::jsonb,
+                         'confirmed','auto',now(),$3)",
+                &[&user_id, &left, &right],
+            )
+            .await
+            .unwrap();
+        client
+            .execute(
+                "UPDATE abei_ai.bill_rows
+                 SET duplicate_state = 'duplicate', duplicate_of_row_id = $2
+                 WHERE id = $1",
+                &[&fixture.row_id, &other_row_id],
+            )
+            .await
+            .unwrap();
+
+        let service = test_service(&pool);
+        let list = service
+            .list_rows(user_id, None, None, None, 1, 50)
+            .await
+            .unwrap();
+        let attributes = attributes_of(&list, fixture.row_id);
+
+        let pair = &attributes["pair"];
+        assert_eq!(pair["state"], "confirmed");
+        assert_eq!(pair["decided_by"], "auto", "自动合并要认得出是系统做的");
+        assert_eq!(pair["other"]["id"], other_row_id.to_string());
+        assert_eq!(pair["other"]["channel_key"], "cmb");
+        // numeric::text 带着列上的小数位，和行自己的 signed_amount 是同一套格式
+        assert_eq!(
+            pair["other"]["signed_amount"]
+                .as_str()
+                .and_then(|value| value.parse::<f64>().ok()),
+            Some(-12.34)
+        );
+
+        let dup = &attributes["duplicate_of"];
+        assert_eq!(dup["id"], other_row_id.to_string());
+        assert_eq!(dup["description"], "微信支付-测试商户");
+        assert_eq!(dup["counterparty"], "测试商户");
+
+        // 没有配对、没有判重的行两个字段都是 null，前端据此不渲染任何标记。
+        let plain = attributes_of(&list, other_row_id);
+        assert!(plain["duplicate_of"].is_null());
+
+        crate::remove_test_user(&pool.get().await.unwrap(), user_id).await;
+    }
+
+    /// 分组判定只能有一份。以前列表里的 CASE 看最新一条尝试、tab 计数那边用 EXISTS
+    /// 扫全部历史，于是「以前重试过、最新一条已经 rejected」的行在两处对不上号。
+    #[tokio::test]
+    async fn one_row_lands_in_the_same_group_in_the_list_and_in_the_counts() {
+        let Some(pool) = crate::testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_110_020_i64;
+        let fixture = crate::testdb::seed(&client, user_id).await;
+
+        // 第一次重试过，第二次被明确拒绝——历史里有 retryable，最新一条不是。
+        for (attempt_no, status) in [(1_i32, "retryable"), (2, "rejected")] {
+            client
+                .execute(
+                    "INSERT INTO abei_ai.bill_import_attempts
+                       (id, user_id, bill_row_id, attempt_no, status, external_id,
+                        payload_hash, payload_snapshot)
+                     VALUES ($1,$2,$3,$4,$5,$1, repeat('0',64), '{}'::jsonb)",
+                    &[
+                        &uuid::Uuid::new_v4().to_string(),
+                        &user_id,
+                        &fixture.row_id,
+                        &attempt_no,
+                        &status,
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        let service = test_service(&pool);
+        let list = service
+            .list_rows(user_id, None, None, None, 1, 50)
+            .await
+            .unwrap();
+        let attributes = attributes_of(&list, fixture.row_id);
+        let group = attributes["group"].as_str().unwrap().to_owned();
+        assert_eq!(group, "importable", "最新一条是 rejected，不该再算待确认");
+        assert!(
+            attributes["attention_kind"].is_null(),
+            "不是待确认的行，attention_kind 必须是 null"
+        );
+
+        // 同一行在概览计数里必须落进同一个分组。
+        let summary = service.inbox_summary(user_id).await.unwrap();
+        assert_eq!(summary["counts"][&group], 1, "计数口径要和列表一致");
+        assert_eq!(summary["counts"]["attention"], 0);
+
+        // 逐渠道加起来等于总数，而且渠道条带中文名。
+        let channel = &summary["channels"].as_array().unwrap()[0];
+        assert_eq!(channel["key"], "cmb");
+        assert_eq!(channel["name"], "招商银行");
+        assert_eq!(channel["counts"][&group], 1);
+
+        // 按分组过滤拿到的行，自己报的分组也得是这个。
+        for name in ["importable", "attention", "dismissed", "imported"] {
+            let filtered = service
+                .list_rows(user_id, Some(name), None, None, 1, 50)
+                .await
+                .unwrap();
+            for item in filtered["data"].as_array().unwrap() {
+                assert_eq!(item["attributes"]["group"], name, "过滤和 CASE 必须同源");
+            }
+        }
+
+        crate::testdb::cleanup(&client, user_id).await;
+    }
+
+    /// 归档过的文档不该再出现在收件箱里，但点名看它的时候还得看得见。
+    #[tokio::test]
+    async fn archived_documents_leave_the_inbox_but_stay_readable_by_id() {
+        let Some(pool) = crate::testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_110_021_i64;
+        let fixture = crate::testdb::seed(&client, user_id).await;
+        client
+            .execute(
+                "UPDATE abei_ai.bill_documents SET lifecycle = 'archived' WHERE id = $1",
+                &[&fixture.document_id],
+            )
+            .await
+            .unwrap();
+
+        let service = test_service(&pool);
+        let all = service
+            .list_rows(user_id, None, None, None, 1, 50)
+            .await
+            .unwrap();
+        assert_eq!(
+            all["meta"]["pagination"]["total"], 0,
+            "归档的不该还在列表里"
+        );
+
+        let named = service
+            .list_rows(user_id, None, None, Some(fixture.document_id), 1, 50)
+            .await
+            .unwrap();
+        assert_eq!(named["meta"]["pagination"]["total"], 1, "点名要看得见");
+
+        let summary = service.inbox_summary(user_id).await.unwrap();
+        for name in ["importable", "attention", "dismissed", "imported"] {
+            assert_eq!(summary["counts"][name], 0, "归档的不该再计数");
+        }
+
+        crate::testdb::cleanup(&client, user_id).await;
+    }
+
+    /// 日期读不出来的行必须带一条能读懂的 issue，前端才有话可说。
+    #[tokio::test]
+    async fn a_row_with_an_unreadable_date_says_so_with_a_code() {
+        let Some(pool) = crate::testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_110_022_i64;
+        let fixture = crate::testdb::seed(&client, user_id).await;
+        client
+            .execute(
+                "UPDATE abei_ai.bill_rows
+                 SET occurred_at = '八月十一号', firefly_date = NULL WHERE id = $1",
+                &[&fixture.row_id],
+            )
+            .await
+            .unwrap();
+
+        let list = test_service(&pool)
+            .list_rows(user_id, None, None, None, 1, 50)
+            .await
+            .unwrap();
+        let attributes = attributes_of(&list, fixture.row_id);
+        assert_eq!(attributes["group"], "attention");
+        assert_eq!(attributes["attention_kind"], "needs_fix");
+        let issue = attributes["issues"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|issue| issue["code"] == "invalid_date")
+            .expect("日期读不出来要有 invalid_date")
+            .clone();
+        assert!(
+            issue["message"].as_str().unwrap().contains("八月十一号"),
+            "提示里要带上原文，用户才知道是哪一行的哪个字段"
+        );
+
+        crate::testdb::cleanup(&client, user_id).await;
     }
 }

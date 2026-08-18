@@ -1,4 +1,5 @@
 pub(crate) mod api;
+pub(crate) mod apply;
 pub(crate) mod rules;
 
 use std::collections::BTreeMap;
@@ -539,6 +540,106 @@ impl Service {
             .await
             .map_err(ApiError::database)?;
         self.get_message(user_id, id).await
+    }
+
+    /// 找出这条规则（已发布版本）命中的邮件。
+    ///
+    /// 判定用的是库里已经存下来的邮件事实：主题、发件人、头、以及缓存过的正文。
+    /// 正文没缓存的邮件，靠正文才能判定的条件在这里不会命中——批量重归类是个
+    /// 收敛工具，不为此把几百封邮件挨个从 IMAP 拉一遍。
+    /// 这条规则有没有已发布的版本。
+    ///
+    /// 批量重归类开工前先问一句：任务一旦开出去就是后台跑，规则根本没发布这种事
+    /// 该当场回一个 409，而不是让用户轮询半天才看到一条注定失败的任务。
+    pub(crate) async fn require_published_rule(
+        &self,
+        user_id: i64,
+        rule_id: i64,
+    ) -> Result<(), ApiError> {
+        self.pool
+            .get()
+            .await
+            .map_err(ApiError::database)?
+            .query_opt(
+                "SELECT 1 FROM abei_ai.mail_rules r
+                 JOIN abei_ai.mail_rule_versions v
+                   ON v.rule_id = r.id AND v.version = r.current_version
+                 WHERE r.user_id = $1 AND r.id = $2",
+                &[&user_id, &rule_id],
+            )
+            .await
+            .map_err(ApiError::database)?
+            .ok_or_else(|| ApiError::conflict("这条规则还没有发布版本，先发布再批量重归类。"))?;
+        Ok(())
+    }
+
+    pub(crate) async fn rule_candidates(
+        &self,
+        user_id: i64,
+        rule_id: i64,
+        only_unclassified: bool,
+        limit: u32,
+    ) -> Result<Vec<i64>, ApiError> {
+        Ok(self
+            .rule_candidates_with_scan(user_id, rule_id, only_unclassified, limit)
+            .await?
+            .0)
+    }
+
+    /// 同上，另外告诉调用方这一趟一共看过多少封邮件。
+    ///
+    /// 批量重归类要把「看了 500 封、命中 12 封」两个数都写进进度里：只报命中数的话，
+    /// 一次什么都没命中的 apply 和一次根本没扫到邮件的 apply 长得一模一样。
+    pub(crate) async fn rule_candidates_with_scan(
+        &self,
+        user_id: i64,
+        rule_id: i64,
+        only_unclassified: bool,
+        limit: u32,
+    ) -> Result<(Vec<i64>, i32), ApiError> {
+        let published = self
+            .pool
+            .get()
+            .await
+            .map_err(ApiError::database)?
+            .query_opt(
+                "SELECT v.conditions::text FROM abei_ai.mail_rules r
+                 JOIN abei_ai.mail_rule_versions v
+                   ON v.rule_id = r.id AND v.version = r.current_version
+                 WHERE r.user_id = $1 AND r.id = $2",
+                &[&user_id, &rule_id],
+            )
+            .await
+            .map_err(ApiError::database)?
+            .ok_or_else(|| ApiError::conflict("这条规则还没有发布版本，先发布再批量重归类。"))?;
+        let condition = serde_json::from_str::<Condition>(&published.get::<_, String>(0))
+            .map_err(|error| ApiError::internal(format!("规则版本无法解析：{error}")))?;
+        condition.validate().map_err(ApiError::invalid_params)?;
+
+        let rows = self
+            .pool
+            .get()
+            .await
+            .map_err(ApiError::database)?
+            .query(
+                &format!(
+                    "SELECT {} FROM abei_ai.mail_messages
+                     WHERE user_id = $1 AND (NOT $2 OR classification = 'unclassified')
+                     ORDER BY received_at DESC NULLS LAST, id DESC LIMIT $3",
+                    MESSAGE_DETAIL_COLUMNS
+                ),
+                &[&user_id, &only_unclassified, &i64::from(limit)],
+            )
+            .await
+            .map_err(ApiError::database)?;
+        let mut matched = Vec::new();
+        for row in &rows {
+            let facts = self.facts_from_row(row).await?;
+            if condition.evaluate(&facts).matched {
+                matched.push(row.get::<_, i64>("id"));
+            }
+        }
+        Ok((matched, i32::try_from(rows.len()).unwrap_or(i32::MAX)))
     }
 
     pub(crate) async fn test_condition(
@@ -1726,5 +1827,111 @@ mod tests {
             .validate()
             .is_err()
         );
+    }
+
+    /// 规则改完只能一封一封点是没法用的。这里验的是「一次能捞出全部命中的邮件」，
+    /// 以及 scope 的两种范围各自捞到什么。
+    #[tokio::test]
+    async fn applying_a_rule_finds_every_matching_message_at_once() {
+        let Some(pool) = crate::testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_110_030_i64;
+        crate::testdb::seed(&client, user_id).await;
+
+        // 夹具那封是 matched，再造三封没归类的：两封命中，一封不命中。
+        for (uid, subject) in [
+            (11_i64, "招商银行信用卡账单"),
+            (12, "招商银行消费提醒"),
+            (13, "水电费通知"),
+        ] {
+            client
+                .execute(
+                    "INSERT INTO abei_ai.mail_messages
+                       (user_id, mailbox_user_id, folder, uid_validity, uid, message_id,
+                        subject, content_state, classification)
+                     VALUES ($1,$1,'INBOX',1,$2,$3,$4,'cached','unclassified')",
+                    &[
+                        &user_id,
+                        &uid,
+                        &format!("apply-{user_id}-{uid}@example.invalid"),
+                        &subject,
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+        // 夹具那封也让它命中，用来区分 unclassified 和 all。
+        client
+            .execute(
+                "UPDATE abei_ai.mail_messages SET subject = '招商银行每日账单'
+                 WHERE user_id = $1 AND uid = 1",
+                &[&user_id],
+            )
+            .await
+            .unwrap();
+
+        let flow_id: i64 = client
+            .query_one(
+                "SELECT id FROM abei_ai.parser_flows
+                 WHERE owner_user_id IS NULL AND slug = 'cmb-credit-card-daily'",
+                &[],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        let config = crate::mailbox::RuntimeConfig::test();
+        let service = Service::new(pool.clone(), config.storage_root().to_path_buf());
+        let input = RuleInput {
+            name: "招行".to_owned(),
+            enabled: true,
+            position: 10,
+            channel_key: "cmb".to_owned(),
+            parser_flow_id: Some(flow_id),
+            conditions: Condition::Text {
+                field: rules::TextField::Subject,
+                operator: rules::TextOperator::Contains,
+                value: "招商银行".to_owned(),
+                header_name: None,
+            },
+        };
+        let created = service.create_rule(user_id, &input).await.unwrap();
+        let rule_id: i64 = created["data"]["id"].as_str().unwrap().parse().unwrap();
+
+        // 还没发布就批量套用，得先拦住。
+        assert!(
+            service
+                .rule_candidates(user_id, rule_id, true, 500)
+                .await
+                .is_err(),
+            "没发布的规则不能拿来批量重归类"
+        );
+
+        service
+            .publish_rule(user_id, rule_id, "test")
+            .await
+            .unwrap();
+
+        let unclassified = service
+            .rule_candidates(user_id, rule_id, true, 500)
+            .await
+            .unwrap();
+        assert_eq!(unclassified.len(), 2, "两封没归类的命中要一次都捞出来");
+
+        let all = service
+            .rule_candidates(user_id, rule_id, false, 500)
+            .await
+            .unwrap();
+        assert_eq!(all.len(), 3, "scope=all 连已经归过类的那封也算");
+
+        // limit 是硬上限，一趟不会无限扫下去。
+        let capped = service
+            .rule_candidates(user_id, rule_id, false, 1)
+            .await
+            .unwrap();
+        assert!(capped.len() <= 1, "limit 必须真的封顶");
+
+        crate::testdb::cleanup(&client, user_id).await;
     }
 }

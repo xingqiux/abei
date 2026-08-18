@@ -30,6 +30,9 @@ pub(crate) struct ImportRequest<'a> {
     pub dry_run: bool,
     /// 结果里带上发给 Firefly 的原始 payload，调试用。
     pub include_payload: bool,
+    /// 这一条属于哪一次入账动作。整批共用一个，落到 attempt 上供「整批撤回」用。
+    /// 单条重试不属于任何一批，传 None。
+    pub batch_id: Option<&'a str>,
 }
 
 impl Service {
@@ -44,9 +47,30 @@ impl Service {
             row_id,
             dry_run,
             include_payload,
+            batch_id,
         } = request;
 
-        let prepared = match self.prepare_import(user_id, row_id, dry_run).await {
+        // 零：渠道还没对上 Firefly 账户时，替用户把账户建好再走下去。
+        // 这一步失败只有两种：Firefly 连不上，或者重名要人点头——两种都是「这一条现在
+        // 入不了」，和下面准备阶段的失败同一种汇报方式，机器码原样带出去给界面分支。
+        if let Err(error) = self
+            .ensure_channel_account(user_id, token, row_id, dry_run)
+            .await
+        {
+            return failed_row_with_reason(
+                row_id,
+                "skip",
+                error.detail(),
+                None,
+                error.reason(),
+                Some(error.detail()),
+            );
+        }
+
+        let prepared = match self
+            .prepare_import(user_id, row_id, dry_run, batch_id)
+            .await
+        {
             Ok(value) => value,
             // 准备阶段的失败是「这条流水现在不能入账」，原因五花八门：账户没映射、金额非法、
             // 已经有在途尝试。整批请求不该因此失败，但也不能把原因糊成一个 import_excluded——
@@ -204,6 +228,19 @@ impl Service {
                 .await
             }
             Err(WriteError::Http { status, body }) => {
+                // 网关类状态码不是 Firefly 说的话，是它前面那层反代说的：请求可能已经
+                // 转发进去建好了账，只是回话没走回来。这种当可重试重发就是双记。
+                if is_gateway_uncertainty(status) {
+                    let message = format!(
+                        "Firefly 前面的网关返回 {}，这笔账记没记上不确定：{}",
+                        status.as_u16(),
+                        firefly::error_message(&body, status.as_u16())
+                    );
+                    let _ = self
+                        .mark_import_uncertain(user_id, &attempt_id, &message)
+                        .await;
+                    return failed_row(row_id, "uncertain", message, Some(attempt_id));
+                }
                 // Firefly 明确拒绝了：账没记上。5xx 当可重试，4xx 是请求本身不合法。
                 let retryable = status.is_server_error();
                 let message = firefly::error_message(&body, status.as_u16());
@@ -287,6 +324,16 @@ impl Service {
                     result["payload"] = payload;
                 }
                 result
+            }
+            // 行在这期间被改成了别的状态，attempt 已经就地落到失败态了。再去标 uncertain
+            // 只会失败一次然后被忽略，界面上却显示成「等对账」——这件事需要的是人核对。
+            Err(error) if error.reason() == super::imports::reasons::ROW_STATE_CHANGED => {
+                failed_row(
+                    row_id,
+                    "failed",
+                    error.detail(),
+                    Some(attempt_id.to_owned()),
+                )
             }
             Err(error) => {
                 // 账记上了，本地却没记住。这是真正的撕裂，交给对账。
@@ -435,6 +482,17 @@ fn excluded_row(
     preview
 }
 
+/// 这个状态码是「Firefly 处理过了」还是「中间那层替它回的话」。
+///
+/// 502/504 是反代在说自己没等到后端回应，408 是它自己等超时了——三个都不能证明
+/// 请求没有到达 Firefly。500/503 是 Firefly 自己回的，那笔写入没落地。
+fn is_gateway_uncertainty(status: StatusCode) -> bool {
+    matches!(
+        status,
+        StatusCode::BAD_GATEWAY | StatusCode::GATEWAY_TIMEOUT | StatusCode::REQUEST_TIMEOUT
+    )
+}
+
 fn parse_positive_id(value: &Value) -> Option<i64> {
     value
         .as_i64()
@@ -502,7 +560,7 @@ mod tests {
 #[cfg(test)]
 mod saga_tests {
     use super::*;
-    use crate::testdb::{self, FakeWrite};
+    use crate::testdb::{self, FakeAccounts, FakeWrite};
 
     /// 用指定的 Firefly 客户端造一个 billing::Service。
     fn service(pool: &deadpool_postgres::Pool, firefly: crate::firefly::Firefly) -> Service {
@@ -550,6 +608,7 @@ mod saga_tests {
             row_id: fixture.row_id,
             dry_run: false,
             include_payload: false,
+            batch_id: None,
         }
     }
 
@@ -578,6 +637,89 @@ mod saga_tests {
             ("imported".to_owned(), Some(4242)),
             "入账成功后流水要落到 imported 并记住交易组"
         );
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    /// 「整批撤回」要撤的是**一次入账动作**写进去的那几行。没有批次编号时只能拿
+    /// 时间窗口去猜，猜错就是从账本里删掉不该删的交易。所以入账那一刻就把编号写下来，
+    /// 而且必须一路走到列表下发的行上——界面聚不成组，这个编号等于没有。
+    #[tokio::test]
+    async fn an_import_stamps_the_batch_it_belongs_to_and_hands_it_back_on_the_row() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_110_120_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        let firefly = testdb::FakeFirefly::start(FakeWrite::Created(4711)).await;
+        let batch_id = uuid::Uuid::new_v4().to_string();
+        let service = service(&pool, firefly.client());
+
+        let result = service
+            .run_import(ImportRequest {
+                batch_id: Some(&batch_id),
+                ..request(&fixture)
+            })
+            .await;
+        assert_eq!(result["action"], "imported");
+
+        let stored: Option<String> = client
+            .query_one(
+                "SELECT batch_id::text FROM abei_ai.bill_import_attempts
+                 WHERE bill_row_id = $1 ORDER BY attempt_no DESC LIMIT 1",
+                &[&fixture.row_id],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(stored.as_deref(), Some(batch_id.as_str()));
+
+        let list = service
+            .list_rows(user_id, Some("imported"), None, None, 1, 50)
+            .await
+            .unwrap();
+        let wanted = fixture.row_id.to_string();
+        let row = list["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"].as_str() == Some(wanted.as_str()))
+            .expect("入账过的行应该出现在 imported 分组里");
+        assert_eq!(
+            row["attributes"]["import_attempt"]["batch_id"], batch_id,
+            "批次编号要随行下发，否则界面聚不出「这一批」"
+        );
+
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    /// 单条重试不属于任何一批：把它算进最近那一批，「整批撤回」就会顺手删掉一笔
+    /// 用户压根没在那次动作里入的账。
+    #[tokio::test]
+    async fn a_one_off_import_belongs_to_no_batch() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_110_121_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        let firefly = testdb::FakeFirefly::start(FakeWrite::Created(4712)).await;
+
+        service(&pool, firefly.client())
+            .run_import(request(&fixture))
+            .await;
+
+        let stored: Option<String> = client
+            .query_one(
+                "SELECT batch_id::text FROM abei_ai.bill_import_attempts
+                 WHERE bill_row_id = $1 ORDER BY attempt_no DESC LIMIT 1",
+                &[&fixture.row_id],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(stored, None);
+
         testdb::cleanup(&client, user_id).await;
     }
 
@@ -629,6 +771,58 @@ mod saga_tests {
             latest_attempt(&client, fixture.row_id).await.as_deref(),
             Some("retryable")
         );
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    #[tokio::test]
+    async fn a_gateway_timeout_goes_to_uncertain_because_the_write_may_have_gone_through() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_110_112_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        let firefly = testdb::FakeFirefly::start(FakeWrite::Rejected(504)).await;
+
+        let result = service(&pool, firefly.client())
+            .run_import(request(&fixture))
+            .await;
+
+        // 504 是反代说自己没等到后端，不是 Firefly 说自己没干。当可重试重发就会记两笔。
+        assert_eq!(result["action"], "uncertain");
+        assert_eq!(
+            latest_attempt(&client, fixture.row_id).await.as_deref(),
+            Some("uncertain")
+        );
+        assert_eq!(row_status(&client, fixture.row_id).await.0, "pending");
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    #[tokio::test]
+    async fn a_bad_gateway_is_also_uncertain_while_a_plain_500_stays_retryable() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_110_113_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+
+        let firefly = testdb::FakeFirefly::start(FakeWrite::Rejected(502)).await;
+        let result = service(&pool, firefly.client())
+            .run_import(request(&fixture))
+            .await;
+        assert_eq!(result["action"], "uncertain");
+
+        // 500 是 Firefly 自己回的：它收到了并且没写成，重发是安全的。
+        let user_id = 8_110_114_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        let firefly = testdb::FakeFirefly::start(FakeWrite::Rejected(500)).await;
+        let result = service(&pool, firefly.client())
+            .run_import(request(&fixture))
+            .await;
+        assert_eq!(result["action"], "retryable");
+
+        testdb::cleanup(&client, 8_110_113).await;
         testdb::cleanup(&client, user_id).await;
     }
 
@@ -811,32 +1005,141 @@ mod saga_tests {
         testdb::cleanup(&client, user_id).await;
     }
 
+    /// 把夹具那一行退回「渠道还没对上账户」的样子：账户和映射都拿掉，只留解析器给的
+    /// 那句账户提示——真实的行就长这样，映射也是挂在这句提示上的。
+    async fn unmap(client: &deadpool_postgres::Client, fixture: &testdb::Fixture) {
+        client
+            .execute(
+                "UPDATE abei_ai.bill_rows SET source_account_id = NULL, source_name = NULL,
+                   account_hint = '招商银行信用卡(1234)'
+                 WHERE id = $1",
+                &[&fixture.row_id],
+            )
+            .await
+            .unwrap();
+        client
+            .execute(
+                "DELETE FROM abei_ai.bill_account_mappings WHERE user_id = $1",
+                &[&fixture.user_id],
+            )
+            .await
+            .unwrap();
+    }
+
     #[tokio::test]
-    async fn a_row_without_an_account_mapping_says_so_in_a_machine_readable_code() {
+    async fn a_channel_without_an_account_gets_one_created_and_imports_without_asking() {
         let Some(pool) = testdb::pool().await else {
             return;
         };
         let client = pool.get().await.unwrap();
         let user_id = 8_110_110_i64;
         let fixture = testdb::seed(&client, user_id).await;
-        // 夹具默认给了付款账户，这里把它拿掉，回到用户还没配映射的状态。
-        client
-            .execute(
-                "UPDATE abei_ai.bill_rows SET source_account_id = NULL WHERE id = $1",
-                &[&fixture.row_id],
-            )
-            .await
-            .unwrap();
-        let firefly = testdb::FakeFirefly::start(FakeWrite::Created(1)).await;
+        unmap(&client, &fixture).await;
+        let firefly =
+            testdb::FakeFirefly::start_with_accounts(FakeWrite::Created(1), FakeAccounts::None)
+                .await;
 
         let result = service(&pool, firefly.client())
             .run_import(request(&fixture))
             .await;
 
-        // 前端要靠这个码把用户领到账户映射页去，而不是让它去猜中文提示的意思。
-        assert_eq!(result["reason_code"], "account_unmapped");
-        assert_eq!(result["error"], "支出流水必须先映射付款 Firefly 账户。");
-        assert_eq!(firefly.write_count(), 0, "映射没配好之前不该写 Firefly");
+        // 新用户第一次入账不该撞上「先去配账户映射」这堵墙：账户由系统建好，账照记。
+        assert_eq!(result["action"], "imported");
+        assert_eq!(firefly.account_count(), 1, "该建的那个渠道账户没建");
+        let mapping = client
+            .query_one(
+                "SELECT firefly_account_id, firefly_account_name, source, state
+                 FROM abei_ai.bill_account_mappings WHERE user_id = $1",
+                &[&user_id],
+            )
+            .await
+            .unwrap();
+        assert_eq!(mapping.get::<_, i64>(0), 9001);
+        assert_eq!(mapping.get::<_, String>(1), "招商银行");
+        assert_eq!(mapping.get::<_, String>(2), "auto");
+        assert_eq!(mapping.get::<_, String>(3), "active");
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    #[tokio::test]
+    async fn a_dry_run_reports_the_account_it_would_create_instead_of_creating_it() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_110_111_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        unmap(&client, &fixture).await;
+        let firefly =
+            testdb::FakeFirefly::start_with_accounts(FakeWrite::Created(1), FakeAccounts::None)
+                .await;
+
+        let result = service(&pool, firefly.client())
+            .run_import(ImportRequest {
+                dry_run: true,
+                ..request(&fixture)
+            })
+            .await;
+
+        // 预览的承诺是「看一眼，什么都不动」。账户建在确认那一刻，预览只预告。
+        assert_eq!(result["reason_code"], "channel_account_auto_create");
+        assert_eq!(firefly.account_count(), 0, "预览不该建账户");
+        let mappings: i64 = client
+            .query_one(
+                "SELECT count(*) FROM abei_ai.bill_account_mappings WHERE user_id = $1",
+                &[&user_id],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(mappings, 0, "预览不该留下生效映射");
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    #[tokio::test]
+    async fn an_account_that_already_exists_is_asked_about_once_instead_of_being_bound_silently() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_110_115_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        unmap(&client, &fixture).await;
+        let firefly = testdb::FakeFirefly::start_with_accounts(
+            FakeWrite::Created(555),
+            FakeAccounts::Existing(77, "招商银行"),
+        )
+        .await;
+        let service = service(&pool, firefly.client());
+
+        let blocked = service.run_import(request(&fixture)).await;
+
+        // 重名可能是用户自己一直在用的账户，也可能只是撞名。静默绑上去等于把一批账
+        // 记进一个没人确认过的账户，事后还看不出来。
+        assert_eq!(blocked["reason_code"], "channel_account_unconfirmed");
+        assert_eq!(firefly.account_count(), 0, "有同名账户时不该再建一个");
+        assert_eq!(firefly.write_count(), 0, "没确认之前不该写账");
+
+        let pending = service.pending_channel_accounts(user_id).await.unwrap();
+        let entry = &pending["data"][0];
+        assert_eq!(entry["attributes"]["channel_name"], "招商银行");
+        assert_eq!(entry["attributes"]["firefly_account_id"], "77");
+        let mapping_id = entry["id"].as_str().unwrap().parse::<i64>().unwrap();
+
+        service
+            .confirm_channel_account(user_id, mapping_id)
+            .await
+            .unwrap();
+        let imported = service.run_import(request(&fixture)).await;
+
+        // 确认过一次之后这一渠道就再也不问了。
+        assert_eq!(imported["action"], "imported");
+        assert!(
+            service.pending_channel_accounts(user_id).await.unwrap()["data"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
         testdb::cleanup(&client, user_id).await;
     }
 

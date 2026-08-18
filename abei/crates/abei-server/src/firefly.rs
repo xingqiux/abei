@@ -149,6 +149,32 @@ impl Firefly {
             })
         }
     }
+
+    /// 删一次。撤销入账用。
+    ///
+    /// 404 和 2xx 一样算成功：撤销要的是「Firefly 里没有这笔了」，交易早就不在
+    /// 和这次把它删掉，对账本来说是同一个结果。把 404 当失败会让用户卡在一条
+    /// 永远撤不掉的记录上——那笔交易已经不存在，再点多少次也变不出来。
+    ///
+    /// 和 [`Self::send_json`] 一样不折叠成 `ApiError`：调用方必须能区分「Firefly 拒绝了」
+    /// 和「结果不明」，后者不能当成删干净了。
+    pub(crate) async fn delete(&self, token: &str, path: &str) -> Result<StatusCode, WriteError> {
+        let response = self
+            .http
+            .delete(self.url(path))
+            .bearer_auth(token)
+            .header("Accept", "application/json")
+            .send()
+            .await
+            .map_err(|error| WriteError::Transport(error.to_string()))?;
+        let status = response.status();
+        if status.is_success() || status == StatusCode::NOT_FOUND {
+            return Ok(status);
+        }
+        let text = response.text().await.unwrap_or_default();
+        let body = serde_json::from_str(&text).unwrap_or(Value::String(text));
+        Err(WriteError::Http { status, body })
+    }
 }
 
 /// `ApiError.reason` 用的机器码。

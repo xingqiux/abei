@@ -21,6 +21,8 @@ pub(crate) mod reasons {
     pub(crate) const LINK_TRANSITION_INVALID: &str = "link_transition_invalid";
     /// 想留下的那一行不在这条配对里。
     pub(crate) const LINK_KEEP_ROW_INVALID: &str = "link_keep_row_invalid";
+    /// 该并掉的那一行已经入账或已被忽略，这条配对确认不了。
+    pub(crate) const LINK_MERGE_ROW_NOT_PENDING: &str = "link_merge_row_not_pending";
 }
 
 /// 一条配对建议在库里的样子。
@@ -30,6 +32,8 @@ struct Link {
     relation: String,
     confidence: String,
     state: LinkState,
+    /// 确认这条配对时被并掉的那一行。撤回只放回它，不认别人。
+    merged_row_id: Option<i64>,
 }
 
 impl Link {
@@ -54,7 +58,7 @@ impl Service {
             .map_err(ApiError::database)?
             .query(
                 "SELECT l.id, l.relation, l.state, l.confidence::text, l.evidence,
-                        l.decided_at::text,
+                        l.decided_at::text, l.decided_by,
                         CASE WHEN l.left_row_id = $2 THEN l.right_row_id ELSE l.left_row_id END,
                         o.status, o.occurred_at::text, o.signed_amount::text, o.currency_code,
                         o.description, o.counterparty, o.source_name, o.destination_name,
@@ -83,18 +87,21 @@ impl Service {
                         "confidence": row.get::<_, String>(3),
                         "evidence": row.get::<_, Value>(4),
                         "decided_at": row.get::<_, Option<String>>(5),
+                        // 谁做的决定。界面靠它把「系统自动合并的」和「我自己确认过的」
+                        // 分开说，否则用户看到一条已合并却想不起来自己什么时候点过。
+                        "decided_by": row.get::<_, Option<String>>(6),
                         "related_row": {
-                            "id": row.get::<_, i64>(6).to_string(),
-                            "status": row.get::<_, String>(7),
-                            "occurred_at": row.get::<_, Option<String>>(8),
-                            "signed_amount": row.get::<_, String>(9),
-                            "currency_code": row.get::<_, String>(10),
-                            "description": row.get::<_, Option<String>>(11),
-                            "counterparty": row.get::<_, Option<String>>(12),
-                            "source_name": row.get::<_, Option<String>>(13),
-                            "destination_name": row.get::<_, Option<String>>(14),
-                            "channel_key": row.get::<_, Option<String>>(15),
-                            "dismissed_reason": row.get::<_, Option<String>>(16),
+                            "id": row.get::<_, i64>(7).to_string(),
+                            "status": row.get::<_, String>(8),
+                            "occurred_at": row.get::<_, Option<String>>(9),
+                            "signed_amount": row.get::<_, String>(10),
+                            "currency_code": row.get::<_, String>(11),
+                            "description": row.get::<_, Option<String>>(12),
+                            "counterparty": row.get::<_, Option<String>>(13),
+                            "source_name": row.get::<_, Option<String>>(14),
+                            "destination_name": row.get::<_, Option<String>>(15),
+                            "channel_key": row.get::<_, Option<String>>(16),
+                            "dismissed_reason": row.get::<_, Option<String>>(17),
                         }
                     }
                 })
@@ -120,7 +127,7 @@ impl Service {
         if link.relation == "cross_source_candidate" {
             let keep = resolve_keep_row(&transaction, &link, keep_row_id).await?;
             let merged = link.other_side(keep);
-            transaction
+            let dismissed = transaction
                 .execute(
                     "UPDATE abei_ai.bill_rows SET status = 'dismissed',
                        dismissed_reason = $3, dismissed_at = now(), updated_at = now()
@@ -129,11 +136,24 @@ impl Service {
                 )
                 .await
                 .map_err(ApiError::database)?;
+            // 该并掉的那一行不是 pending，就没有并成——它可能已经入账（账在 Firefly 里，
+            // 这里动不了它），也可能已经被别处忽略。以前这种情况照样置 confirmed 并回一个
+            // merged_row_id，界面显示「已合并」，实际两笔都还在。宁可报冲突让人重选留哪边。
+            if dismissed == 0 {
+                return Err(merge_conflict(&transaction, user_id, merged).await);
+            }
             merged_row_id = Some(merged);
         }
 
         clear_pair_issue(&transaction, user_id, &link).await?;
-        set_state(&transaction, user_id, link_id, LinkState::Confirmed).await?;
+        set_state(
+            &transaction,
+            user_id,
+            link_id,
+            LinkState::Confirmed,
+            merged_row_id,
+        )
+        .await?;
         transaction.commit().await.map_err(ApiError::database)?;
         Ok(json!({
             "data": {
@@ -154,7 +174,7 @@ impl Service {
         let link = load_link(&transaction, user_id, link_id).await?;
         assert_transition(link.state, LinkState::Rejected)?;
         clear_pair_issue(&transaction, user_id, &link).await?;
-        set_state(&transaction, user_id, link_id, LinkState::Rejected).await?;
+        set_state(&transaction, user_id, link_id, LinkState::Rejected, None).await?;
         transaction.commit().await.map_err(ApiError::database)?;
         Ok(json!({
             "data": {
@@ -172,22 +192,25 @@ impl Service {
         let transaction = client.transaction().await.map_err(ApiError::database)?;
         let link = load_link(&transaction, user_id, link_id).await?;
         assert_transition(link.state, LinkState::Suggested)?;
-        let restored = transaction
-            .execute(
-                "UPDATE abei_ai.bill_rows SET status = 'pending', dismissed_reason = NULL,
-                   dismissed_at = NULL, updated_at = now()
-                 WHERE user_id = $1 AND id = ANY($2) AND status = 'dismissed'
-                   AND dismissed_reason = $3",
-                &[
-                    &user_id,
-                    &vec![link.left_row_id, link.right_row_id],
-                    &DUPLICATE_CONFIRMED,
-                ],
-            )
-            .await
-            .map_err(ApiError::database)?;
+        // 只放回这条 link 自己并掉的那一行。按 `dismissed_reason` 找是认不出人的：
+        // 同一行可能被另一条 link 并掉，撤回这条就把那条的结论也一起掀了。
+        // 迁移之前确认的 link 认不出并掉了谁（merged_row_id 为空），那就一行都不放回，
+        // 放错行比不放更糟——放错等于把一笔已经定了的重复重新变成待办。
+        let restored = match link.merged_row_id {
+            Some(merged) => transaction
+                .execute(
+                    "UPDATE abei_ai.bill_rows SET status = 'pending', dismissed_reason = NULL,
+                       dismissed_at = NULL, updated_at = now()
+                     WHERE user_id = $1 AND id = $2 AND status = 'dismissed'
+                       AND dismissed_reason = $3",
+                    &[&user_id, &merged, &DUPLICATE_CONFIRMED],
+                )
+                .await
+                .map_err(ApiError::database)?,
+            None => 0,
+        };
         restore_pair_issue(&transaction, user_id, &link).await?;
-        set_state(&transaction, user_id, link_id, LinkState::Suggested).await?;
+        set_state(&transaction, user_id, link_id, LinkState::Suggested, None).await?;
         transaction.commit().await.map_err(ApiError::database)?;
         Ok(json!({
             "data": {
@@ -209,7 +232,7 @@ async fn load_link(
 ) -> Result<Link, ApiError> {
     let row = transaction
         .query_opt(
-            "SELECT left_row_id, right_row_id, relation, state, confidence::text
+            "SELECT left_row_id, right_row_id, relation, state, confidence::text, merged_row_id
              FROM abei_ai.bill_row_links
              WHERE user_id = $1 AND id = $2 FOR UPDATE",
             &[&user_id, &link_id],
@@ -227,7 +250,33 @@ async fn load_link(
         confidence: row.get(4),
         state: LinkState::from_str(&state)
             .ok_or_else(|| ApiError::internal(format!("配对状态 {state} 不认识。")))?,
+        merged_row_id: row.get(5),
     })
+}
+
+/// 该并掉的那一行并不动时，说清楚是为什么——已经入账和已经被忽略，用户要做的事不一样。
+async fn merge_conflict(
+    transaction: &tokio_postgres::Transaction<'_>,
+    user_id: i64,
+    merged: i64,
+) -> ApiError {
+    let status = transaction
+        .query_opt(
+            "SELECT status FROM abei_ai.bill_rows WHERE user_id = $1 AND id = $2",
+            &[&user_id, &merged],
+        )
+        .await
+        .ok()
+        .flatten()
+        .map(|row| row.get::<_, String>(0));
+    let detail = match status.as_deref() {
+        Some("imported") => {
+            "要并掉的那一笔已经入账，账在 Firefly 里；请改成留下它，或先在 Firefly 中撤销。"
+        }
+        Some("dismissed") => "要并掉的那一笔已经被忽略，不用再并一次。",
+        _ => "要并掉的那一笔已经不在待处理状态，配对没有生效。",
+    };
+    ApiError::conflict(detail).with_reason(reasons::LINK_MERGE_ROW_NOT_PENDING)
 }
 
 /// 没指定留哪一行时：已入账的那一行留下（账已经在 Firefly 里，动它没意义），
@@ -344,20 +393,30 @@ fn state_label(state: LinkState) -> &'static str {
     }
 }
 
+/// 这里改状态的三个动作都是人在点，所以 `decided_by` 要么是 `user`，要么（撤回之后
+/// 回到「还没定」）没有决定者。系统自动确认的那条路在 [`super::analysis`] 里，写 `auto`。
 async fn set_state(
     transaction: &tokio_postgres::Transaction<'_>,
     user_id: i64,
     link_id: i64,
     state: LinkState,
+    merged_row_id: Option<i64>,
 ) -> Result<(), ApiError> {
     let decided = state != LinkState::Suggested;
     transaction
         .execute(
             "UPDATE abei_ai.bill_row_links
-             SET state = $3, updated_at = now(),
-                 decided_at = CASE WHEN $4 THEN now() ELSE NULL END
+             SET state = $3, updated_at = now(), merged_row_id = $5,
+                 decided_at = CASE WHEN $4 THEN now() ELSE NULL END,
+                 decided_by = CASE WHEN $4 THEN 'user' ELSE NULL END
              WHERE user_id = $1 AND id = $2",
-            &[&user_id, &link_id, &state.as_str(), &decided],
+            &[
+                &user_id,
+                &link_id,
+                &state.as_str(),
+                &decided,
+                &merged_row_id,
+            ],
         )
         .await
         .map_err(ApiError::database)?;
@@ -375,6 +434,7 @@ mod tests {
             relation: "cross_source_candidate".to_owned(),
             confidence: "0.9000".to_owned(),
             state,
+            merged_row_id: None,
         }
     }
 
@@ -509,6 +569,107 @@ mod tests {
         assert_eq!(row_state(&client, merged).await, ("pending".to_owned(), 1));
         assert_eq!(row_state(&client, kept).await, ("pending".to_owned(), 1));
 
+        crate::testdb::cleanup(&client, user_id).await;
+    }
+
+    #[tokio::test]
+    async fn undoing_one_pairing_only_puts_back_the_row_that_pairing_merged_away() {
+        let Some(pool) = crate::testdb::pool().await else {
+            return;
+        };
+        let user_id = 8_115_003_i64;
+        let client = pool.get().await.unwrap();
+        let fixture = crate::testdb::seed(&client, user_id).await;
+        let (link_id, other_row_id) = seed_pair(&client, &fixture).await;
+        let kept = fixture.row_id.min(other_row_id);
+        let merged = fixture.row_id.max(other_row_id);
+        // 这条配对留下的那一行，此前已经被**别的**配对并掉了（同样是 duplicate_confirmed）。
+        // 只按忽略原因找要放回谁，就会把那条配对的结论一起掀掉。
+        client
+            .execute(
+                "UPDATE abei_ai.bill_rows SET status = 'dismissed', dismissed_reason = $2,
+                   dismissed_at = now() WHERE id = $1",
+                &[&kept, &DUPLICATE_CONFIRMED],
+            )
+            .await
+            .unwrap();
+        let service = service(pool.clone());
+
+        service
+            .confirm_link(user_id, link_id, Some(kept))
+            .await
+            .unwrap();
+        let undone = service.undo_link(user_id, link_id).await.unwrap();
+
+        assert_eq!(undone["data"]["attributes"]["restored_rows"], 1);
+        assert_eq!(row_state(&client, merged).await.0, "pending");
+        assert_eq!(
+            row_state(&client, kept).await.0,
+            "dismissed",
+            "别的配对的结论不该被这次撤回掀掉"
+        );
+        crate::testdb::cleanup(&client, user_id).await;
+    }
+
+    #[tokio::test]
+    async fn a_pairing_cannot_be_confirmed_when_the_row_it_would_merge_is_already_imported() {
+        let Some(pool) = crate::testdb::pool().await else {
+            return;
+        };
+        let user_id = 8_115_004_i64;
+        let client = pool.get().await.unwrap();
+        let fixture = crate::testdb::seed(&client, user_id).await;
+        let (link_id, other_row_id) = seed_pair(&client, &fixture).await;
+        let kept = fixture.row_id.min(other_row_id);
+        let merged = fixture.row_id.max(other_row_id);
+        // 该被并掉的那一笔已经入账，账在 Firefly 里，这里动不了它。
+        client
+            .execute(
+                "UPDATE abei_ai.bill_rows SET status = 'imported', transaction_group_id = 42
+                 WHERE id = $1",
+                &[&merged],
+            )
+            .await
+            .unwrap();
+        let service = service(pool.clone());
+
+        let refused = service
+            .confirm_link(user_id, link_id, Some(kept))
+            .await
+            .expect_err("并不掉就不能宣布已合并");
+
+        assert_eq!(refused.reason(), reasons::LINK_MERGE_ROW_NOT_PENDING);
+        let state: String = client
+            .query_one(
+                "SELECT state FROM abei_ai.bill_row_links WHERE id = $1",
+                &[&link_id],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(state, "suggested", "没并成就不能算已确认");
+        assert_eq!(row_state(&client, merged).await.0, "imported");
+        crate::testdb::cleanup(&client, user_id).await;
+    }
+
+    #[tokio::test]
+    async fn a_merged_away_row_cannot_be_brought_back_by_the_plain_restore_path() {
+        let Some(pool) = crate::testdb::pool().await else {
+            return;
+        };
+        let user_id = 8_115_005_i64;
+        let client = pool.get().await.unwrap();
+        let fixture = crate::testdb::seed(&client, user_id).await;
+        let (link_id, other_row_id) = seed_pair(&client, &fixture).await;
+        let merged = fixture.row_id.max(other_row_id);
+        let service = service(pool.clone());
+        service.confirm_link(user_id, link_id, None).await.unwrap();
+
+        // 「撤销忽略」绕过配对把它放回来，界面上就会出现两笔同样的钱，两笔都能入账。
+        let restored = service.restore_rows(user_id, &[merged]).await.unwrap();
+
+        assert_eq!(restored["processed"], 0);
+        assert_eq!(row_state(&client, merged).await.0, "dismissed");
         crate::testdb::cleanup(&client, user_id).await;
     }
 

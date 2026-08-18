@@ -13,6 +13,9 @@ const CLAIM_INTERVAL: Duration = Duration::from_secs(5);
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 const LEASE_SECONDS: i32 = 90;
 
+/// 一个解析任务最多被领多少次。到顶还没跑完就交给清扫器判死，别让它永远转圈。
+pub(super) const MAX_ATTEMPTS: i32 = 20;
+
 pub(super) fn start(service: Service) {
     for slot in 0..service.worker_count() {
         let worker = service.clone();
@@ -64,7 +67,8 @@ impl Service {
                  FROM abei_ai.parse_jobs j
                  JOIN abei_ai.bill_documents d ON d.id = j.bill_document_id
                  WHERE j.status = '{queued}'
-                    OR (j.status = '{running}' AND j.lease_expires_at < now() AND j.attempt < 20)
+                    OR (j.status = '{running}' AND j.lease_expires_at < now()
+                        AND j.attempt < {MAX_ATTEMPTS})
                  ORDER BY j.priority, j.requested_at, j.id
                  FOR UPDATE OF j SKIP LOCKED LIMIT 1",
                     running = ParseJobStatus::Running,
@@ -134,7 +138,7 @@ impl Service {
             .published_definition(job.user_id, job.flow_id, job.flow_version)
             .await
             .map_err(display)?;
-        let secrets = self.load_job_secrets(job).await?;
+        let secrets = self.load_job_secrets(job, &definition).await?;
         if let Some(key) = missing_secret(&definition, &secrets) {
             self.wait_for_secret(job, &key).await?;
             return Ok(());
@@ -296,8 +300,10 @@ impl Service {
             )
             .await
             .map_err(display)?
-            .map(|row| row.get::<_, i32>(0))
-            .unwrap_or(1);
+            // 没有这行记录说明库里已经没有「用户试过几次」这件事了（密码过期被清掉）。
+            // 那就是 0 次，不是 1 次——以前写死 1，于是「密码过期 + 又输错」每次都
+            // 从 1 重新数，5 次的上限永远数不到。
+            .map_or(0, |row| row.get::<_, i32>(0));
         if attempts >= 5 {
             transaction
                 .execute(
@@ -349,7 +355,11 @@ impl Service {
         Ok(())
     }
 
-    async fn load_job_secrets(&self, job: &ClaimedJob) -> Result<BTreeMap<String, String>, String> {
+    async fn load_job_secrets(
+        &self,
+        job: &ClaimedJob,
+        definition: &ParserFlowDefinition,
+    ) -> Result<BTreeMap<String, String>, String> {
         let client = self.pool.get().await.map_err(display)?;
         client
             .execute(
@@ -376,25 +386,46 @@ impl Service {
         let secret = plaintext
             .strip_prefix(&prefix)
             .ok_or_else(|| "ParseJob 密码绑定信息不正确。".to_owned())?;
-        Ok(required_secret_keys_for(&self.parser, job, secret))
+        Ok(required_secret_keys_for(definition, secret))
     }
 }
 
+/// 用户提交的那一个密码，要挂到哪些 secret key 上。
+///
+/// 以前这里是四个写死的字面量，参数全是 `_`：流程里声明了别的 `password_key`
+/// （比如自己写的解析流程用 `my_bank_password`），用户密码输了也等于没输，
+/// 任务会一直停在等密码。现在按流程真正声明的来，一个都不落。
 fn required_secret_keys_for(
-    _parser: &crate::parser::Service,
-    _job: &ClaimedJob,
+    definition: &ParserFlowDefinition,
     secret: &str,
 ) -> BTreeMap<String, String> {
-    // 同一份账单通常只有一个密码；把它提供给所有受控 secret key，流程仍决定是否使用。
-    [
-        "alipay_zip_password",
-        "wechat_zip_password",
-        "cmb_zip_password",
-        "pdf_password",
-    ]
-    .into_iter()
-    .map(|key| (key.to_owned(), secret.to_owned()))
-    .collect()
+    let mut keys = definition
+        .nodes
+        .iter()
+        .filter_map(|node| match &node.operation {
+            Node::Unzip {
+                password_key: Some(key),
+            }
+            | Node::PdfToText {
+                password_key: Some(key),
+            } => Some(key.clone()),
+            _ => None,
+        })
+        .map(|key| (key, secret.to_owned()))
+        .collect::<BTreeMap<_, _>>();
+    if keys.is_empty() {
+        // 流程一个都没声明的兜底：内置那几条老流程还是按约定名取密码。
+        keys = [
+            "alipay_zip_password",
+            "wechat_zip_password",
+            "cmb_zip_password",
+            "pdf_password",
+        ]
+        .into_iter()
+        .map(|key| (key.to_owned(), secret.to_owned()))
+        .collect();
+    }
+    keys
 }
 
 fn missing_secret(

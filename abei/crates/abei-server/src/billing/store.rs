@@ -14,7 +14,7 @@ use crate::ApiError;
 use crate::parser::model::{
     Artifact, ArtifactKind, BillRowDraft, Diagnostic, ParseOutput, Severity,
 };
-use crate::states::{ParseJobStatus, sql_list};
+use crate::states::{ParseJobStatus, RowStatus, sql_list};
 
 const FINGERPRINT_VERSION: i16 = 1;
 
@@ -390,6 +390,18 @@ impl Service {
         let external_key = provider_id
             .map(|id| format!("provider:{channel_key}:{}:{id}", account_hint.unwrap_or("")))
             .unwrap_or_else(|| format!("fingerprint:v{FINGERPRINT_VERSION}:{fingerprint}"));
+        // 重解析开的是新 revision，但「这笔账已经处理过了」是跟着钱走的，不跟着 revision 走。
+        // 不把旧 revision 的处置接过来，已经记进 Firefly 的账就会以待入账的身份重新出现。
+        let carried = carry_over_disposition(
+            transaction,
+            job,
+            &external_key,
+            &fingerprint,
+            row_number,
+            &signed,
+            &draft.occurred_at,
+        )
+        .await?;
         let duplicates = transaction
             .query(
                 "SELECT r.id FROM abei_ai.bill_rows r
@@ -412,7 +424,7 @@ impl Service {
                 .query(
                     "SELECT account_hint, firefly_account_id, firefly_account_name
                      FROM abei_ai.bill_account_mappings
-                     WHERE user_id = $1 AND channel_key = $2
+                     WHERE user_id = $1 AND channel_key = $2 AND state = 'active'
                      ORDER BY id",
                     &[&job.user_id, &channel_key],
                 )
@@ -432,15 +444,9 @@ impl Service {
         let mapping = (mapping_accounts.len() == 1).then(|| mapping_accounts[0].clone());
         let mut issues = draft.issues.clone();
         issues.extend(draft.warnings.clone());
-        if mapping_accounts.is_empty() {
-            issues.push(Diagnostic {
-                severity: Severity::Warning,
-                code: "account_mapping_required".to_owned(),
-                message: "入账前需要选择 Firefly 账户。".to_owned(),
-                node_id: None,
-                locator: Some(draft.source_locator.clone()),
-            });
-        } else if mapping_accounts.len() > 1 {
+        // 一个映射都没有不再算问题：入账那一步会替用户在 Firefly 建好同名账户
+        // （见 mappings::Service::ensure_channel_account）。命中多个才要人来选。
+        if mapping_accounts.len() > 1 {
             issues.push(Diagnostic {
                 severity: Severity::Warning,
                 code: "account_mapping_ambiguous".to_owned(),
@@ -475,7 +481,27 @@ impl Service {
             } else {
                 (None, draft.counterparty.clone(), account_id, account_name)
             };
+        // 日期认不出来时以前是静默变 NULL：行进了待确认，reasons 却是空的，界面上
+        // 只能显示「有问题」，用户没有任何可点的下一步。认不出来就写下认不出什么。
         let firefly_date = valid_date(Some(&draft.occurred_at));
+        if firefly_date.is_none() {
+            issues.push(Diagnostic {
+                severity: Severity::Warning,
+                code: "invalid_date".to_owned(),
+                message: format!("日期格式无法识别：{}", draft.occurred_at.trim()),
+                node_id: None,
+                locator: Some(draft.source_locator.clone()),
+            });
+        }
+        if draft.description.trim().is_empty() {
+            issues.push(Diagnostic {
+                severity: Severity::Warning,
+                code: "missing_description".to_owned(),
+                message: "这笔还没有摘要，入账前要补一句。".to_owned(),
+                node_id: None,
+                locator: Some(draft.source_locator.clone()),
+            });
+        }
         transaction
             .execute(
                 "INSERT INTO abei_ai.bill_rows
@@ -486,10 +512,13 @@ impl Service {
                     merchant_order_id, provider_category, provider_status, remark, external_key,
                     fingerprint, fingerprint_version, duplicate_of_row_id, duplicate_state,
                     issues, firefly_type, firefly_date, firefly_amount, firefly_description,
-                    source_account_id, source_name, destination_account_id, destination_name)
+                    source_account_id, source_name, destination_account_id, destination_name,
+                    status, transaction_group_id, dismissed_reason, dismissed_at,
+                    inherited_from_row_id)
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::text::numeric,$10,$11::text::numeric,$12,
                     $13::text::numeric,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,
-                    $28,$29,$30,$31::text::date,$32::text::numeric,$33,$34,$35,$36,$37)",
+                    $28,$29,$30,$31::text::date,$32::text::numeric,$33,$34,$35,$36,$37,
+                    $38,$39,$40,CASE WHEN $40::text IS NULL THEN NULL ELSE now() END,$41)",
                 &[
                     &job.user_id,
                     &job.document_id,
@@ -532,6 +561,16 @@ impl Service {
                     &source_name,
                     &destination_account_id,
                     &destination_name,
+                    &carried
+                        .as_ref()
+                        .map_or(RowStatus::Pending.as_str(), |carried| {
+                            carried.status.as_str()
+                        }),
+                    &carried.as_ref().and_then(|carried| carried.group_id),
+                    &carried
+                        .as_ref()
+                        .and_then(|carried| carried.dismissed_reason.clone()),
+                    &carried.as_ref().map(|carried| carried.source_row_id),
                 ],
             )
             .await
@@ -554,30 +593,21 @@ impl Service {
         }
         let source = source.unwrap_or("").trim();
         let status = status.unwrap_or("").trim();
-        let offset = i64::from(page.saturating_sub(1) * limit);
+        // 先转 i64 再乘：以前是 u32 乘法，page 大一点就回绕成一个小 offset，
+        // 翻到后面反而又看到第一页。
+        let offset = i64::from(page.saturating_sub(1)) * i64::from(limit);
         let limit_i64 = i64::from(limit);
         let client = self.pool.get().await.map_err(ApiError::database)?;
+        let filter = format!(
+            "WHERE d.user_id = $1 AND ($2 = '' OR d.channel_key = $2)
+               AND ($3 = '' OR $3 = {})",
+            document_status_sql()
+        );
         let count: i64 = client
             .query_one(
-                // CASE 左边是 parse_jobs 的状态，右边是对外的文档状态，两套词表不通用。
                 &format!(
-                    "SELECT count(*)::bigint FROM abei_ai.bill_documents d
-                 LEFT JOIN LATERAL (
-                   SELECT status FROM abei_ai.parse_jobs
-                   WHERE bill_document_id = d.id ORDER BY id DESC LIMIT 1
-                 ) j ON true
-                 WHERE d.user_id = $1 AND ($2 = '' OR d.channel_key = $2)
-                   AND ($3 = '' OR $3 = CASE
-                     WHEN d.lifecycle = 'archived' THEN 'ignored'
-                     WHEN j.status = '{waiting}' THEN 'needs_secret'
-                     WHEN j.status = '{failed}' THEN 'failed'
-                     WHEN j.status = '{succeeded}' THEN 'parsed'
-                     WHEN j.status = '{running}' THEN 'ready'
-                     ELSE 'received' END)",
-                    waiting = ParseJobStatus::WaitingInput,
-                    failed = ParseJobStatus::Failed,
-                    succeeded = ParseJobStatus::Succeeded,
-                    running = ParseJobStatus::Running,
+                    "SELECT count(*)::bigint {from} {filter}",
+                    from = document_from()
                 ),
                 &[&user_id, &source, &status],
             )
@@ -587,20 +617,9 @@ impl Service {
         let rows = client
             .query(
                 &format!(
-                    "{select} WHERE d.user_id = $1 AND ($2 = '' OR d.channel_key = $2)
-                       AND ($3 = '' OR $3 = CASE
-                         WHEN d.lifecycle = 'archived' THEN 'ignored'
-                         WHEN j.status = '{waiting}' THEN 'needs_secret'
-                         WHEN j.status = '{failed}' THEN 'failed'
-                         WHEN j.status = '{succeeded}' THEN 'parsed'
-                         WHEN j.status = '{running}' THEN 'ready'
-                         ELSE 'received' END)
+                    "{select} {filter}
                      ORDER BY d.received_at DESC NULLS LAST, d.id DESC LIMIT $4 OFFSET $5",
                     select = document_select(),
-                    waiting = ParseJobStatus::WaitingInput,
-                    failed = ParseJobStatus::Failed,
-                    succeeded = ParseJobStatus::Succeeded,
-                    running = ParseJobStatus::Running,
                 ),
                 &[&user_id, &source, &status, &limit_i64, &offset],
             )
@@ -798,6 +817,47 @@ impl Service {
         Ok((bytes, row.get(0), row.get(1)))
     }
 
+    /// 把邮件当前的归类结果同步到它已经建好的账单文档上，返回文档 id。
+    ///
+    /// 「解析错了 → 改规则 → 重新归类」这条修复路径以前对已经解析过的邮件是空操作：
+    /// `enqueue_message` 见到已有文档就直接返回，文档还挂着旧的解析流程。这里先把
+    /// 渠道和流程改过来，调用方再触发重解析，改规则才真的有用。
+    ///
+    /// 邮件没归上类、或流程没发布时返回 None——那种情况下没有可用的新流程，
+    /// 拿旧流程重跑一遍只是白跑。
+    pub(crate) async fn resync_document_routing(
+        &self,
+        user_id: i64,
+        mail_message_id: i64,
+    ) -> Result<Option<i64>, ApiError> {
+        Ok(self
+            .pool
+            .get()
+            .await
+            .map_err(ApiError::database)?
+            .query_opt(
+                "UPDATE abei_ai.bill_documents d
+                 SET channel_key = m.channel_key,
+                     mail_rule_id = m.matched_rule_id,
+                     mail_rule_version = m.matched_rule_version,
+                     parser_flow_id = m.parser_flow_id,
+                     parser_flow_version = f.current_version,
+                     updated_at = now()
+                 FROM abei_ai.mail_messages m
+                 JOIN abei_ai.parser_flows f ON f.id = m.parser_flow_id
+                 WHERE d.user_id = $1 AND d.mail_message_id = $2 AND d.lifecycle = 'active'
+                   AND m.id = d.mail_message_id AND m.user_id = d.user_id
+                   AND m.classification = 'matched' AND m.channel_key IS NOT NULL
+                   AND f.status = 'published'
+                   AND (f.owner_user_id = d.user_id OR f.owner_user_id IS NULL)
+                 RETURNING d.id",
+                &[&user_id, &mail_message_id],
+            )
+            .await
+            .map_err(ApiError::database)?
+            .map(|row| row.get(0)))
+    }
+
     pub(crate) async fn reparse_document(
         &self,
         user_id: i64,
@@ -910,7 +970,8 @@ impl Service {
                    heartbeat_at = NULL, error_code = NULL, error_message = NULL,
                    finished_at = NULL, updated_at = now()
                  WHERE user_id = $1 AND id = $2 AND status IN ({retryable})
-                   AND attempt < 20",
+                   AND attempt < {max}",
+                    max = super::worker::MAX_ATTEMPTS,
                     queued = ParseJobStatus::Queued,
                     retryable = sql_list(&[ParseJobStatus::Failed, ParseJobStatus::Cancelled]),
                 ),
@@ -950,7 +1011,10 @@ impl Service {
             .await
             .map_err(ApiError::database)?;
         if updated == 0 {
+            // 先确认这个任务存在（不存在就是 404），存在说明它已经收尾了：
+            // 以前这里照样返回 200，界面上「取消」点下去什么都没发生也没提示。
             self.get_parse_job(user_id, id).await?;
+            return Err(ApiError::conflict("这个解析任务已经结束，不能再取消。"));
         }
         self.get_parse_job(user_id, id).await
     }
@@ -982,10 +1046,13 @@ impl Service {
             .await
             .map_err(ApiError::database)?
             .ok_or_else(|| ApiError::not_found("解析任务不存在。"))?;
-        if ParseJobStatus::from_str(&state.get::<_, String>(0))
-            != Some(ParseJobStatus::WaitingInput)
-        {
+        let current = ParseJobStatus::from_str(&state.get::<_, String>(0));
+        if current != Some(ParseJobStatus::WaitingInput) {
             return Err(ApiError::conflict("解析任务当前不在等待密码。"));
+        }
+        // 这条写路径也过一次状态机：迁移表是承诺，不断言就只是注释。
+        if !current.is_some_and(|from| from.can_transition(ParseJobStatus::Queued)) {
+            return Err(ApiError::conflict("解析任务当前状态不能重新排队。"));
         }
         if state.get::<_, i32>(1) >= 5 {
             return Err(ApiError::conflict(
@@ -1060,7 +1127,108 @@ impl Service {
     }
 }
 
-fn document_select() -> &'static str {
+/// 从旧 revision 接过来的处置。
+struct CarriedDisposition {
+    /// 接的是哪一行，写进 `inherited_from_row_id`，一行的处置只能被接走一次。
+    source_row_id: i64,
+    status: RowStatus,
+    group_id: Option<i64>,
+    dismissed_reason: Option<String>,
+}
+
+/// 在同一份文档的旧 revision 里，找出与这一行对应的、已经处置完的那一行。
+///
+/// 两种认法，按可靠度排：内容键（`external_key` / `fingerprint`）对上就是同一笔钱；
+/// 都对不上时退回位置认法（行号 + 金额 + 发生时间），解析器改了字段口径时还能接上。
+/// 已经被别的行接走的不再认，库里那个部分唯一索引是这条规则的最后一道防线——
+/// 两条新行认领同一笔已入账的账，等于把一笔账拆成两笔。
+async fn carry_over_disposition(
+    transaction: &tokio_postgres::Transaction<'_>,
+    job: &ClaimedJob,
+    external_key: &str,
+    fingerprint: &str,
+    row_number: usize,
+    signed: &Decimal,
+    occurred_at: &str,
+) -> Result<Option<CarriedDisposition>, String> {
+    let settled = sql_list(&[RowStatus::Imported, RowStatus::Dismissed]);
+    let row = transaction
+        .query_opt(
+            &format!(
+                "SELECT old.id, old.status, old.transaction_group_id, old.dismissed_reason,
+                        (old.external_key = $4 OR old.fingerprint = $5) AS keyed
+                 FROM abei_ai.bill_rows old
+                 WHERE old.user_id = $1 AND old.bill_document_id = $2 AND old.revision < $3
+                   AND old.status IN ({settled})
+                   AND (old.external_key = $4 OR old.fingerprint = $5
+                        OR (old.row_number = $6 AND old.signed_amount = $7::text::numeric
+                            AND old.occurred_at = $8))
+                   AND NOT EXISTS (
+                     SELECT 1 FROM abei_ai.bill_rows taken
+                     WHERE taken.inherited_from_row_id = old.id
+                   )
+                 ORDER BY keyed DESC, old.revision DESC, old.id DESC
+                 LIMIT 1"
+            ),
+            &[
+                &job.user_id,
+                &job.document_id,
+                &job.target_revision,
+                &external_key,
+                &fingerprint,
+                &(row_number as i32),
+                &signed.to_string(),
+                &occurred_at,
+            ],
+        )
+        .await
+        .map_err(display)?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let raw: String = row.get(1);
+    let status = RowStatus::from_str(&raw).ok_or_else(|| format!("流水状态 {raw} 不认识。"))?;
+    if !matches!(status, RowStatus::Imported | RowStatus::Dismissed) {
+        return Ok(None);
+    }
+    Ok(Some(CarriedDisposition {
+        source_row_id: row.get(0),
+        status,
+        group_id: row.get(2),
+        dismissed_reason: row.get(3),
+    }))
+}
+
+fn document_select() -> String {
+    format!(
+        "{columns}, {status} AS document_status {from}",
+        columns = document_columns(),
+        status = document_status_sql(),
+        from = document_from(),
+    )
+}
+
+/// 文档对外状态的唯一判定。`?status=` 过滤和列表里显示的那个字段都从这里来——
+/// 以前是两套 CASE，展示那套有 imported 分支、过滤那套没有，于是 `?status=imported`
+/// 恒返回空。要求 FROM 里有 [`document_from`] 提供的 `j` / `c` 别名。
+fn document_status_sql() -> String {
+    format!(
+        "CASE
+           WHEN d.lifecycle = 'archived' THEN 'ignored'
+           WHEN COALESCE(c.total, 0) > 0 AND c.imported = c.total THEN 'imported'
+           WHEN j.status = '{waiting}' THEN 'needs_secret'
+           WHEN j.status = '{failed}' THEN 'failed'
+           WHEN j.status = '{succeeded}' THEN 'parsed'
+           WHEN j.status = '{running}' THEN 'ready'
+           ELSE 'received' END",
+        waiting = ParseJobStatus::WaitingInput,
+        failed = ParseJobStatus::Failed,
+        succeeded = ParseJobStatus::Succeeded,
+        running = ParseJobStatus::Running,
+    )
+}
+
+fn document_columns() -> &'static str {
     "SELECT d.id, d.channel_key, d.parser_flow_id, d.parser_flow_version,
             d.active_revision, d.lifecycle, d.summary, d.account_hint,
             d.period_start::text, d.period_end::text, d.received_at::text,
@@ -1072,8 +1240,11 @@ fn document_select() -> &'static str {
             COALESCE(c.pending, 0)::bigint AS row_pending,
             COALESCE(c.imported, 0)::bigint AS row_imported,
             COALESCE(c.duplicate, 0)::bigint AS row_duplicate,
-            COALESCE(c.conflict, 0)::bigint AS row_conflict
-     FROM abei_ai.bill_documents d
+            COALESCE(c.conflict, 0)::bigint AS row_conflict"
+}
+
+fn document_from() -> &'static str {
+    "FROM abei_ai.bill_documents d
      LEFT JOIN abei_ai.mail_messages m
        ON m.id = d.mail_message_id AND m.user_id = d.user_id
      LEFT JOIN LATERAL (
@@ -1099,19 +1270,9 @@ fn document_json(row: &Row) -> Value {
         .and_then(ParseJobStatus::from_str);
     let total: i64 = row.get("row_total");
     let imported: i64 = row.get("row_imported");
-    let status = if lifecycle == "archived" {
-        "ignored"
-    } else if total > 0 && imported == total {
-        "imported"
-    } else {
-        match job_state {
-            Some(ParseJobStatus::WaitingInput) => "needs_secret",
-            Some(ParseJobStatus::Failed) => "failed",
-            Some(ParseJobStatus::Succeeded) => "parsed",
-            Some(ParseJobStatus::Running) => "ready",
-            _ => "received",
-        }
-    };
+    // 状态由 SQL 算好带出来（document_status_sql），这里不再算第二遍——
+    // 算第二遍就意味着 `?status=` 过滤到的和列表里显示的可以是两回事。
+    let status: String = row.get("document_status");
     json!({
         "id": row.get::<_, i64>("id").to_string(),
         "type": "bill-document",
@@ -1269,4 +1430,268 @@ fn sha256(bytes: &[u8]) -> String {
 
 fn display(error: impl std::fmt::Display) -> String {
     error.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testdb;
+
+    fn service(pool: &deadpool_postgres::Pool) -> Service {
+        let config = crate::mailbox::RuntimeConfig::test();
+        let mail = crate::mail::Service::new(pool.clone(), config.storage_root().to_path_buf());
+        let parser = crate::parser::Service::new(pool.clone(), mail.clone());
+        Service::new(
+            pool.clone(),
+            mail,
+            parser,
+            config.job_secret_cipher(),
+            config.reliability(),
+            crate::firefly::Firefly::from_env(),
+        )
+    }
+
+    /// 给这份文档再开一个 revision，返回能交给 `insert_row` 的 job。
+    async fn next_revision(
+        client: &deadpool_postgres::Client,
+        fixture: &testdb::Fixture,
+        revision: i32,
+    ) -> ClaimedJob {
+        let document = client
+            .query_one(
+                "SELECT mail_message_id, parser_flow_id, parser_flow_version
+                 FROM abei_ai.bill_documents WHERE id = $1",
+                &[&fixture.document_id],
+            )
+            .await
+            .unwrap();
+        let mail_message_id: i64 = document.get(0);
+        let flow_id: i64 = document.get(1);
+        let flow_version: i32 = document.get(2);
+        let checksum: String = client
+            .query_one(
+                "SELECT checksum FROM abei_ai.parser_flow_versions
+                 WHERE flow_id = $1 AND version = $2",
+                &[&flow_id, &flow_version],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        let job_id: i64 = client
+            .query_one(
+                "INSERT INTO abei_ai.parse_jobs
+                   (user_id, bill_document_id, target_revision, parser_flow_id,
+                    parser_flow_version, definition_checksum, status, stage)
+                 VALUES ($1,$2,$3,$4,$5,$6,'running','parse') RETURNING id",
+                &[
+                    &fixture.user_id,
+                    &fixture.document_id,
+                    &revision,
+                    &flow_id,
+                    &flow_version,
+                    &checksum,
+                ],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        client
+            .execute(
+                "INSERT INTO abei_ai.bill_document_revisions
+                   (bill_document_id, revision, parse_job_id, parser_flow_id, parser_flow_version)
+                 VALUES ($1,$2,$3,$4,$5)",
+                &[
+                    &fixture.document_id,
+                    &revision,
+                    &job_id,
+                    &flow_id,
+                    &flow_version,
+                ],
+            )
+            .await
+            .unwrap();
+        ClaimedJob {
+            id: job_id,
+            user_id: fixture.user_id,
+            document_id: fixture.document_id,
+            mail_message_id,
+            target_revision: revision,
+            flow_id,
+            flow_version,
+            worker_id: "test-worker".to_owned(),
+        }
+    }
+
+    /// 和 testdb 夹具里那一行同内容的解析结果：同一天、同一笔钱、同一个商户。
+    fn draft(occurred_at: &str, signed: &str) -> BillRowDraft {
+        BillRowDraft {
+            occurred_at: occurred_at.to_owned(),
+            signed_amount: signed.to_owned(),
+            currency_code: "CNY".to_owned(),
+            description: "测试商户".to_owned(),
+            ..BillRowDraft::default()
+        }
+    }
+
+    async fn row_of(
+        client: &deadpool_postgres::Client,
+        document_id: i64,
+        revision: i32,
+        row_number: i32,
+    ) -> (i64, String, Option<i64>, Option<i64>) {
+        let row = client
+            .query_one(
+                "SELECT id, status, transaction_group_id, inherited_from_row_id
+                 FROM abei_ai.bill_rows
+                 WHERE bill_document_id = $1 AND revision = $2 AND row_number = $3",
+                &[&document_id, &revision, &row_number],
+            )
+            .await
+            .unwrap();
+        (row.get(0), row.get(1), row.get(2), row.get(3))
+    }
+
+    #[tokio::test]
+    async fn reparsing_does_not_hand_an_already_imported_transaction_back_as_pending() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let user_id = 8_113_001_i64;
+        let mut client = pool.get().await.unwrap();
+        let fixture = testdb::seed(&client, user_id).await;
+        // 第一版的这一行已经入账，账在 Firefly 里。
+        client
+            .execute(
+                "UPDATE abei_ai.bill_rows SET status = 'imported', transaction_group_id = 909
+                 WHERE id = $1",
+                &[&fixture.row_id],
+            )
+            .await
+            .unwrap();
+        let service = service(&pool);
+
+        // 第二版：同一笔钱的行，和一笔这次才解析出来的新流水。
+        let job = next_revision(&client, &fixture, 2).await;
+        let transaction = client.transaction().await.unwrap();
+        service
+            .insert_row(
+                &transaction,
+                &job,
+                1,
+                &draft("2026-08-11 08:30:00", "-12.34"),
+                "cmb",
+            )
+            .await
+            .unwrap();
+        service
+            .insert_row(
+                &transaction,
+                &job,
+                2,
+                &draft("2026-08-12 09:00:00", "-66.00"),
+                "cmb",
+            )
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+
+        let (carried_id, status, group, inherited) =
+            row_of(&client, fixture.document_id, 2, 1).await;
+        assert_eq!(status, "imported", "已经入账的账不能以待入账的身份重新出现");
+        assert_eq!(
+            group,
+            Some(909),
+            "交易组要跟着一起继承，否则撤销入账找不到账"
+        );
+        assert_eq!(inherited, Some(fixture.row_id));
+        // 这次才解析出来的那一笔照常待办，继承只认对得上的那一行。
+        assert_eq!(
+            row_of(&client, fixture.document_id, 2, 2).await.1,
+            "pending"
+        );
+
+        // 第三版：这次内容键（external_key / fingerprint）也对得上，仍然只能继承一次——
+        // 第一版那一行已经被第二版接走了，第三版接的是第二版。
+        let job = next_revision(&client, &fixture, 3).await;
+        let transaction = client.transaction().await.unwrap();
+        service
+            .insert_row(
+                &transaction,
+                &job,
+                1,
+                &draft("2026-08-11 08:30:00", "-12.34"),
+                "cmb",
+            )
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+        let (_, status, group, inherited) = row_of(&client, fixture.document_id, 3, 1).await;
+        assert_eq!(status, "imported");
+        assert_eq!(group, Some(909));
+        assert_eq!(inherited, Some(carried_id));
+
+        // 三个版本加起来，这笔钱只有一行是「等着入账」的状态：一行都没有。
+        let pending: i64 = client
+            .query_one(
+                "SELECT count(*) FROM abei_ai.bill_rows
+                 WHERE bill_document_id = $1 AND status = 'pending' AND signed_amount = -12.34",
+                &[&fixture.document_id],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(pending, 0);
+
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    #[tokio::test]
+    async fn reparsing_also_remembers_that_a_row_was_deliberately_ignored() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let user_id = 8_113_002_i64;
+        let mut client = pool.get().await.unwrap();
+        let fixture = testdb::seed(&client, user_id).await;
+        client
+            .execute(
+                "UPDATE abei_ai.bill_rows SET status = 'dismissed', dismissed_reason = 'user',
+                   dismissed_at = now() WHERE id = $1",
+                &[&fixture.row_id],
+            )
+            .await
+            .unwrap();
+        let service = service(&pool);
+
+        let job = next_revision(&client, &fixture, 2).await;
+        let transaction = client.transaction().await.unwrap();
+        service
+            .insert_row(
+                &transaction,
+                &job,
+                1,
+                &draft("2026-08-11 08:30:00", "-12.34"),
+                "cmb",
+            )
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+
+        let reason: Option<String> = client
+            .query_one(
+                "SELECT dismissed_reason FROM abei_ai.bill_rows
+                 WHERE bill_document_id = $1 AND revision = 2 AND row_number = 1",
+                &[&fixture.document_id],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        // 用户说过「这笔不记」，重解析不该把它当成没说过。
+        assert_eq!(
+            row_of(&client, fixture.document_id, 2, 1).await.1,
+            "dismissed"
+        );
+        assert_eq!(reason.as_deref(), Some("user"));
+        testdb::cleanup(&client, user_id).await;
+    }
 }

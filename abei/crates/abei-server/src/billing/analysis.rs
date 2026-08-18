@@ -172,6 +172,20 @@ impl Service {
                 )
                 .await
                 .map_err(display)?;
+            // 最高置信档（两边订单号/交易号对得上）的跨渠道重复直接替用户合掉：
+            // 这一档没有判断余地，把它摆进待办只是让人一条条点「是」。合并有据可查
+            // （decided_by = 'auto'），「已完成」层里每一条都能一键撤回。
+            //
+            // 退款关系不在此列。它不是重复，确认它并不合并任何一行，只是替用户断言
+            // 「这两笔是一件事」——那是个结论，不是一件重复劳动，仍旧留给人。
+            if score.relation == "cross_source_candidate"
+                && score.confidence == AUTO_CONFIRM
+                && auto_confirm_link(transaction, job.user_id, left_id, right_id, score.relation)
+                    .await?
+            {
+                continue;
+            }
+
             let code = score.relation;
             let message = if code == "refund_candidate" {
                 "发现可能对应的原交易或退款，请确认关联关系。"
@@ -207,6 +221,86 @@ impl Service {
         }
         Ok(())
     }
+}
+
+/// 自动确认走到哪一档为止。和 [`score_link`] 里那个「订单号对得上」的分数逐字对应。
+const AUTO_CONFIRM: Decimal = Decimal::from_parts(98, 0, 0, false, 2);
+
+/// 替用户把这条最高置信的重复合掉。真的合成了返回 true。
+///
+/// 两种情况不合，各有各的理由：
+///
+/// - 这条配对已经有人做过决定了（confirmed / rejected）——重跑打分不该掀翻人的结论。
+///   返回 true：不用再挂 issue，事情已经定了。
+/// - 该并掉的那一行不是待处理（已入账、已被别处忽略）——账已经在别处，动不了它。
+///   返回 false：退回人工那条路。
+///
+/// 幂等：状态和忽略两步都带 `WHERE`，重放一遍不会并第二行，也不会把已确认的再确认一次。
+async fn auto_confirm_link(
+    transaction: &Transaction<'_>,
+    user_id: i64,
+    left_row_id: i64,
+    right_row_id: i64,
+    relation: &str,
+) -> Result<bool, String> {
+    let link = transaction
+        .query_opt(
+            "SELECT id, state FROM abei_ai.bill_row_links
+             WHERE user_id = $1 AND left_row_id = $2 AND right_row_id = $3 AND relation = $4
+             FOR UPDATE",
+            &[&user_id, &left_row_id, &right_row_id, &relation],
+        )
+        .await
+        .map_err(display)?;
+    let Some(link) = link else {
+        return Ok(false);
+    };
+    let link_id: i64 = link.get(0);
+    if link.get::<_, String>(1) != "suggested" {
+        return Ok(true);
+    }
+
+    // 留下已经入账的那一行（账在 Firefly 里，动它没意义），都没入账就留先来的那条。
+    // 和 links::resolve_keep_row 是同一条规矩。
+    let imported = transaction
+        .query_opt(
+            "SELECT id FROM abei_ai.bill_rows
+             WHERE id = ANY($1) AND status = 'imported' ORDER BY id LIMIT 1",
+            &[&vec![left_row_id, right_row_id]],
+        )
+        .await
+        .map_err(display)?
+        .map(|row| row.get::<_, i64>(0));
+    let keep = imported.unwrap_or(left_row_id);
+    let merged = if keep == left_row_id {
+        right_row_id
+    } else {
+        left_row_id
+    };
+
+    let dismissed = transaction
+        .execute(
+            "UPDATE abei_ai.bill_rows SET status = 'dismissed', dismissed_reason = $3,
+               dismissed_at = now(), updated_at = now()
+             WHERE user_id = $1 AND id = $2 AND status = 'pending'",
+            &[&user_id, &merged, &super::links::DUPLICATE_CONFIRMED],
+        )
+        .await
+        .map_err(display)?;
+    if dismissed == 0 {
+        return Ok(false);
+    }
+    transaction
+        .execute(
+            "UPDATE abei_ai.bill_row_links
+             SET state = 'confirmed', decided_by = 'auto', decided_at = now(),
+                 merged_row_id = $3, updated_at = now()
+             WHERE user_id = $1 AND id = $2 AND state = 'suggested'",
+            &[&user_id, &link_id, &merged],
+        )
+        .await
+        .map_err(display)?;
+    Ok(true)
 }
 
 async fn append_issue(
@@ -495,5 +589,112 @@ mod tests {
 
     fn dec(value: &str) -> Decimal {
         Decimal::from_str(value).unwrap()
+    }
+
+    #[test]
+    fn the_auto_confirm_bar_is_exactly_the_top_scoring_tier() {
+        // 自动确认的门槛必须和打分那头的最高档逐字对齐：这里松一点，用户就会在
+        // 「已完成」里发现一批他没点过、也不那么确定的合并。
+        let mut order = fixture();
+        order.left_provider_id = Some("2026081122001".to_owned());
+        order.right_provider_id = Some("2026081122001".to_owned());
+        assert_eq!(score_link(&order).unwrap().confidence, AUTO_CONFIRM);
+        assert!(score_link(&fixture()).unwrap().confidence < AUTO_CONFIRM);
+    }
+
+    #[tokio::test]
+    async fn a_top_confidence_duplicate_is_merged_without_asking_and_can_be_taken_back() {
+        let Some(pool) = crate::testdb::pool().await else {
+            return;
+        };
+        let user_id = 8_116_001_i64;
+        let mut client = pool.get().await.unwrap();
+        let fixture = crate::testdb::seed(&client, user_id).await;
+        let other_row_id = seed_second_row(&client, &fixture).await;
+        let (left, right) = (
+            fixture.row_id.min(other_row_id),
+            fixture.row_id.max(other_row_id),
+        );
+        client
+            .execute(
+                "INSERT INTO abei_ai.bill_row_links
+                   (user_id, left_row_id, right_row_id, relation, confidence, evidence)
+                 VALUES ($1,$2,$3,'cross_source_candidate',0.9800,'{}'::jsonb)",
+                &[&user_id, &left, &right],
+            )
+            .await
+            .unwrap();
+
+        let transaction = client.transaction().await.unwrap();
+        let merged =
+            auto_confirm_link(&transaction, user_id, left, right, "cross_source_candidate")
+                .await
+                .unwrap();
+        // 重放一遍不该再并一行：第二次看到的已经是 confirmed。
+        let replayed =
+            auto_confirm_link(&transaction, user_id, left, right, "cross_source_candidate")
+                .await
+                .unwrap();
+        transaction.commit().await.unwrap();
+        assert!(merged);
+        assert!(replayed);
+
+        let link = client
+            .query_one(
+                "SELECT id, state, decided_by, merged_row_id FROM abei_ai.bill_row_links
+                 WHERE left_row_id = $1 AND right_row_id = $2",
+                &[&left, &right],
+            )
+            .await
+            .unwrap();
+        assert_eq!(link.get::<_, String>(1), "confirmed");
+        // 自动和人工必须分得开，否则「系统悄悄并掉了一笔」就成了查不出来的事。
+        assert_eq!(link.get::<_, String>(2), "auto");
+        assert_eq!(link.get::<_, i64>(3), right);
+        assert_eq!(row_status(&client, right).await, "dismissed");
+        assert_eq!(row_status(&client, left).await, "pending");
+
+        let service = crate::testdb::billing_service(pool.clone());
+        service.undo_link(user_id, link.get(0)).await.unwrap();
+        assert_eq!(row_status(&client, right).await, "pending");
+
+        crate::testdb::cleanup(&client, user_id).await;
+    }
+
+    /// 同一份文档里再造一行，凑成一对能被合并的重复。
+    async fn seed_second_row(
+        client: &deadpool_postgres::Client,
+        fixture: &crate::testdb::Fixture,
+    ) -> i64 {
+        client
+            .query_one(
+                "INSERT INTO abei_ai.bill_rows
+                   (user_id, bill_document_id, revision, row_number, occurred_at,
+                    signed_amount, currency_code, description, external_key, fingerprint,
+                    firefly_type, firefly_date, firefly_amount, source_account_id)
+                 VALUES ($1,$2,1,2,'2026-08-11 08:30:00',-12.34,'CNY','测试商户',
+                         $3,$4,'withdrawal','2026-08-11',12.34,10)
+                 RETURNING id",
+                &[
+                    &fixture.user_id,
+                    &fixture.document_id,
+                    &format!("auto-pair-{}", fixture.user_id),
+                    &format!("{:064x}", fixture.user_id + 7),
+                ],
+            )
+            .await
+            .unwrap()
+            .get(0)
+    }
+
+    async fn row_status(client: &deadpool_postgres::Client, row_id: i64) -> String {
+        client
+            .query_one(
+                "SELECT status FROM abei_ai.bill_rows WHERE id = $1",
+                &[&row_id],
+            )
+            .await
+            .unwrap()
+            .get(0)
     }
 }

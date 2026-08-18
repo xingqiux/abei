@@ -39,6 +39,22 @@ const MIGRATIONS: &[Migration] = &[
         version: "0008_bill_row_link_state",
         sql: include_str!("../migrations/0008_bill_row_link_state.sql"),
     },
+    Migration {
+        version: "0009_bill_row_disposition_carry_over",
+        sql: include_str!("../migrations/0009_bill_row_disposition_carry_over.sql"),
+    },
+    Migration {
+        version: "0010_undo_import_and_apply_runs",
+        sql: include_str!("../migrations/0010_undo_import_and_apply_runs.sql"),
+    },
+    Migration {
+        version: "0011_inbox_zero_config",
+        sql: include_str!("../migrations/0011_inbox_zero_config.sql"),
+    },
+    Migration {
+        version: "0012_bill_import_batches",
+        sql: include_str!("../migrations/0012_bill_import_batches.sql"),
+    },
 ];
 
 /// 迁移串行化用的咨询锁编号。随手挑的常量，只要全仓库只有这一处用就行。

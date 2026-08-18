@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use super::Service;
 use crate::ApiError;
+use crate::firefly::{self, WriteError};
 use crate::reliability::ReliabilityConfig;
 use crate::states::{ImportStatus, RowStatus};
 
@@ -47,9 +48,42 @@ pub(crate) mod reasons {
     pub(crate) const ATTEMPT_TRANSITION_INVALID: &str = "attempt_transition_invalid";
     /// 这个导入尝试已经绑定到别的 Firefly 交易组了。
     pub(crate) const ATTEMPT_ALREADY_BOUND: &str = "attempt_already_bound";
+    /// 入账落库时发现这一行已经不是待处理了，本地和 Firefly 可能对不上，要人工核对。
+    pub(crate) const ROW_STATE_CHANGED: &str = "row_state_changed";
+    /// 对账要拿用户的 Firefly 令牌回查，没有令牌就不能判断账记没记上。
+    pub(crate) const RECONCILE_TOKEN_REQUIRED: &str = "reconcile_token_required";
+    /// 同一个 external_id 在 Firefly 里查到多条，系统不替用户选。
+    pub(crate) const RECONCILE_AMBIGUOUS: &str = "reconcile_ambiguous";
+    /// 撤销入账要拿用户的 Firefly 令牌去删交易，没有令牌就什么都不做。
+    pub(crate) const UNDO_TOKEN_REQUIRED: &str = "undo_token_required";
+}
+
+/// 撤销一行入账的结局。逐行汇报，因为一批里每一行的下场可能都不一样。
+mod undo_outcomes {
+    /// 交易删掉了（或本来就不在），行已经回到待处理。
+    pub(super) const UNDONE: &str = "undone";
+    /// 这一行本来就不是已入账，什么都没动。
+    pub(super) const NOT_IMPORTED: &str = "not_imported";
+    /// 这一行不存在，或者不属于这个用户。
+    pub(super) const NOT_FOUND: &str = "not_found";
+    /// Firefly 没能删掉这笔交易，行原样停在已入账。
+    pub(super) const FAILED: &str = "failed";
 }
 
 const MAX_ERROR_CHARS: usize = 2_000;
+
+/// 一次撤销最多几行。撤销要逐行去 Firefly 删交易，比入账更慢也更该分批。
+const MAX_UNDO_ROWS: usize = 500;
+
+/// 撤销结果的一行。`outcome` 是给界面分支用的机器码，`error` 是给人看的那句话。
+fn undo_row(row_id: i64, outcome: &str, group_id: Option<i64>, error: Option<&str>) -> Value {
+    json!({
+        "row_id": row_id.to_string(),
+        "outcome": outcome,
+        "transaction_group_id": group_id.map(|id| id.to_string()),
+        "error": error,
+    })
+}
 
 #[derive(Debug)]
 struct ImportRow {
@@ -91,11 +125,17 @@ struct ImportSplit {
 }
 
 impl Service {
+    /// `batch_id` = 「这一条是哪一次入账动作写进去的」。
+    ///
+    /// 由发起那一次批量入账的调用方生成一个，整批共用。界面靠它把已入账的行按批次
+    /// 聚起来、整批撤回；没有它就只能按时间窗口猜哪几条算一批，而猜错要从账本里
+    /// 删掉不该删的交易。单条重试（reconcile / retry）不属于任何一批，传 None。
     pub(crate) async fn prepare_import(
         &self,
         user_id: i64,
         row_id: i64,
         dry_run: bool,
+        batch_id: Option<&str>,
     ) -> Result<Value, ApiError> {
         let mut client = self.pool.get().await.map_err(ApiError::database)?;
         let transaction = client.transaction().await.map_err(ApiError::database)?;
@@ -124,8 +164,10 @@ impl Service {
                 .execute(
                     "INSERT INTO abei_ai.bill_import_attempts
                        (id, user_id, bill_row_id, attempt_no, status, external_id,
-                        payload_hash, payload_snapshot)
-                     VALUES ($1,$2,$3,$4,$8,$5,$6,$7)",
+                        payload_hash, payload_snapshot, batch_id)
+                     -- 先钉成 text 再转 uuid：只写 $9::uuid 的话 Postgres 会把这个
+                     -- 参数本身推断成 uuid，驱动这边送的是字符串，类型对不上直接报错。
+                     VALUES ($1,$2,$3,$4,$8,$5,$6,$7,$9::text::uuid)",
                     &[
                         &id,
                         &user_id,
@@ -135,6 +177,7 @@ impl Service {
                         &payload_hash,
                         &payload,
                         &ImportStatus::Prepared.as_str(),
+                        &batch_id,
                     ],
                 )
                 .await
@@ -238,7 +281,7 @@ impl Service {
             return Err(ApiError::conflict("当前导入尝试不能完成。")
                 .with_reason(reasons::ATTEMPT_TRANSITION_INVALID));
         }
-        transaction
+        let row_updated = transaction
             .execute(
                 "UPDATE abei_ai.bill_rows SET status = $4, transaction_group_id = $3,
                    last_import_error = NULL, updated_at = now()
@@ -253,6 +296,15 @@ impl Service {
             )
             .await
             .map_err(import_constraint_error)?;
+        // 这一行在发送途中被别处改掉了（另一个标签页确认重复、手动忽略、或者已经入过账）。
+        // 账很可能已经在 Firefly 里，本地却没有一行认领它——这时候把 attempt 记成成功，
+        // 就是把「Firefly 有账、本地没有」这件事永久掩埋。宁可停在一个明确的失败态上。
+        if row_updated == 0
+            && !row_already_settled_here(&transaction, user_id, row_id, transaction_group_id)
+                .await?
+        {
+            return abandon_completion(transaction, user_id, attempt_id, row_id, status).await;
+        }
         transaction
             .execute(
                 "UPDATE abei_ai.bill_import_attempts SET status = $3,
@@ -286,20 +338,19 @@ impl Service {
         } else {
             ImportStatus::Rejected
         };
-        let target = target.as_str();
         let retry_delay = if retryable { 30 } else { 0 };
         let message = truncate(error_message, MAX_ERROR_CHARS);
-        // 能标记失败的来源状态 = 状态机里能走到 retryable/rejected 的那些，这里直接问它。
+        // 能走到**这一个**目标状态的来源，才是这次的合法来源。取两个目标的交集会
+        // 误伤只通向其中一个的合法路径——uncertain 能去 retryable、不能去 rejected，
+        // 交集一算它就哪儿也去不了了。
         let sources = crate::states::sql_list(
             &ImportStatus::ALL
                 .iter()
                 .copied()
-                .filter(|status| {
-                    status.can_transition(ImportStatus::Retryable)
-                        && status.can_transition(ImportStatus::Rejected)
-                })
+                .filter(|status| status.can_transition(target))
                 .collect::<Vec<_>>(),
         );
+        let target = target.as_str();
         let updated = self
             .pool
             .get()
@@ -379,7 +430,84 @@ impl Service {
         self.get_import_attempt(user_id, attempt_id).await
     }
 
-    pub(crate) async fn release_uncertain_import(
+    /// 对账：拿这条 attempt 的 `external_id` 去 Firefly 里查，账到底记上了没有。
+    ///
+    /// 这是 uncertain 唯一的出口。以前这里不查证就直接写死「未找到，可以重新导入」，
+    /// 等于把「不知道」当成「没有」——用户照着提示重发一次，账本上就多一笔。
+    /// 现在只有真的查不到才放行；查到就地对账（attempt 落 reconciled，行落 imported）；
+    /// 查到多条不替用户选。
+    pub(crate) async fn reconcile_uncertain_import(
+        &self,
+        user_id: i64,
+        attempt_id: &str,
+        token: Option<&str>,
+    ) -> Result<Value, ApiError> {
+        let attempt = self.get_import_attempt(user_id, attempt_id).await?;
+        let status = attempt["data"]["status"].as_str().unwrap_or_default();
+        if status != ImportStatus::Uncertain.as_str() {
+            return Err(ApiError::conflict("只有结果不确定的导入尝试需要对账。")
+                .with_reason(reasons::ATTEMPT_TRANSITION_INVALID));
+        }
+        let external_id = attempt["data"]["external_id"]
+            .as_str()
+            .ok_or_else(|| ApiError::internal("导入尝试缺少 external_id。"))?;
+        let Some(token) = token else {
+            return Err(ApiError::unauthenticated(
+                "对账要用用户的 Firefly 令牌回查，没有令牌不能判断这笔账记没记上。",
+            )
+            .with_reason(reasons::RECONCILE_TOKEN_REQUIRED));
+        };
+
+        match self.reconcile_lookup(token, external_id).await?.as_slice() {
+            [group_id] => {
+                self.complete_import(user_id, attempt_id, *group_id, true)
+                    .await
+            }
+            [] => self.release_uncertain_import(user_id, attempt_id).await,
+            group_ids => Err(ApiError::conflict(format!(
+                "同一个 external_id 在 Firefly 中查到 {} 条交易，需要人工处理。",
+                group_ids.len()
+            ))
+            .with_reason(reasons::RECONCILE_AMBIGUOUS)),
+        }
+    }
+
+    /// 按 `external_id` 查 Firefly，返回去重后的交易组 id。
+    ///
+    /// 查不动就报错往上抛：查询本身失败和「确认没有」是两件事，混为一谈就又回到了
+    /// 「把不知道当成没有」。
+    async fn reconcile_lookup(&self, token: &str, external_id: &str) -> Result<Vec<i64>, ApiError> {
+        let found = self
+            .firefly
+            .get_json(
+                token,
+                "/api/v1/search/transactions",
+                &[
+                    ("query", format!("external_id_is:\"{external_id}\"")),
+                    ("limit", "10".to_owned()),
+                ],
+            )
+            .await?;
+        let mut group_ids = found["data"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|item| {
+                item["id"]
+                    .as_i64()
+                    .or_else(|| item["id"].as_str()?.parse::<i64>().ok())
+                    .filter(|id| *id > 0)
+            })
+            .collect::<Vec<_>>();
+        group_ids.sort_unstable();
+        group_ids.dedup();
+        Ok(group_ids)
+    }
+
+    /// 确认 Firefly 里没有之后，把 uncertain 放回可重试。
+    ///
+    /// 私有：走到这里的前提是[`Self::reconcile_uncertain_import`]已经查证过。
+    async fn release_uncertain_import(
         &self,
         user_id: i64,
         attempt_id: &str,
@@ -417,6 +545,182 @@ impl Service {
         self.get_import_attempt(user_id, attempt_id).await
     }
 
+    /// 撤销入账：把 Firefly 里那笔交易删掉，然后让这一行回到待处理。
+    ///
+    /// 以前撤销只有前端那半截——直接删 Firefly 的交易组，abei 这边一无所知。结果是
+    /// 账本上那笔没了，收件箱却还说「已入账」，「查看交易」点开是一笔不存在的交易，
+    /// 而且因为 succeeded 那条尝试还占着 `bill_import_attempts_success_row_idx`，
+    /// 这一行连重新入账都不行。整件事只有从写状态的这一侧做才收得住口。
+    ///
+    /// 顺序是先删账本、后改本地：反过来的话中间崩一次，本地说「没入账」而 Firefly
+    /// 里还留着那笔，用户再入一次就是双记。先删后改最坏只是本地滞后，下次撤销能补上。
+    ///
+    /// Firefly 回 404 按成功办：撤销要的是「那笔不在了」，本来就不在和这次删掉是同一个
+    /// 结果。删不掉的行原样停在已入账并逐行报错——绝不能一边说撤销成功一边把账留在账本里。
+    pub(crate) async fn undo_imports(
+        &self,
+        user_id: i64,
+        row_ids: &[i64],
+        token: Option<&str>,
+    ) -> Result<Value, ApiError> {
+        if row_ids.is_empty() || row_ids.len() > MAX_UNDO_ROWS {
+            return Err(ApiError::invalid_params(format!(
+                "row_ids 必须包含 1 到 {MAX_UNDO_ROWS} 条流水。"
+            )));
+        }
+        let Some(token) = token else {
+            return Err(ApiError::unauthenticated(
+                "撤销入账要用用户的 Firefly 令牌去删这笔交易，没有令牌就什么都不做。",
+            )
+            .with_reason(reasons::UNDO_TOKEN_REQUIRED));
+        };
+
+        let mut rows = Vec::with_capacity(row_ids.len());
+        for row_id in row_ids {
+            rows.push(self.undo_one_import(user_id, *row_id, token).await?);
+        }
+        let count = |outcome: &str| rows.iter().filter(|row| row["outcome"] == outcome).count();
+        Ok(json!({ "data": {
+            "rows": rows,
+            "summary": {
+                "total": rows.len(),
+                "undone": count(undo_outcomes::UNDONE),
+                "not_imported": count(undo_outcomes::NOT_IMPORTED),
+                "not_found": count(undo_outcomes::NOT_FOUND),
+                "failed": count(undo_outcomes::FAILED),
+            },
+        }}))
+    }
+
+    /// 撤销一行。返回的是这一行的结局，不是 `Err`——一行删不掉不该让整批 500。
+    /// 只有连库都连不上这种「整批都没跑」的情况才往上抛。
+    async fn undo_one_import(
+        &self,
+        user_id: i64,
+        row_id: i64,
+        token: &str,
+    ) -> Result<Value, ApiError> {
+        let existing = self
+            .pool
+            .get()
+            .await
+            .map_err(ApiError::database)?
+            .query_opt(
+                "SELECT status, transaction_group_id FROM abei_ai.bill_rows
+                 WHERE user_id = $1 AND id = $2",
+                &[&user_id, &row_id],
+            )
+            .await
+            .map_err(ApiError::database)?;
+        let Some(existing) = existing else {
+            return Ok(undo_row(
+                row_id,
+                undo_outcomes::NOT_FOUND,
+                None,
+                Some("账单流水不存在。"),
+            ));
+        };
+        let status: String = existing.get(0);
+        let group_id: Option<i64> = existing.get(1);
+        if status != RowStatus::Imported.as_str() {
+            return Ok(undo_row(
+                row_id,
+                undo_outcomes::NOT_IMPORTED,
+                group_id,
+                Some("只有已入账的流水可以撤销。"),
+            ));
+        }
+
+        // 没有交易组 id 的已入账行指不出账本里的任何一笔，没有东西可删。直接回退，
+        // 让这一行重新可用，比让它永远卡在一个指不出去的「已入账」上强。
+        if let Some(group_id) = group_id
+            && let Err(error) = self
+                .firefly
+                .delete(token, &format!("/api/v1/transactions/{group_id}"))
+                .await
+        {
+            let message = match error {
+                WriteError::Http { status, body } => format!(
+                    "Firefly 没能删掉交易 {group_id}：{}",
+                    firefly::error_message(&body, status.as_u16())
+                ),
+                WriteError::Transport(error) => {
+                    format!("连不上 Firefly，交易 {group_id} 删没删掉不确定：{error}")
+                }
+                WriteError::InvalidResponse(error) => {
+                    format!("Firefly 对删除交易 {group_id} 的回应读不懂：{error}")
+                }
+            };
+            return Ok(undo_row(
+                row_id,
+                undo_outcomes::FAILED,
+                Some(group_id),
+                Some(&message),
+            ));
+        }
+
+        self.release_imported_row(user_id, row_id, group_id).await
+    }
+
+    /// 账本那边已经干净了，把本地这一行和它的导入尝试收尾。
+    async fn release_imported_row(
+        &self,
+        user_id: i64,
+        row_id: i64,
+        group_id: Option<i64>,
+    ) -> Result<Value, ApiError> {
+        const UNDO_NOTE: &str = "入账已撤销：Firefly 里的交易已删除，这一行放回待处理。";
+        let mut client = self.pool.get().await.map_err(ApiError::database)?;
+        let transaction = client.transaction().await.map_err(ApiError::database)?;
+        let released = transaction
+            .execute(
+                "UPDATE abei_ai.bill_rows SET status = $3, transaction_group_id = NULL,
+                   last_import_error = NULL, updated_at = now()
+                 WHERE user_id = $1 AND id = $2 AND status = $4",
+                &[
+                    &user_id,
+                    &row_id,
+                    &RowStatus::Pending.as_str(),
+                    &RowStatus::Imported.as_str(),
+                ],
+            )
+            .await
+            .map_err(ApiError::database)?;
+        // 刚才还是 imported，现在不是了——另一个标签页在这中间动过它。Firefly 那笔已经
+        // 删掉了，本地却不知道该按哪个状态收。说清楚比蒙混过去强。
+        if released == 0 {
+            transaction.rollback().await.map_err(ApiError::database)?;
+            return Ok(undo_row(
+                row_id,
+                undo_outcomes::FAILED,
+                group_id,
+                Some("Firefly 里的交易已删除，但这一行在撤销途中被改成了别的状态，需要人工核对。"),
+            ));
+        }
+        // 尝试记录不删：删了就再也说不清「这一行入过账又被撤了」。它必须离开
+        // succeeded/reconciled 这一组，否则那个部分唯一索引会一直挡着重新入账。
+        let settled = crate::states::sql_list(ImportStatus::SETTLED);
+        transaction
+            .execute(
+                &format!(
+                    "UPDATE abei_ai.bill_import_attempts SET status = $3,
+                       error_code = 'import_undone', error_message = $4,
+                       finished_at = now(), updated_at = now()
+                     WHERE user_id = $1 AND bill_row_id = $2 AND status IN ({settled})"
+                ),
+                &[
+                    &user_id,
+                    &row_id,
+                    &ImportStatus::Undone.as_str(),
+                    &UNDO_NOTE,
+                ],
+            )
+            .await
+            .map_err(ApiError::database)?;
+        transaction.commit().await.map_err(ApiError::database)?;
+        Ok(undo_row(row_id, undo_outcomes::UNDONE, group_id, None))
+    }
+
     pub(crate) async fn get_import_attempt(
         &self,
         user_id: i64,
@@ -450,6 +754,66 @@ impl Service {
         self.get_import_attempt(user_id, attempt_id).await?;
         Err(ApiError::conflict(message).with_reason(reasons::ATTEMPT_TRANSITION_INVALID))
     }
+}
+
+/// 行已经是「入账到这同一个交易组」了吗。是的话 UPDATE 影响 0 行只是重复调用，不是撕裂。
+async fn row_already_settled_here(
+    transaction: &Transaction<'_>,
+    user_id: i64,
+    row_id: i64,
+    transaction_group_id: i64,
+) -> Result<bool, ApiError> {
+    let row = transaction
+        .query_opt(
+            "SELECT status, transaction_group_id FROM abei_ai.bill_rows
+             WHERE user_id = $1 AND id = $2",
+            &[&user_id, &row_id],
+        )
+        .await
+        .map_err(ApiError::database)?;
+    Ok(row.is_some_and(|row| {
+        row.get::<_, String>(0) == RowStatus::Imported.as_str()
+            && row.get::<_, Option<i64>>(1) == Some(transaction_group_id)
+    }))
+}
+
+/// 行状态变了之后的收尾：同一个事务里把 attempt 落到失败态并把原因写到行上，
+/// 然后提交——「成功」那一组写入一个字都不留下，留下的只有这件事需要人来看。
+async fn abandon_completion(
+    transaction: deadpool_postgres::Transaction<'_>,
+    user_id: i64,
+    attempt_id: &str,
+    row_id: i64,
+    status: ImportStatus,
+) -> Result<Value, ApiError> {
+    const MESSAGE: &str =
+        "Firefly 可能已经建好这笔交易，但本地流水在入账途中被改成了别的状态，需要人工核对。";
+    let target = if status.can_transition(ImportStatus::Rejected) {
+        ImportStatus::Rejected
+    } else {
+        return Err(ApiError::conflict("当前导入尝试不能完成。")
+            .with_reason(reasons::ATTEMPT_TRANSITION_INVALID));
+    };
+    transaction
+        .execute(
+            "UPDATE abei_ai.bill_import_attempts SET status = $3,
+               error_code = 'row_state_changed', error_message = $4,
+               retry_after = NULL, finished_at = now(), updated_at = now()
+             WHERE user_id = $1 AND id = $2",
+            &[&user_id, &attempt_id, &target.as_str(), &MESSAGE],
+        )
+        .await
+        .map_err(ApiError::database)?;
+    transaction
+        .execute(
+            "UPDATE abei_ai.bill_rows SET last_import_error = $3, updated_at = now()
+             WHERE user_id = $1 AND id = $2",
+            &[&user_id, &row_id, &MESSAGE],
+        )
+        .await
+        .map_err(ApiError::database)?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Err(ApiError::conflict(MESSAGE).with_reason(reasons::ROW_STATE_CHANGED))
 }
 
 async fn load_import_row(
@@ -937,5 +1301,432 @@ mod tests {
             description: "一部分".to_owned(),
         };
         assert!(to_firefly_payload(&row("withdrawal", "-12.50"), &[split], "x").is_err());
+    }
+}
+
+/// 带库的用例：入账落库的幂等性，和 uncertain 的对账出口。
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use crate::testdb::{self, FakeDelete, FakeSearch, FakeWrite};
+
+    fn service(pool: &deadpool_postgres::Pool, firefly: crate::firefly::Firefly) -> Service {
+        let config = crate::mailbox::RuntimeConfig::test();
+        let mail = crate::mail::Service::new(pool.clone(), config.storage_root().to_path_buf());
+        let parser = crate::parser::Service::new(pool.clone(), mail.clone());
+        Service::new(
+            pool.clone(),
+            mail,
+            parser,
+            config.job_secret_cipher(),
+            config.reliability(),
+            firefly,
+        )
+    }
+
+    /// 对账等待窗口调到已经过去，用例不用真的等 30 秒。
+    async fn open_the_reconcile_window(client: &deadpool_postgres::Client, attempt_id: &str) {
+        client
+            .execute(
+                "UPDATE abei_ai.bill_import_attempts
+                 SET retry_after = now() - interval '1 minute' WHERE id = $1",
+                &[&attempt_id],
+            )
+            .await
+            .unwrap();
+    }
+
+    async fn row_state(
+        client: &deadpool_postgres::Client,
+        row_id: i64,
+    ) -> (String, Option<i64>, Option<String>) {
+        let row = client
+            .query_one(
+                "SELECT status, transaction_group_id, last_import_error
+                 FROM abei_ai.bill_rows WHERE id = $1",
+                &[&row_id],
+            )
+            .await
+            .unwrap();
+        (row.get(0), row.get(1), row.get(2))
+    }
+
+    #[tokio::test]
+    async fn a_row_that_changed_underneath_us_must_not_end_up_as_a_successful_import() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_112_001_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        let attempt_id = testdb::insert_attempt(&client, &fixture, "sending", 0.0).await;
+        // 另一个标签页在这中间确认了重复，把这一行并掉了。
+        client
+            .execute(
+                "UPDATE abei_ai.bill_rows SET status = 'dismissed',
+                   dismissed_reason = 'duplicate_confirmed' WHERE id = $1",
+                &[&fixture.row_id],
+            )
+            .await
+            .unwrap();
+
+        let failed = service(&pool, testdb::unreachable_firefly().await)
+            .complete_import(user_id, &attempt_id, 5150, false)
+            .await
+            .expect_err("行已经不是待处理，不能宣布入账成功");
+
+        assert_eq!(failed.reason(), reasons::ROW_STATE_CHANGED);
+        // 关键的一条：attempt 不能是 succeeded，否则「Firefly 有账、本地没有」被永久掩埋。
+        assert_eq!(
+            testdb::attempt_status(&client, &attempt_id).await,
+            "rejected"
+        );
+        let (status, group, error) = row_state(&client, fixture.row_id).await;
+        assert_eq!(status, "dismissed", "失败的入账不能改动这一行的状态");
+        assert_eq!(group, None, "没入成账就不该记住交易组");
+        assert!(error.is_some(), "行上要留下一句能让人看懂的话");
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    #[tokio::test]
+    async fn completing_the_same_import_twice_is_idempotent_rather_than_a_conflict() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_112_002_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        let attempt_id = testdb::insert_attempt(&client, &fixture, "sending", 0.0).await;
+        let service = service(&pool, testdb::unreachable_firefly().await);
+
+        service
+            .complete_import(user_id, &attempt_id, 6100, false)
+            .await
+            .unwrap();
+        // 重放同一次完成：行已经是 imported，UPDATE 影响 0 行，但这不是撕裂。
+        service
+            .complete_import(user_id, &attempt_id, 6100, false)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            testdb::attempt_status(&client, &attempt_id).await,
+            "succeeded"
+        );
+        assert_eq!(row_state(&client, fixture.row_id).await.0, "imported");
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    #[tokio::test]
+    async fn reconciling_finds_the_transaction_and_stops_the_row_from_being_imported_again() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_112_003_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        let attempt_id = testdb::insert_attempt(&client, &fixture, "uncertain", 0.0).await;
+        open_the_reconcile_window(&client, &attempt_id).await;
+        let firefly =
+            testdb::FakeFirefly::start_with_search(FakeWrite::Created(1), FakeSearch::One(7788))
+                .await;
+
+        service(&pool, firefly.client())
+            .reconcile_uncertain_import(user_id, &attempt_id, Some("test-token"))
+            .await
+            .unwrap();
+
+        // 账在 Firefly 里查到了：这条尝试就地落定，行跟着入账，绝不能放回可重试。
+        assert_eq!(
+            testdb::attempt_status(&client, &attempt_id).await,
+            "reconciled"
+        );
+        let (status, group, _) = row_state(&client, fixture.row_id).await;
+        assert_eq!(status, "imported");
+        assert_eq!(group, Some(7788));
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    #[tokio::test]
+    async fn reconciling_only_releases_the_attempt_after_firefly_says_it_has_nothing() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_112_004_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        let attempt_id = testdb::insert_attempt(&client, &fixture, "uncertain", 0.0).await;
+        open_the_reconcile_window(&client, &attempt_id).await;
+        let firefly =
+            testdb::FakeFirefly::start_with_search(FakeWrite::Created(1), FakeSearch::Nothing)
+                .await;
+
+        service(&pool, firefly.client())
+            .reconcile_uncertain_import(user_id, &attempt_id, Some("test-token"))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            testdb::attempt_status(&client, &attempt_id).await,
+            "retryable"
+        );
+        assert_eq!(row_state(&client, fixture.row_id).await.0, "pending");
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    #[tokio::test]
+    async fn without_a_token_nothing_gets_released_because_nothing_was_checked() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_112_005_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        let attempt_id = testdb::insert_attempt(&client, &fixture, "uncertain", 0.0).await;
+        open_the_reconcile_window(&client, &attempt_id).await;
+
+        let refused = service(&pool, testdb::unreachable_firefly().await)
+            .reconcile_uncertain_import(user_id, &attempt_id, None)
+            .await
+            .expect_err("没查证就不能放行");
+
+        assert_eq!(refused.reason(), reasons::RECONCILE_TOKEN_REQUIRED);
+        assert_eq!(
+            testdb::attempt_status(&client, &attempt_id).await,
+            "uncertain",
+            "查不了就该原地待着，不能变成可重试"
+        );
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    #[tokio::test]
+    async fn a_duplicated_external_id_is_handed_to_a_human_instead_of_being_guessed() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_112_006_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        let attempt_id = testdb::insert_attempt(&client, &fixture, "uncertain", 0.0).await;
+        open_the_reconcile_window(&client, &attempt_id).await;
+        let firefly =
+            testdb::FakeFirefly::start_with_search(FakeWrite::Created(1), FakeSearch::Many).await;
+
+        let refused = service(&pool, firefly.client())
+            .reconcile_uncertain_import(user_id, &attempt_id, Some("test-token"))
+            .await
+            .expect_err("查到多条不该自己挑一条");
+
+        assert_eq!(refused.reason(), reasons::RECONCILE_AMBIGUOUS);
+        assert_eq!(
+            testdb::attempt_status(&client, &attempt_id).await,
+            "uncertain"
+        );
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    /// 撤销入账要一次做完两件事：账本里那笔没了，收件箱这一行回到待处理。
+    /// 只做前一半正是这个缺陷本身——账没了，界面还说已入账。
+    #[tokio::test]
+    async fn undoing_an_import_deletes_the_transaction_and_puts_the_row_back_in_the_queue() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_112_010_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        let attempt_id = testdb::insert_attempt(&client, &fixture, "sending", 0.0).await;
+        let firefly = testdb::FakeFirefly::start_with_delete(FakeDelete::Gone).await;
+        let service = service(&pool, firefly.client());
+        service
+            .complete_import(user_id, &attempt_id, 5501, false)
+            .await
+            .unwrap();
+
+        let result = service
+            .undo_imports(user_id, &[fixture.row_id], Some("test-token"))
+            .await
+            .unwrap();
+
+        assert_eq!(result["data"]["summary"]["undone"], 1);
+        assert_eq!(result["data"]["rows"][0]["outcome"], "undone");
+        assert_eq!(firefly.delete_count(), 1, "账本里那笔必须真的去删");
+        let (status, group, error) = row_state(&client, fixture.row_id).await;
+        assert_eq!(status, "pending", "撤销之后这一行要回到待处理");
+        assert_eq!(group, None, "交易都删了就不能再记着它的交易组");
+        assert_eq!(error, None);
+        // 记录不删，只是不再算数：删了就再也说不清这一行入过账又被撤了。
+        assert_eq!(testdb::attempt_status(&client, &attempt_id).await, "undone");
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    /// 撤销之后必须能重新入账。succeeded 那条尝试要是还占着
+    /// `bill_import_attempts_success_row_idx`，这一行就永远卡在「已有成功导入」上。
+    #[tokio::test]
+    async fn a_row_that_was_undone_can_be_imported_again() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_112_011_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        let attempt_id = testdb::insert_attempt(&client, &fixture, "sending", 0.0).await;
+        let firefly = testdb::FakeFirefly::start_with_delete(FakeDelete::Gone).await;
+        let service = service(&pool, firefly.client());
+        service
+            .complete_import(user_id, &attempt_id, 5502, false)
+            .await
+            .unwrap();
+        service
+            .undo_imports(user_id, &[fixture.row_id], Some("test-token"))
+            .await
+            .unwrap();
+
+        service
+            .prepare_import(user_id, fixture.row_id, false, None)
+            .await
+            .expect("撤销之后这一行应该重新可以入账");
+
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    /// Firefly 说 404：那笔交易本来就不在了。撤销要的结果已经达成，行照样回队列。
+    /// 把 404 当失败会让用户卡在一条永远撤不掉的记录上。
+    #[tokio::test]
+    async fn a_transaction_that_is_already_gone_still_releases_the_row() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_112_012_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        let attempt_id = testdb::insert_attempt(&client, &fixture, "sending", 0.0).await;
+        let firefly = testdb::FakeFirefly::start_with_delete(FakeDelete::Missing).await;
+        let service = service(&pool, firefly.client());
+        service
+            .complete_import(user_id, &attempt_id, 5503, false)
+            .await
+            .unwrap();
+
+        let result = service
+            .undo_imports(user_id, &[fixture.row_id], Some("test-token"))
+            .await
+            .unwrap();
+
+        assert_eq!(result["data"]["rows"][0]["outcome"], "undone");
+        assert_eq!(row_state(&client, fixture.row_id).await.0, "pending");
+        assert_eq!(testdb::attempt_status(&client, &attempt_id).await, "undone");
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    /// Firefly 删不掉：账还在账本里，这一行就必须原样停在已入账。
+    /// 一边说撤销成功一边把账留在账本里，用户会照着收件箱再入一次，账本上就是两笔。
+    #[tokio::test]
+    async fn a_transaction_firefly_refuses_to_delete_leaves_the_row_imported() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_112_013_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        let attempt_id = testdb::insert_attempt(&client, &fixture, "sending", 0.0).await;
+        let firefly = testdb::FakeFirefly::start_with_delete(FakeDelete::Rejected(500)).await;
+        let service = service(&pool, firefly.client());
+        service
+            .complete_import(user_id, &attempt_id, 5504, false)
+            .await
+            .unwrap();
+
+        let result = service
+            .undo_imports(user_id, &[fixture.row_id], Some("test-token"))
+            .await
+            .unwrap();
+
+        assert_eq!(result["data"]["rows"][0]["outcome"], "failed");
+        assert!(
+            result["data"]["rows"][0]["error"].is_string(),
+            "得说清为什么"
+        );
+        let (status, group, _) = row_state(&client, fixture.row_id).await;
+        assert_eq!(status, "imported", "账还在账本里，这一行就不能说自己没入账");
+        assert_eq!(group, Some(5504), "交易组还指得出去");
+        assert_eq!(
+            testdb::attempt_status(&client, &attempt_id).await,
+            "succeeded"
+        );
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    /// 没入过账的行不能撤销，而且一个字节都不该发给 Firefly。
+    #[tokio::test]
+    async fn undoing_a_row_that_was_never_imported_touches_nothing() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_112_014_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        let firefly = testdb::FakeFirefly::start_with_delete(FakeDelete::Gone).await;
+
+        let result = service(&pool, firefly.client())
+            .undo_imports(user_id, &[fixture.row_id], Some("test-token"))
+            .await
+            .unwrap();
+
+        assert_eq!(result["data"]["rows"][0]["outcome"], "not_imported");
+        assert_eq!(firefly.delete_count(), 0, "没入过账就不该去动账本");
+        assert_eq!(row_state(&client, fixture.row_id).await.0, "pending");
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    /// 没有令牌就删不了账本里那笔。这时候放行会把行放回队列、账却留在账本里——
+    /// 用户再入一次就是双记。宁可明确拒绝。
+    #[tokio::test]
+    async fn without_a_token_no_row_is_released_because_nothing_can_be_deleted() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_112_015_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        let attempt_id = testdb::insert_attempt(&client, &fixture, "sending", 0.0).await;
+        let service = service(&pool, testdb::unreachable_firefly().await);
+        service
+            .complete_import(user_id, &attempt_id, 5505, false)
+            .await
+            .unwrap();
+
+        let refused = service
+            .undo_imports(user_id, &[fixture.row_id], None)
+            .await
+            .expect_err("没令牌就删不了账本，不能放行");
+
+        assert_eq!(refused.reason(), reasons::UNDO_TOKEN_REQUIRED);
+        assert_eq!(row_state(&client, fixture.row_id).await.0, "imported");
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    #[tokio::test]
+    async fn an_uncertain_attempt_can_still_be_marked_retryable_by_hand() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_112_007_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+        let attempt_id = testdb::insert_attempt(&client, &fixture, "uncertain", 0.0).await;
+
+        // 状态机里 uncertain → retryable 一直是合法的，以前被「两个目标取交集」的
+        // 过滤条件恒拒。
+        service(&pool, testdb::unreachable_firefly().await)
+            .fail_import(user_id, &attempt_id, true, None, "manual", "人工判定可重试")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            testdb::attempt_status(&client, &attempt_id).await,
+            "retryable"
+        );
+        testdb::cleanup(&client, user_id).await;
     }
 }

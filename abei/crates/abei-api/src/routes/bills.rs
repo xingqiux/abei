@@ -123,7 +123,9 @@ pub async fn unlock(
         &state,
         &identity.0,
         Method::POST,
-        &format!("/v1/bills/{id}/unlock"),
+        // 这里的确认在上面 gate.check 已经做过了，转发时要替调用方把 confirm 带上：
+        // abei-server 侧同名闸还会再拦一次，漏了它就是「确认了也 409」。
+        &format!("/v1/bills/{id}/unlock?confirm=true"),
         &json!({ "secret": params.secret }),
     )
     .await

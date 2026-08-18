@@ -189,6 +189,11 @@ pub(crate) struct FakeFirefly {
     pub base: String,
     /// 收到的 `POST /api/v1/transactions` 次数。用来验证「不该发的时候真的没发」。
     pub writes: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// 收到的 `DELETE /api/v1/transactions/{id}` 次数。撤销入账用它验证
+    /// 「账本那笔真的去删了」和「不该删的时候没删」。
+    pub deletes: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// 收到的 `POST /api/v1/accounts` 次数。自动建渠道账户用它验证建没建。
+    pub accounts_created: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 /// 假 Firefly 对一次入账写入的回应。
@@ -206,12 +211,76 @@ pub(crate) enum FakeWrite {
     ConnectionDropped,
 }
 
+/// 假 Firefly 对「按 external_id 找交易」的回应。对账的三条分支全由它决定。
+#[derive(Clone, Copy)]
+pub(crate) enum FakeSearch {
+    /// 查不到：账确实没记上。
+    Nothing,
+    /// 正好一条，返回这个交易组 id。
+    One(i64),
+    /// 同一个 external_id 查到多条，系统不该替用户选。
+    Many,
+}
+
+/// 假 Firefly 对「删掉这个交易组」的回应。撤销入账的三条分支全由它决定。
+#[derive(Clone, Copy)]
+pub(crate) enum FakeDelete {
+    /// 204 删掉了。
+    Gone,
+    /// 404：这笔交易本来就不在了。撤销要的结果已经达成。
+    Missing,
+    /// 明确拒绝，带这个状态码。账还在账本里。
+    Rejected(u16),
+}
+
+/// 假 Firefly 对「按名字找资产账户」的回应。自动建渠道账户那条路靠它分叉。
+#[derive(Clone, Copy)]
+pub(crate) enum FakeAccounts {
+    /// 没有同名账户，系统该自己建一个。
+    None,
+    /// 已经有一个同名账户（id、名字）。系统不该静默绑定，要落成待确认。
+    Existing(i64, &'static str),
+}
+
 impl FakeFirefly {
     /// 起一个只服务入账路径的假 Firefly，返回它的地址。
     ///
     /// `/api/v1/transactions` 的 GET（查重）一律返回空列表，POST 按 `write` 回应；
-    /// `/api/v1/accounts/{id}` 返回一个资产账户。
+    /// `/api/v1/accounts/{id}` 返回一个资产账户；对账搜索按 `search` 回应；
+    /// `DELETE /api/v1/transactions/{id}` 按 `delete` 回应；
+    /// `GET /api/v1/search/accounts` 按 `accounts` 回应，`POST /api/v1/accounts` 一律建成。
     pub(crate) async fn start(write: FakeWrite) -> Self {
+        Self::start_with_search(write, FakeSearch::Nothing).await
+    }
+
+    pub(crate) async fn start_with_search(write: FakeWrite, search: FakeSearch) -> Self {
+        Self::start_with(write, search, FakeDelete::Gone).await
+    }
+
+    /// 撤销入账的用例用这个：删除那一侧要能精确控制。
+    pub(crate) async fn start_with_delete(delete: FakeDelete) -> Self {
+        Self::start_with(FakeWrite::Created(1), FakeSearch::Nothing, delete).await
+    }
+
+    /// 自动建渠道账户的用例用这个：账户那一侧要能精确控制。
+    pub(crate) async fn start_with_accounts(write: FakeWrite, accounts: FakeAccounts) -> Self {
+        Self::start_full(write, FakeSearch::Nothing, FakeDelete::Gone, accounts).await
+    }
+
+    pub(crate) async fn start_with(
+        write: FakeWrite,
+        search: FakeSearch,
+        delete: FakeDelete,
+    ) -> Self {
+        Self::start_full(write, search, delete, FakeAccounts::None).await
+    }
+
+    pub(crate) async fn start_full(
+        write: FakeWrite,
+        search: FakeSearch,
+        delete: FakeDelete,
+        accounts: FakeAccounts,
+    ) -> Self {
         use axum::Json;
         use axum::extract::State;
         use axum::routing::get;
@@ -220,8 +289,36 @@ impl FakeFirefly {
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         let writes = Arc::new(AtomicUsize::new(0));
+        let deletes = Arc::new(AtomicUsize::new(0));
+        let accounts_created = Arc::new(AtomicUsize::new(0));
         let state = (write, writes.clone());
+        let delete_counter = deletes.clone();
+        let created_accounts = accounts_created.clone();
         let app = axum::Router::new()
+            .route(
+                "/api/v1/transactions/{id}",
+                axum::routing::delete(move || {
+                    let deletes = delete_counter.clone();
+                    async move {
+                        use axum::http::StatusCode;
+                        use axum::response::IntoResponse;
+                        deletes.fetch_add(1, Ordering::SeqCst);
+                        match delete {
+                            FakeDelete::Gone => StatusCode::NO_CONTENT.into_response(),
+                            FakeDelete::Missing => (
+                                StatusCode::NOT_FOUND,
+                                Json(json!({ "message": "Resource not found" })),
+                            )
+                                .into_response(),
+                            FakeDelete::Rejected(status) => (
+                                StatusCode::from_u16(status).unwrap(),
+                                Json(json!({ "message": "Firefly 说这笔删不得" })),
+                            )
+                                .into_response(),
+                        }
+                    }
+                }),
+            )
             .route(
                 "/api/v1/transactions",
                 get(|| async {
@@ -266,6 +363,44 @@ impl FakeFirefly {
                         "name": "招商银行信用卡", "type": "asset" } } }))
                 }),
             )
+            // 自动建渠道账户走这两条：先按名字找，找不到就建。
+            // 找一律返回空——「Firefly 里已经有同名账户」那条路由
+            // FakeAccounts::Existing 单独覆盖，见 start_with_accounts。
+            .route(
+                "/api/v1/search/accounts",
+                get(move || async move {
+                    match accounts {
+                        FakeAccounts::None => Json(json!({ "data": [] })),
+                        FakeAccounts::Existing(id, name) => Json(json!({ "data": [
+                            { "id": id.to_string(), "attributes": { "name": name, "type": "asset" } }
+                        ] })),
+                    }
+                }),
+            )
+            .route(
+                "/api/v1/accounts",
+                axum::routing::post(move || {
+                    let created = created_accounts.clone();
+                    async move {
+                        created.fetch_add(1, Ordering::SeqCst);
+                        Json(json!({ "data": { "id": "9001", "attributes": {
+                            "name": "招商银行", "type": "asset" } } }))
+                    }
+                }),
+            )
+            .route(
+                "/api/v1/search/transactions",
+                get(move || async move {
+                    let data = match search {
+                        FakeSearch::Nothing => json!([]),
+                        FakeSearch::One(id) => json!([{ "id": id.to_string() }]),
+                        FakeSearch::Many => {
+                            json!([{ "id": "9001" }, { "id": "9002" }])
+                        }
+                    };
+                    Json(json!({ "data": data }))
+                }),
+            )
             .with_state(state);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -276,6 +411,8 @@ impl FakeFirefly {
         Self {
             base: format!("http://{address}"),
             writes,
+            deletes,
+            accounts_created,
         }
     }
 
@@ -283,9 +420,34 @@ impl FakeFirefly {
         self.writes.load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// 建了几个资产账户。自动建渠道账户的用例靠它验证「该建的时候建了、不该建的时候没建」。
+    pub(crate) fn account_count(&self) -> usize {
+        self.accounts_created
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub(crate) fn delete_count(&self) -> usize {
+        self.deletes.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     pub(crate) fn client(&self) -> crate::firefly::Firefly {
         crate::firefly::Firefly::new(&self.base).unwrap()
     }
+}
+
+/// 一个默认配置的 billing::Service。不碰 Firefly 的用例用它，省得各处再抄一遍装配。
+pub(crate) fn billing_service(pool: Pool) -> crate::billing::Service {
+    let config = crate::mailbox::RuntimeConfig::test();
+    let mail = crate::mail::Service::new(pool.clone(), config.storage_root().to_path_buf());
+    let parser = crate::parser::Service::new(pool.clone(), mail.clone());
+    crate::billing::Service::new(
+        pool,
+        mail,
+        parser,
+        config.job_secret_cipher(),
+        config.reliability(),
+        crate::firefly::Firefly::from_env(),
+    )
 }
 
 /// 一个连不上的地址：端口先占再放，保证没人在听。用来模拟「请求发出去了但结果不明」。

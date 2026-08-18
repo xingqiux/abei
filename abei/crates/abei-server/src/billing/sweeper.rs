@@ -7,7 +7,8 @@
 //! 这里改成进程级的定时任务：不带 row_id、不带 user_id，到点就把所有超时的都收掉。
 
 use super::Service;
-use crate::states::{ImportStatus, SyncRunStatus};
+use super::worker::MAX_ATTEMPTS;
+use crate::states::{ImportStatus, ParseJobStatus, SyncRunStatus};
 
 pub(super) fn start(service: Service) {
     let interval = service.reliability.sweep_interval;
@@ -23,7 +24,8 @@ pub(super) fn start(service: Service) {
                     prepared = report.prepared_expired,
                     sending = report.sending_expired,
                     sync_runs = report.sync_runs_failed,
-                    "清扫器回收了超时的流水与同步任务"
+                    parse_jobs = report.parse_jobs_failed,
+                    "清扫器回收了超时的流水、解析任务与同步任务"
                 ),
                 Err(error) => tracing::error!(%error, "清扫器这一轮失败，等下一轮再试"),
             }
@@ -36,6 +38,7 @@ pub(super) struct SweepReport {
     pub prepared_expired: u64,
     pub sending_expired: u64,
     pub sync_runs_failed: u64,
+    pub parse_jobs_failed: u64,
 }
 
 impl SweepReport {
@@ -103,10 +106,31 @@ pub(super) async fn sweep(service: &Service) -> Result<SweepReport, String> {
         .await
         .map_err(|error| error.to_string())?;
 
+    // 领取那条 SQL 只救「租约过期且 attempt 还没到顶」的任务。到顶的既领不走、
+    // 又不是失败状态，界面上永远转圈还没有按钮。这里给它一个明确的结局。
+    let parse_jobs_failed = client
+        .execute(
+            &format!(
+                "UPDATE abei_ai.parse_jobs SET status = '{failed}', stage = 'finished',
+                   error_code = 'parse_lease_expired',
+                   error_message = '解析进程失去响应，重试次数也已用完，任务已判为失败。',
+                   worker_id = NULL, lease_expires_at = NULL, heartbeat_at = NULL,
+                   finished_at = now(), updated_at = now()
+                 WHERE status = '{running}' AND lease_expires_at < now()
+                   AND attempt >= {MAX_ATTEMPTS}",
+                failed = ParseJobStatus::Failed,
+                running = ParseJobStatus::Running,
+            ),
+            &[],
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+
     Ok(SweepReport {
         prepared_expired,
         sending_expired,
         sync_runs_failed,
+        parse_jobs_failed,
     })
 }
 
@@ -226,6 +250,83 @@ mod tests {
             .unwrap()
             .get(0);
         assert_eq!(status, "failed", "失去心跳的同步应该被收成 failed");
+        testdb::cleanup(&client, user_id).await;
+    }
+
+    /// 重试次数用完、租约又过期的解析任务，领取那条 SQL 是不管的：既领不走也不是失败，
+    /// 界面上就永远转圈。清扫器得给它一个结局。
+    #[tokio::test]
+    async fn a_parse_job_out_of_retries_stops_spinning_forever() {
+        let Some(pool) = testdb::pool().await else {
+            return;
+        };
+        let client = pool.get().await.unwrap();
+        let user_id = 8_110_014_i64;
+        let fixture = testdb::seed(&client, user_id).await;
+
+        let stuck: i64 = client
+            .query_one(
+                &format!(
+                    "INSERT INTO abei_ai.parse_jobs
+                       (user_id, bill_document_id, target_revision, parser_flow_id,
+                        parser_flow_version, definition_checksum, status, stage,
+                        attempt, worker_id, lease_expires_at, heartbeat_at)
+                     SELECT $1, $2, 2, parser_flow_id, parser_flow_version,
+                            definition_checksum, 'running', 'parsing', {MAX_ATTEMPTS},
+                            'dead-worker', now() - interval '1 hour', now() - interval '1 hour'
+                     FROM abei_ai.parse_jobs WHERE bill_document_id = $2 LIMIT 1
+                     RETURNING id"
+                ),
+                &[&user_id, &fixture.document_id],
+            )
+            .await
+            .unwrap()
+            .get(0);
+
+        // 还没到重试上限的那条不该被一起收走。
+        let young: i64 = client
+            .query_one(
+                "INSERT INTO abei_ai.parse_jobs
+                   (user_id, bill_document_id, target_revision, parser_flow_id,
+                    parser_flow_version, definition_checksum, status, stage,
+                    attempt, worker_id, lease_expires_at)
+                 SELECT $1, $2, 3, parser_flow_id, parser_flow_version,
+                        definition_checksum, 'running', 'parsing', 1,
+                        'dead-worker', now() - interval '1 hour'
+                 FROM abei_ai.parse_jobs WHERE id = $3
+                 RETURNING id",
+                &[&user_id, &fixture.document_id, &stuck],
+            )
+            .await
+            .unwrap()
+            .get(0);
+
+        sweep(&service(&pool).await).await.unwrap();
+
+        let status = |id: i64| {
+            let client = &client;
+            async move {
+                client
+                    .query_one(
+                        "SELECT status FROM abei_ai.parse_jobs WHERE id = $1",
+                        &[&id],
+                    )
+                    .await
+                    .unwrap()
+                    .get::<_, String>(0)
+            }
+        };
+        assert_eq!(status(stuck).await, "failed", "重试用完的应该判失败");
+        assert_eq!(status(young).await, "running", "还能重试的不该被动");
+        let error_code: Option<String> = client
+            .query_one(
+                "SELECT error_code FROM abei_ai.parse_jobs WHERE id = $1",
+                &[&stuck],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(error_code.as_deref(), Some("parse_lease_expired"));
         testdb::cleanup(&client, user_id).await;
     }
 }

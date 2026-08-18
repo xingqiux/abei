@@ -109,17 +109,27 @@ define_state! {
     /// Firefly 那边到底建没建。这时候唯一安全的动作是拿 `external_id` 回查对账，
     /// 绝不能当失败直接重发，否则用户账本上多一笔。
     ///
+    /// `uncertain` → `rejected` 是对账查证之后的死路：账在 Firefly 里查到了，本地那一行
+    /// 却已经被改成别的状态（并成重复、手动忽略），两边对不上要人来处理。这时候只能
+    /// 就地停住，绝不能给 `retryable` 让它再发一次。
+    ///
+    /// `undone` 是撤销入账留下的痕迹：Firefly 那笔交易已经删掉了，这条尝试记录仍然
+    /// 留在库里，只是不再算数。它必须是一个独立状态而不是删记录——删了就再也说不清
+    /// 「这一行入过账又被撤了」；也必须离开 `SETTLED`，否则
+    /// `bill_import_attempts_success_row_idx` 会一直挡着这一行不让重新入账。
+    ///
     /// `retryable` 和几个终态都没有出边：重试的做法是给同一行新开一条 `attempt_no + 1`
     /// 的记录，而不是把旧记录改回 `prepared`。库里那两个部分唯一索引
     /// （active / success）就是按这个前提建的。
     ImportStatus {
         Prepared = "prepared" => [Sending, Retryable, Rejected],
         Sending = "sending" => [Succeeded, Rejected, Retryable, Uncertain],
-        Uncertain = "uncertain" => [Succeeded, Reconciled, Retryable],
-        Succeeded = "succeeded" => [],
-        Reconciled = "reconciled" => [],
+        Uncertain = "uncertain" => [Succeeded, Reconciled, Retryable, Rejected],
+        Succeeded = "succeeded" => [Undone],
+        Reconciled = "reconciled" => [Undone],
         Rejected = "rejected" => [],
         Retryable = "retryable" => [],
+        Undone = "undone" => [],
     }
 }
 
@@ -134,11 +144,16 @@ impl ImportStatus {
 define_state! {
     /// `abei_ai.parse_jobs.status`：一封邮件解析成流水的过程。
     ///
-    /// `waiting_input` 是解析器要用户补信息（例如账单密码）时停住的地方，补完回到 `running`。
+    /// `waiting_input` 是解析器要用户补信息（例如账单密码）时停住的地方。
+    ///
+    /// 补完密码回的是 `queued` 而不是 `running`：停在这里的时候 worker 已经把租约还了，
+    /// 谁来接着跑得重新领。直接写 `running` 会让领取那条 SQL 当成「租约过期要救回来的
+    /// 任务」，每提交一次密码就白算一次 attempt，五次密码就把 20 次的额度烧掉一小半。
+    /// `running` 这条边留着是给 worker 自己用的（它没还租约、就地继续）。
     ParseJobStatus {
         Queued = "queued" => [Running, Cancelled],
         Running = "running" => [Succeeded, Failed, WaitingInput, Cancelled],
-        WaitingInput = "waiting_input" => [Running, Failed, Cancelled],
+        WaitingInput = "waiting_input" => [Queued, Running, Failed, Cancelled],
         Succeeded = "succeeded" => [],
         Failed = "failed" => [],
         Cancelled = "cancelled" => [],
@@ -171,12 +186,14 @@ impl SyncRunStatus {
 define_state! {
     /// `abei_ai.bill_rows.status`：一行流水在收件箱里的去向。
     ///
-    /// `imported` 没有出边——账已经在 Firefly 里了，撤销要走 Firefly 那边删除，
-    /// 不是把这一行改回 `pending`。
+    /// `imported` → `pending` 是撤销入账这一步，而且只有它能走：撤销先把 Firefly 里
+    /// 那笔交易删掉（或确认它已经不在了），才把这一行放回队列。以前这条边不存在，
+    /// 前端只好自己去删交易组，删完这一行仍旧停在 `imported`——账本没了这笔，
+    /// 收件箱却还说已入账，「查看交易」点开是 404。
     RowStatus {
         Pending = "pending" => [Imported, Dismissed],
         Dismissed = "dismissed" => [Pending],
-        Imported = "imported" => [],
+        Imported = "imported" => [Pending],
     }
 }
 
@@ -251,15 +268,25 @@ mod tests {
     #[test]
     fn the_terminal_states_are_exactly_the_ones_we_think_they_are() {
         use ImportStatus::*;
-        assert!(Succeeded.is_terminal());
-        assert!(Reconciled.is_terminal());
         assert!(Rejected.is_terminal());
         assert!(Retryable.is_terminal());
+        assert!(Undone.is_terminal());
         assert!(!Prepared.is_terminal());
         assert!(!Sending.is_terminal());
         assert!(!Uncertain.is_terminal());
 
-        assert!(RowStatus::Imported.is_terminal());
+        // 落定的两个状态只剩撤销这一条出边，别的都不许走：succeeded 不能退回 retryable
+        // 再发一次（账本上就是两笔），也不能改成 rejected 把「记上了」抹掉。
+        assert_eq!(Succeeded.next_states(), &[Undone]);
+        assert_eq!(Reconciled.next_states(), &[Undone]);
+        assert!(!Succeeded.can_transition(Retryable));
+        assert!(!Succeeded.can_transition(Rejected));
+        assert!(!Reconciled.can_transition(Retryable));
+
+        // imported → pending 是撤销入账，且只有这一条：入过账的行不能直接被忽略掉，
+        // 那样账本里那笔就再也没有行认领它了。
+        assert_eq!(RowStatus::Imported.next_states(), &[RowStatus::Pending]);
+        assert!(!RowStatus::Imported.can_transition(RowStatus::Dismissed));
         assert!(!RowStatus::Dismissed.is_terminal());
     }
 

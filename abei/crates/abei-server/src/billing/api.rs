@@ -761,7 +761,9 @@ pub(crate) async fn prepare_import(
     Ok(Json(
         state
             .billing
-            .prepare_import(user_id, input.row_id, input.dry_run)
+            // 细粒度端点一次只准备一条，不构成「一批」：批次编号由 run_import 那条
+            // 整批路径生成，这里留空，界面把它归到「更早的入账」而不是凑成一批。
+            .prepare_import(user_id, input.row_id, input.dry_run, None)
             .await?,
     ))
 }
@@ -796,29 +798,57 @@ pub(crate) async fn run_import(
         )));
     }
 
-    // 逐条串行跑。并行会让「同一账户余额链」的顺序不可控，也更容易撞 Firefly 的限流。
-    let mut rows = Vec::with_capacity(input.row_ids.len());
-    for row_id in input.row_ids {
-        rows.push(
-            state
-                .billing
-                .run_import(super::runner::ImportRequest {
-                    user_id,
-                    token: &token,
-                    row_id,
-                    dry_run: input.dry_run,
-                    include_payload: input.include_payload,
-                })
-                .await,
-        );
-    }
-    Ok(Json(super::runner::import_response(rows, input.dry_run)))
+    // 整批放进一个独立任务里跑。axum 在客户端断开时会把 handler 的 future 丢掉，
+    // 而这条循环中间每一步都可能已经把账写进 Firefly 了——被丢在 `sending` 上没人收尾，
+    // 就得等清扫器按租约超时救。spawn 出去之后断开只是没人接结果，入账本身跑完。
+    //
+    // 循环仍然是串行的：并行会让「同一账户余额链」的顺序不可控，也更容易撞 Firefly 限流。
+    // 单次请求的条数上限见 MAX_IMPORT_ROWS——5000 条按最坏情况估算要跑相当久，
+    // 客户端应该分批发，而不是靠这一个请求扛完。
+    let billing = state.billing.clone();
+    let dry_run = input.dry_run;
+    let include_payload = input.include_payload;
+    let row_ids = input.row_ids;
+    // 这一次入账动作的编号，整批共用。界面靠它把已入账的行按批次聚起来、整批撤回；
+    // 预览不写库，也就没有批次可言。
+    let batch_id = (!dry_run).then(|| uuid::Uuid::new_v4().to_string());
+    let rows = tokio::spawn(async move {
+        let mut rows = Vec::with_capacity(row_ids.len());
+        for row_id in row_ids {
+            rows.push(
+                billing
+                    .run_import(super::runner::ImportRequest {
+                        user_id,
+                        token: &token,
+                        row_id,
+                        dry_run,
+                        include_payload,
+                        batch_id: batch_id.as_deref(),
+                    })
+                    .await,
+            );
+        }
+        rows
+    })
+    .await
+    .map_err(|error| ApiError::internal(format!("入账任务没能跑完：{error}")))?;
+    Ok(Json(super::runner::import_response(rows, dry_run)))
 }
 
 /// 一次请求最多处理多少条。和 abei-api 的 `MAX_IMPORT_SELECTION` 保持一致。
 const MAX_IMPORT_ROWS: usize = 5_000;
 
 /// 取出 abei-api 转交的 Firefly 令牌。
+/// 同上，但拿不到就返回 None，由调用方决定这算不算致命。
+fn optional_firefly_token(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(abei_core::internal_auth::FIREFLY_TOKEN_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .map(str::to_owned)
+}
+
 fn firefly_token(headers: &HeaderMap) -> Result<String, ApiError> {
     headers
         .get(abei_core::internal_auth::FIREFLY_TOKEN_HEADER)
@@ -917,8 +947,43 @@ pub(crate) async fn release_uncertain_import(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = authenticated_user_id(&headers)?;
     let id = opaque_id(path, "导入尝试")?;
+    // 令牌是可选的**参数**、不是可选的**要求**：没有它这里会明确拒绝，而不是
+    // 不查证就把 uncertain 放回可重试。区别在于 401 由服务层带着原因码给出。
+    let token = optional_firefly_token(&headers);
     Ok(Json(
-        state.billing.release_uncertain_import(user_id, &id).await?,
+        state
+            .billing
+            .reconcile_uncertain_import(user_id, &id, token.as_deref())
+            .await?,
+    ))
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct UndoImportInput {
+    row_ids: Vec<Value>,
+}
+
+/// 撤销入账：删掉账本里那几笔，把行放回待处理。
+///
+/// 走内部路由是因为它必须拿到 abei-api 转交的 Firefly 令牌——撤销要真的去删交易，
+/// 不是只改本地状态。逐行汇报结果，一行删不掉不影响其它行。
+pub(crate) async fn undo_imports(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    payload: Result<Json<UndoImportInput>, JsonRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = authenticated_user_id(&headers)?;
+    // 令牌是可选的**参数**、不是可选的**要求**：拿不到就由服务层带着原因码明确拒绝，
+    // 而不是不删账本就把行放回队列——那样用户会把同一笔再入一次。
+    let token = optional_firefly_token(&headers);
+    let Json(input) = payload.map_err(json_error)?;
+    let ids = resource_ids(&input.row_ids)?;
+    Ok(Json(
+        state
+            .billing
+            .undo_imports(user_id, &ids, token.as_deref())
+            .await?,
     ))
 }
 
@@ -976,6 +1041,38 @@ pub(crate) async fn delete_account_mapping(
     gate.require_confirmation("bill-account-mappings.delete")?;
     Ok(Json(
         state.billing.delete_account_mapping(user_id, id).await?,
+    ))
+}
+
+/// 还等着用户点头的渠道账户。收件箱顶部那条横幅读它。
+pub(crate) async fn list_channel_accounts(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = authenticated_user_id(&headers)?;
+    Ok(Json(state.billing.pending_channel_accounts(user_id).await?))
+}
+
+/// 确认「新账单就记进这个已有账户」。
+///
+/// 走 confirm 档：这一下之后，这一渠道往后所有账单都会落进这个账户，绑错了要一笔笔撤。
+pub(crate) async fn confirm_channel_account(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    path: Result<Path<String>, PathRejection>,
+    gate: Result<Query<WriteGate>, QueryRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = authenticated_user_id(&headers)?;
+    let id = resource_id(path, "渠道账户")?;
+    let gate = parse_gate(gate)?;
+    if gate.dry_run {
+        return Ok(Json(json!({ "dry_run": true, "would": {
+            "channel_account_id": id.to_string(), "action": "confirm"
+        }})));
+    }
+    gate.require_confirmation("bill-channel-accounts.confirm")?;
+    Ok(Json(
+        state.billing.confirm_channel_account(user_id, id).await?,
     ))
 }
 

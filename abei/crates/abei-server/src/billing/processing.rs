@@ -123,8 +123,11 @@ impl Service {
         // 产出的行按窗口算「这批产出了多少」，待办数不设窗口——用户要的是现在还剩几条。
         let produced: i64 = client
             .query_one(
-                "SELECT count(*)::bigint FROM abei_ai.bill_rows
-                 WHERE user_id = $1 AND created_at >= now() - make_interval(secs => $2)",
+                "SELECT count(*)::bigint FROM abei_ai.bill_rows r
+                 JOIN abei_ai.bill_documents d ON d.id = r.bill_document_id
+                 WHERE r.user_id = $1 AND d.active_revision = r.revision
+                   AND d.lifecycle = 'active'
+                   AND r.created_at >= now() - make_interval(secs => $2)",
                 &[&user_id, &window],
             )
             .await
@@ -134,12 +137,12 @@ impl Service {
         let pending = client
             .query_one(
                 &format!(
-                    "SELECT count(*) FILTER (WHERE {} = 'importable')::bigint,
-                            count(*) FILTER (WHERE {} = 'attention')::bigint
-                     {} WHERE r.user_id = $1 AND d.active_revision = r.revision",
-                    row_group_predicate(),
-                    row_group_predicate(),
-                    row_from()
+                    "SELECT count(*) FILTER (WHERE {predicate} = 'importable')::bigint,
+                            count(*) FILTER (WHERE {predicate} = 'attention')::bigint
+                     {from} WHERE r.user_id = $1 AND d.active_revision = r.revision
+                       AND d.lifecycle = 'active'",
+                    predicate = row_group_predicate(),
+                    from = row_from()
                 ),
                 &[&user_id],
             )

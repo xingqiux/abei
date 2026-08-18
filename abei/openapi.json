@@ -4631,6 +4631,541 @@
         "x-abei-risk": "confirm"
       }
     },
+    "/v1/bill-inbox/summary": {
+      "get": {
+        "description": "四分组计数、渠道条、解析任务与最近一次同步。所有计数都按同一套 SQL 口径算，逐渠道加起来等于总数。",
+        "operationId": "bill-inbox.summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "channels": {
+                      "items": {
+                        "properties": {
+                          "counts": {
+                            "properties": {
+                              "attention": {
+                                "type": "integer"
+                              },
+                              "dismissed": {
+                                "type": "integer"
+                              },
+                              "importable": {
+                                "type": "integer"
+                              },
+                              "imported": {
+                                "type": "integer"
+                              }
+                            },
+                            "required": [
+                              "importable",
+                              "attention",
+                              "dismissed",
+                              "imported"
+                            ],
+                            "type": "object"
+                          },
+                          "failed": {
+                            "type": "integer"
+                          },
+                          "key": {
+                            "description": "渠道标识，例如 cmb。",
+                            "type": "string"
+                          },
+                          "last_received_at": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "last_status": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "name": {
+                            "description": "中文显示名，例如「招商银行」。认不出来的 key 原样返回。",
+                            "type": "string"
+                          },
+                          "needs_code": {
+                            "type": "integer"
+                          },
+                          "parsed": {
+                            "type": "integer"
+                          },
+                          "to_store": {
+                            "type": "integer"
+                          },
+                          "unprocessed": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "name",
+                          "counts"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "counts": {
+                      "properties": {
+                        "attention": {
+                          "type": "integer"
+                        },
+                        "dismissed": {
+                          "type": "integer"
+                        },
+                        "importable": {
+                          "type": "integer"
+                        },
+                        "imported": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "importable",
+                        "attention",
+                        "dismissed",
+                        "imported"
+                      ],
+                      "type": "object"
+                    },
+                    "failed": {
+                      "description": "解析失败的邮件数。",
+                      "type": "integer"
+                    },
+                    "mailbox_sync": {
+                      "type": "object"
+                    },
+                    "needs_code": {
+                      "description": "等用户补密码的邮件数（按文档的最新一条解析任务算）。",
+                      "type": "integer"
+                    },
+                    "parse_jobs": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "pending_total": {
+                      "type": "integer"
+                    },
+                    "todo": {
+                      "type": "object"
+                    },
+                    "unclassified_mail": {
+                      "type": "integer"
+                    },
+                    "unprocessed": {
+                      "description": "排队中或正在解析的邮件数。",
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "counts",
+                    "channels",
+                    "needs_code",
+                    "unprocessed",
+                    "failed"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "收件箱概览。"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          }
+        },
+        "summary": "查看收件箱概览",
+        "tags": [
+          "bill-inbox"
+        ],
+        "x-abei-backend": "server",
+        "x-abei-risk": "read"
+      }
+    },
+    "/v1/bill-rows": {
+      "get": {
+        "operationId": "bill-rows.list",
+        "parameters": [
+          {
+            "description": "四分组之一。不填是全部。",
+            "in": "query",
+            "name": "group",
+            "required": false,
+            "schema": {
+              "enum": [
+                "importable",
+                "attention",
+                "dismissed",
+                "imported"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "渠道 key，例如 cmb。",
+            "in": "query",
+            "name": "channel",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "channel 的旧名字，等价。",
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "只看某一封邮件解析出来的流水。点名之后归档的文档也看得见。",
+            "in": "query",
+            "name": "document_id",
+            "required": false,
+            "schema": {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "properties": {
+                          "attributes": {
+                            "properties": {
+                              "attention_kind": {
+                                "description": "待确认的行为什么要人看。非待确认的行是 null。前端按这个分节，不要拿 reasons 的中文做匹配。",
+                                "enum": [
+                                  "account_unmapped",
+                                  "pairing_suggested",
+                                  "duplicate_suspect",
+                                  "import_failed",
+                                  "import_pending",
+                                  "needs_fix",
+                                  null
+                                ],
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "group": {
+                                "enum": [
+                                  "importable",
+                                  "attention",
+                                  "dismissed",
+                                  "imported"
+                                ],
+                                "type": "string"
+                              },
+                              "issues": {
+                                "description": "每一条都带 code 和 message。进了待确认的行至少有一条。",
+                                "items": {
+                                  "properties": {
+                                    "code": {
+                                      "description": "account_mapping_required / account_mapping_ambiguous / invalid_date / missing_amount / missing_type / missing_description / duplicate_suspect / pair_suggested / import_failed 等。",
+                                      "type": "string"
+                                    },
+                                    "message": {
+                                      "type": "string"
+                                    },
+                                    "severity": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "code",
+                                    "message"
+                                  ],
+                                  "type": "object"
+                                },
+                                "type": "array"
+                              }
+                            },
+                            "required": [
+                              "group",
+                              "attention_kind",
+                              "issues"
+                            ],
+                            "type": "object"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "const": "bill-row"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "type",
+                          "attributes"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "meta": {
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "账单流水分页。"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          }
+        },
+        "summary": "查看账单流水",
+        "tags": [
+          "bill-rows"
+        ],
+        "x-abei-backend": "server",
+        "x-abei-risk": "read"
+      }
+    },
     "/v1/bill-rows/dismiss": {
       "post": {
         "description": "批量把账单流水标记为忽略；可按 id 或自动重复过滤器操作。",
@@ -5125,6 +5660,315 @@
         ],
         "x-abei-backend": "server",
         "x-abei-risk": "draft"
+      }
+    },
+    "/v1/bill-rows/undo-import": {
+      "post": {
+        "description": "删掉账本里对应的交易，再把这几行放回待处理。Firefly 里那笔本来就不在也算撤销成功；删不掉的行原样停在已入账，逐行报错。会动账本，必须带 confirm=true。",
+        "operationId": "bill-rows.undo-import",
+        "parameters": [
+          {
+            "description": "只校验和预览，不写入。",
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "必须显式确认。",
+            "in": "query",
+            "name": "confirm",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "row_ids": {
+                    "description": "要撤销的流水 id，一次最多 500 条。",
+                    "items": {
+                      "type": [
+                        "string",
+                        "integer"
+                      ]
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "row_ids"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "rows": {
+                          "items": {
+                            "properties": {
+                              "error": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "outcome": {
+                                "description": "undone 是交易已删（或本来就不在）、行已回待处理。",
+                                "enum": [
+                                  "undone",
+                                  "not_imported",
+                                  "not_found",
+                                  "failed"
+                                ],
+                                "type": "string"
+                              },
+                              "row_id": {
+                                "type": "string"
+                              },
+                              "transaction_group_id": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "row_id",
+                              "outcome"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "summary": {
+                          "properties": {
+                            "failed": {
+                              "type": "integer"
+                            },
+                            "not_found": {
+                              "type": "integer"
+                            },
+                            "not_imported": {
+                              "type": "integer"
+                            },
+                            "total": {
+                              "type": "integer"
+                            },
+                            "undone": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "total",
+                            "undone",
+                            "failed"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "rows",
+                        "summary"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "逐行的撤销结果。"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          }
+        },
+        "summary": "撤销入账",
+        "tags": [
+          "bill-rows"
+        ],
+        "x-abei-backend": "server",
+        "x-abei-risk": "confirm"
       }
     },
     "/v1/bill-rows/update-many": {
@@ -10926,6 +11770,667 @@
         "x-abei-risk": "draft"
       }
     },
+    "/v1/mail-rules/{id}/apply": {
+      "post": {
+        "description": "按已发布的规则条件重扫历史邮件：命中的重新归类，已经解析出账单的顺带重新解析一遍。处理在后台跑，这里立刻返回任务标识；进度用 mail-rules.apply-status 查。同一条规则同时只允许一个任务在跑，重复发起返回 409。",
+        "operationId": "mail-rules.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "只校验和预览，不写入。",
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "必须显式确认。",
+            "in": "query",
+            "name": "confirm",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "limit": {
+                    "default": 500,
+                    "description": "这一趟最多看多少封，从最近的往回数。",
+                    "maximum": 2000,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "scope": {
+                    "default": "unclassified",
+                    "description": "只扫没归类的，还是全部邮件。",
+                    "enum": [
+                      "unclassified",
+                      "all"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "预览：这一趟会命中多少封。"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "created_at": {
+                          "type": "string"
+                        },
+                        "error": {
+                          "description": "整批没跑起来时的原因。",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "failed": {
+                          "description": "单封处理出错的数量，不影响其余。",
+                          "type": "integer"
+                        },
+                        "finished_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "matched": {
+                          "description": "条件命中、要处理的邮件数。",
+                          "type": "integer"
+                        },
+                        "reparse_jobs": {
+                          "description": "顺带排上的解析任务数。",
+                          "type": "integer"
+                        },
+                        "rerouted": {
+                          "description": "已经改完归类的邮件数。",
+                          "type": "integer"
+                        },
+                        "run_id": {
+                          "description": "任务标识。从来没跑过是 null。",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "scope": {
+                          "enum": [
+                            "unclassified",
+                            "all",
+                            null
+                          ],
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "state": {
+                          "description": "interrupted 是任务失去心跳，多半是服务在处理途中重启了。",
+                          "enum": [
+                            "idle",
+                            "running",
+                            "interrupted",
+                            "succeeded",
+                            "failed"
+                          ],
+                          "type": "string"
+                        },
+                        "total_scanned": {
+                          "description": "这一趟一共看过多少封邮件。",
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "matched",
+                        "rerouted",
+                        "reparse_jobs",
+                        "failed",
+                        "total_scanned"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "任务已创建，处理在后台进行。"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          }
+        },
+        "summary": "把规则套到历史邮件上",
+        "tags": [
+          "mail-rules"
+        ],
+        "x-abei-backend": "server",
+        "x-abei-risk": "confirm"
+      }
+    },
+    "/v1/mail-rules/{id}/apply-status": {
+      "get": {
+        "description": "这条规则最近一次批量重归类跑到哪儿了。从来没跑过返回 state=idle；任务失去心跳返回 state=interrupted，说明服务在处理途中重启过。",
+        "operationId": "mail-rules.apply-status",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "created_at": {
+                          "type": "string"
+                        },
+                        "error": {
+                          "description": "整批没跑起来时的原因。",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "failed": {
+                          "description": "单封处理出错的数量，不影响其余。",
+                          "type": "integer"
+                        },
+                        "finished_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "matched": {
+                          "description": "条件命中、要处理的邮件数。",
+                          "type": "integer"
+                        },
+                        "reparse_jobs": {
+                          "description": "顺带排上的解析任务数。",
+                          "type": "integer"
+                        },
+                        "rerouted": {
+                          "description": "已经改完归类的邮件数。",
+                          "type": "integer"
+                        },
+                        "run_id": {
+                          "description": "任务标识。从来没跑过是 null。",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "scope": {
+                          "enum": [
+                            "unclassified",
+                            "all",
+                            null
+                          ],
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "state": {
+                          "description": "interrupted 是任务失去心跳，多半是服务在处理途中重启了。",
+                          "enum": [
+                            "idle",
+                            "running",
+                            "interrupted",
+                            "succeeded",
+                            "failed"
+                          ],
+                          "type": "string"
+                        },
+                        "total_scanned": {
+                          "description": "这一趟一共看过多少封邮件。",
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "matched",
+                        "rerouted",
+                        "reparse_jobs",
+                        "failed",
+                        "total_scanned"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "批量重归类的进度。"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "机读错误码，驼峰。",
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "upstream": {},
+                    "verb": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "reason"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json。reason 是机读驼峰码。"
+          }
+        },
+        "summary": "查看批量重归类进度",
+        "tags": [
+          "mail-rules"
+        ],
+        "x-abei-backend": "server",
+        "x-abei-risk": "read"
+      }
+    },
     "/v1/mail-rules/{id}/publish": {
       "post": {
         "operationId": "mail-rules.publish",
@@ -12939,7 +14444,7 @@
             "name": "id",
             "required": true,
             "schema": {
-              "pattern": "^[1-9][0-9]*$",
+              "pattern": "^([1-9][0-9]*|current)$",
               "type": "string"
             }
           }
@@ -13135,7 +14640,7 @@
             "name": "id",
             "required": true,
             "schema": {
-              "pattern": "^[1-9][0-9]*$",
+              "pattern": "^([1-9][0-9]*|current)$",
               "type": "string"
             }
           },
@@ -13361,7 +14866,7 @@
             "name": "id",
             "required": true,
             "schema": {
-              "pattern": "^[1-9][0-9]*$",
+              "pattern": "^([1-9][0-9]*|current)$",
               "type": "string"
             }
           },
@@ -13638,7 +15143,7 @@
             "name": "id",
             "required": true,
             "schema": {
-              "pattern": "^[1-9][0-9]*$",
+              "pattern": "^([1-9][0-9]*|current)$",
               "type": "string"
             }
           },

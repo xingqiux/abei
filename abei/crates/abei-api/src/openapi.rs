@@ -26,6 +26,7 @@ pub fn document() -> Value {
     }
 
     insert_mail_workbench_paths(&mut paths);
+    insert_bill_inbox_paths(&mut paths);
     insert_parser_platform_paths(&mut paths);
     insert_feedback_admin_paths(&mut paths);
 
@@ -268,6 +269,22 @@ fn insert_mail_workbench_paths(paths: &mut Map<String, Value>) {
             true,
         ),
         (
+            "/v1/mail-rules/{id}/apply",
+            "post",
+            "mail-rules.apply",
+            "把规则套到历史邮件上",
+            true,
+            true,
+        ),
+        (
+            "/v1/mail-rules/{id}/apply-status",
+            "get",
+            "mail-rules.apply-status",
+            "查看批量重归类进度",
+            false,
+            false,
+        ),
+        (
             "/v1/mail-rules/{id}/rollback",
             "post",
             "mail-rules.rollback",
@@ -309,7 +326,7 @@ fn insert_mail_workbench_paths(paths: &mut Map<String, Value>) {
                 "name": "id",
                 "in": "path",
                 "required": true,
-                "schema": { "type": "string", "pattern": "^[1-9][0-9]*$" }
+                "schema": { "type": "string", "pattern": id_pattern(path) }
             }));
         }
         if write && operation_id != "mail-rules.test" {
@@ -342,6 +359,46 @@ fn insert_mail_workbench_paths(paths: &mut Map<String, Value>) {
         if matches!(operation_id, "mailboxes.sync" | "mailboxes.rescan") {
             operation["responses"]["202"] = ok_response("同步任务已创建。");
         }
+        if operation_id == "mail-rules.apply-status" {
+            operation["description"] = json!(
+                "这条规则最近一次批量重归类跑到哪儿了。从来没跑过返回 state=idle；\
+                 任务失去心跳返回 state=interrupted，说明服务在处理途中重启过。"
+            );
+            operation["responses"]["200"] =
+                json_response("批量重归类的进度。", mail_rule_apply_run_schema());
+        }
+        if operation_id == "mail-rules.apply" {
+            operation["description"] = json!(
+                "按已发布的规则条件重扫历史邮件：命中的重新归类，已经解析出账单的顺带重新解析一遍。\
+                 处理在后台跑，这里立刻返回任务标识；进度用 mail-rules.apply-status 查。\
+                 同一条规则同时只允许一个任务在跑，重复发起返回 409。"
+            );
+            operation["requestBody"] = json!({
+                "required": false,
+                "content": { "application/json": { "schema": {
+                    "type": "object",
+                    "properties": {
+                        "scope": {
+                            "type": "string",
+                            "enum": ["unclassified", "all"],
+                            "default": "unclassified",
+                            "description": "只扫没归类的，还是全部邮件。"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 2000,
+                            "default": 500,
+                            "description": "这一趟最多看多少封，从最近的往回数。"
+                        }
+                    }
+                } } }
+            });
+            // 200 只剩预览用：真正发起时任务是后台跑的，回的是 202 和一个刚开出来的任务。
+            operation["responses"]["200"] = ok_response("预览：这一趟会命中多少封。");
+            operation["responses"]["202"] =
+                json_response("任务已创建，处理在后台进行。", mail_rule_apply_run_schema());
+        }
         if operation_id == "mail-messages.raw" {
             operation["responses"]["200"] = json!({
                 "description": "原始 RFC 822 邮件。",
@@ -352,6 +409,304 @@ fn insert_mail_workbench_paths(paths: &mut Map<String, Value>) {
             item.insert(method.to_owned(), operation);
         }
     }
+}
+
+/// 一次批量重归类的进度。发起和查询回的是同一个形状，客户端只写一套解析。
+fn mail_rule_apply_run_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+            "data": {
+                "type": "object",
+                "required": ["state", "matched", "rerouted", "reparse_jobs", "failed",
+                             "total_scanned"],
+                "properties": {
+                    "run_id": { "type": ["string", "null"], "description": "任务标识。从来没跑过是 null。" },
+                    "state": {
+                        "type": "string",
+                        "enum": ["idle", "running", "interrupted", "succeeded", "failed"],
+                        "description": "interrupted 是任务失去心跳，多半是服务在处理途中重启了。"
+                    },
+                    "scope": { "type": ["string", "null"], "enum": ["unclassified", "all", null] },
+                    "total_scanned": { "type": "integer", "description": "这一趟一共看过多少封邮件。" },
+                    "matched": { "type": "integer", "description": "条件命中、要处理的邮件数。" },
+                    "rerouted": { "type": "integer", "description": "已经改完归类的邮件数。" },
+                    "reparse_jobs": { "type": "integer", "description": "顺带排上的解析任务数。" },
+                    "failed": { "type": "integer", "description": "单封处理出错的数量，不影响其余。" },
+                    "error": { "type": ["string", "null"], "description": "整批没跑起来时的原因。" },
+                    "created_at": { "type": "string" },
+                    "finished_at": { "type": ["string", "null"] }
+                }
+            }
+        }
+    })
+}
+
+/// 邮箱那几条允许传 current 指代自己的邮箱，别的资源只收数字 id。
+fn id_pattern(path: &str) -> &'static str {
+    if path.starts_with("/v1/mailboxes/") {
+        "^([1-9][0-9]*|current)$"
+    } else {
+        "^[1-9][0-9]*$"
+    }
+}
+
+/// 收件箱的读接口。这几条是转发给 abei-server 的，不在能力目录里，
+/// 但 web 直接按它们的响应形状写界面，所以字段得写下来。
+fn insert_bill_inbox_paths(paths: &mut Map<String, Value>) {
+    paths.insert(
+        "/v1/bill-rows".to_owned(),
+        json!({
+            "get": {
+                "operationId": "bill-rows.list",
+                "summary": "查看账单流水",
+                "tags": ["bill-rows"],
+                "x-abei-risk": "read",
+                "x-abei-backend": "server",
+                "parameters": [
+                    {
+                        "name": "group", "in": "query", "required": false,
+                        "schema": { "type": "string",
+                            "enum": ["importable", "attention", "dismissed", "imported"] },
+                        "description": "四分组之一。不填是全部。"
+                    },
+                    {
+                        "name": "channel", "in": "query", "required": false,
+                        "schema": { "type": "string" },
+                        "description": "渠道 key，例如 cmb。"
+                    },
+                    {
+                        "name": "source", "in": "query", "required": false,
+                        "schema": { "type": "string" },
+                        "description": "channel 的旧名字，等价。"
+                    },
+                    {
+                        "name": "document_id", "in": "query", "required": false,
+                        "schema": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+                        "description": "只看某一封邮件解析出来的流水。点名之后归档的文档也看得见。"
+                    },
+                    { "name": "page", "in": "query", "required": false,
+                      "schema": { "type": "integer", "minimum": 1 } },
+                    { "name": "limit", "in": "query", "required": false,
+                      "schema": { "type": "integer", "minimum": 1, "maximum": 500 } }
+                ],
+                "responses": {
+                    "200": json_response("账单流水分页。", bill_rows_schema()),
+                    "400": problem_response(),
+                    "401": problem_response(),
+                    "502": problem_response()
+                }
+            }
+        }),
+    );
+    paths.insert(
+        "/v1/bill-rows/undo-import".to_owned(),
+        json!({
+            "post": {
+                "operationId": "bill-rows.undo-import",
+                "summary": "撤销入账",
+                "description": "删掉账本里对应的交易，再把这几行放回待处理。\
+                                Firefly 里那笔本来就不在也算撤销成功；删不掉的行原样停在已入账，\
+                                逐行报错。会动账本，必须带 confirm=true。",
+                "tags": ["bill-rows"],
+                "x-abei-risk": "confirm",
+                "x-abei-backend": "server",
+                "parameters": generic_gate_parameters(true),
+                "requestBody": {
+                    "required": true,
+                    "content": { "application/json": { "schema": {
+                        "type": "object",
+                        "required": ["row_ids"],
+                        "properties": {
+                            "row_ids": {
+                                "type": "array",
+                                "items": { "type": ["string", "integer"] },
+                                "description": "要撤销的流水 id，一次最多 500 条。"
+                            }
+                        }
+                    } } }
+                },
+                "responses": {
+                    "200": json_response("逐行的撤销结果。", undo_import_schema()),
+                    "400": problem_response(),
+                    "401": problem_response(),
+                    "409": problem_response(),
+                    "502": problem_response()
+                }
+            }
+        }),
+    );
+    paths.insert(
+        "/v1/bill-inbox/summary".to_owned(),
+        json!({
+            "get": {
+                "operationId": "bill-inbox.summary",
+                "summary": "查看收件箱概览",
+                "description": "四分组计数、渠道条、解析任务与最近一次同步。所有计数都按同一套 SQL 口径算，逐渠道加起来等于总数。",
+                "tags": ["bill-inbox"],
+                "x-abei-risk": "read",
+                "x-abei-backend": "server",
+                "parameters": [],
+                "responses": {
+                    "200": json_response("收件箱概览。", bill_inbox_summary_schema()),
+                    "401": problem_response(),
+                    "502": problem_response()
+                }
+            }
+        }),
+    );
+}
+
+/// 撤销入账的响应：逐行一个结局，加一份汇总。
+///
+/// 逐行说，是因为一批里每一行的下场可能都不一样——一行的交易删掉了，另一行 Firefly
+/// 不让删。整批只回一个「成功/失败」会让用户以为全撤了。
+fn undo_import_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+            "data": {
+                "type": "object",
+                "required": ["rows", "summary"],
+                "properties": {
+                    "rows": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["row_id", "outcome"],
+                            "properties": {
+                                "row_id": { "type": "string" },
+                                "outcome": {
+                                    "type": "string",
+                                    "enum": ["undone", "not_imported", "not_found", "failed"],
+                                    "description": "undone 是交易已删（或本来就不在）、行已回待处理。"
+                                },
+                                "transaction_group_id": { "type": ["string", "null"] },
+                                "error": { "type": ["string", "null"] }
+                            }
+                        }
+                    },
+                    "summary": {
+                        "type": "object",
+                        "required": ["total", "undone", "failed"],
+                        "properties": {
+                            "total": { "type": "integer" },
+                            "undone": { "type": "integer" },
+                            "not_imported": { "type": "integer" },
+                            "not_found": { "type": "integer" },
+                            "failed": { "type": "integer" }
+                        }
+                    }
+                }
+            }
+        }
+    })
+}
+
+fn bill_row_counts_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["importable", "attention", "dismissed", "imported"],
+        "properties": {
+            "importable": { "type": "integer" },
+            "attention": { "type": "integer" },
+            "dismissed": { "type": "integer" },
+            "imported": { "type": "integer" }
+        }
+    })
+}
+
+fn bill_rows_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+            "data": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["id", "type", "attributes"],
+                    "properties": {
+                        "id": { "type": "string" },
+                        "type": { "const": "bill-row" },
+                        "attributes": {
+                            "type": "object",
+                            "required": ["group", "attention_kind", "issues"],
+                            "properties": {
+                                "group": {
+                                    "type": "string",
+                                    "enum": ["importable", "attention", "dismissed", "imported"]
+                                },
+                                "attention_kind": {
+                                    "type": ["string", "null"],
+                                    "enum": ["account_unmapped", "pairing_suggested",
+                                             "duplicate_suspect", "import_failed",
+                                             "import_pending", "needs_fix", null],
+                                    "description": "待确认的行为什么要人看。非待确认的行是 null。前端按这个分节，不要拿 reasons 的中文做匹配。"
+                                },
+                                "issues": {
+                                    "type": "array",
+                                    "description": "每一条都带 code 和 message。进了待确认的行至少有一条。",
+                                    "items": {
+                                        "type": "object",
+                                        "required": ["code", "message"],
+                                        "properties": {
+                                            "code": {
+                                                "type": "string",
+                                                "description": "account_mapping_required / account_mapping_ambiguous / invalid_date / missing_amount / missing_type / missing_description / duplicate_suspect / pair_suggested / import_failed 等。"
+                                            },
+                                            "message": { "type": "string" },
+                                            "severity": { "type": "string" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "meta": { "type": "object" }
+        }
+    })
+}
+
+fn bill_inbox_summary_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["counts", "channels", "needs_code", "unprocessed", "failed"],
+        "properties": {
+            "pending_total": { "type": "integer" },
+            "needs_code": { "type": "integer", "description": "等用户补密码的邮件数（按文档的最新一条解析任务算）。" },
+            "unprocessed": { "type": "integer", "description": "排队中或正在解析的邮件数。" },
+            "failed": { "type": "integer", "description": "解析失败的邮件数。" },
+            "unclassified_mail": { "type": "integer" },
+            "counts": bill_row_counts_schema(),
+            "channels": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["key", "name", "counts"],
+                    "properties": {
+                        "key": { "type": "string", "description": "渠道标识，例如 cmb。" },
+                        "name": { "type": "string", "description": "中文显示名，例如「招商银行」。认不出来的 key 原样返回。" },
+                        "last_received_at": { "type": ["string", "null"] },
+                        "needs_code": { "type": "integer" },
+                        "unprocessed": { "type": "integer" },
+                        "failed": { "type": "integer" },
+                        "parsed": { "type": "integer" },
+                        "to_store": { "type": "integer" },
+                        "last_status": { "type": ["string", "null"] },
+                        "counts": bill_row_counts_schema()
+                    }
+                }
+            },
+            "todo": { "type": "object" },
+            "parse_jobs": { "type": "array", "items": { "type": "object" } },
+            "mailbox_sync": { "type": "object" }
+        }
+    })
 }
 
 fn generic_gate_parameters(confirm_required: bool) -> Vec<Value> {

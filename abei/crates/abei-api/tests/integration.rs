@@ -624,11 +624,18 @@ async fn uncertain_import_can_be_reconciled_by_external_id() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let body: Value = response.json().await.unwrap();
+    // 查证由 abei-server 一家做，abei-api 只转发，不再自己去问 Firefly。
+    assert_eq!(body["data"]["status"], "reconciled");
     assert_eq!(body["match_count"], 1);
-    assert_eq!(body["data"]["status"], "succeeded");
-    assert_eq!(
-        harness.upstream("/complete").unwrap()["transaction_group_id"],
-        9
+    assert!(
+        harness
+            .upstream(&format!("/internal/v1/bill-imports/{attempt_id}/release"))
+            .is_some(),
+        "对账要转发给 abei-server 的 release"
+    );
+    assert!(
+        harness.upstream("/complete").is_none(),
+        "abei-api 不该自己判定成功"
     );
 }
 
@@ -721,8 +728,11 @@ async fn confirmed_unlock_forwards_the_password_once() {
         .await;
 
     assert_eq!(response.status(), 200);
+    // 转发必须替调用方带上 confirm：abei-server 侧的同名闸还会再拦一次。
     assert_eq!(
-        harness.upstream("/v1/bills/43/unlock").unwrap()["secret"],
+        harness
+            .upstream("/v1/bills/43/unlock?confirm=true")
+            .unwrap()["secret"],
         "hunter2"
     );
     assert_eq!(harness.upstream_calls(), 1);

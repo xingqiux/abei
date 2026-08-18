@@ -14,8 +14,9 @@ use async_imap::imap_proto::types::{BodyContentCommon, BodyStructure};
 use async_imap::types::Mailbox as ImapMailbox;
 use async_imap::{Authenticator, Client, Session};
 use axum::Json;
-use axum::extract::rejection::{JsonRejection, QueryRejection};
-use axum::extract::{Query, State};
+use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
+// std 的 Path 在这个文件里是文件路径，axum 的换个名字，免得两个 Path 打架。
+use axum::extract::{Path as PathParam, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -679,7 +680,7 @@ impl Service {
         let error = result.errors.first().map(|value| truncate(value, 2000));
         let encoded = serde_json::to_string(result).map_err(display)?;
         let client = self.pool.get().await.map_err(display)?;
-        client
+        let updated = client
             .execute(
                 "UPDATE abei_ai.mail_sync_runs SET status = $3, stage = 'finished',
                    scanned = $4, fetched = $5, matched = $6, unclassified = $7,
@@ -702,6 +703,18 @@ impl Service {
             )
             .await
             .map_err(display)?;
+        if updated == 0 {
+            // 这一轮已经不是 running 了——多半是清扫器先一步把它判成失去心跳。
+            // 结果确实丢了，但不能静默丢：日志里得能看出「跑完了却没人收」。
+            tracing::warn!(
+                user_id,
+                run_id,
+                scanned = result.scanned,
+                created = result.created,
+                "同步结果没能写回：这一轮已经不是运行中，多半已被清扫器回收"
+            );
+            return Ok(());
+        }
         tracing::info!(
             user_id,
             status = status.as_str(),
@@ -1023,11 +1036,35 @@ pub(crate) struct GoogleCallback {
     state: String,
 }
 
+/// `/v1/mailboxes/{id}` 里的那个 id。
+///
+/// 数据模型里一个用户只有一个邮箱（`mailboxes` 按 user_id 唯一），所以只认两种写法：
+/// `current`，或者调用方自己的 user_id。别的一律 404。以前这个 id 被所有 handler
+/// 整个忽略：接口形状说「可以指定是哪个邮箱」，实现却永远操作当前用户那一个，
+/// 调用方写错 id 也照样成功。
+fn assert_mailbox_id(
+    path: Result<PathParam<String>, PathRejection>,
+    user_id: i64,
+) -> Result<(), ApiError> {
+    let Ok(PathParam(id)) = path else {
+        // 这条路由本来就没有 id 段（/v1/mailboxes、/v1/bills/mailbox），不用比。
+        return Ok(());
+    };
+    let id = id.trim();
+    if id == "current" || id.parse::<i64>() == Ok(user_id) {
+        Ok(())
+    } else {
+        Err(ApiError::not_found("这个邮箱不存在。"))
+    }
+}
+
 pub(crate) async fn get_settings(
     State(state): State<AppState>,
     headers: HeaderMap,
+    path: Result<PathParam<String>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = authenticated_user_id(&headers)?;
+    assert_mailbox_id(path, user_id)?;
     let settings = state.mailbox.load_settings(user_id).await?;
     Ok(Json(settings_response(settings)))
 }
@@ -1035,9 +1072,11 @@ pub(crate) async fn get_settings(
 pub(crate) async fn update_settings(
     State(state): State<AppState>,
     headers: HeaderMap,
+    path: Result<PathParam<String>, PathRejection>,
     payload: Result<Json<SettingsUpdate>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = authenticated_user_id(&headers)?;
+    assert_mailbox_id(path, user_id)?;
     let Json(update) = payload.map_err(|error| ApiError::invalid_params(error.body_text()))?;
     let settings = state.mailbox.save_settings(user_id, update).await?;
     Ok(Json(settings_response(settings)))
@@ -1046,9 +1085,11 @@ pub(crate) async fn update_settings(
 pub(crate) async fn sync(
     State(state): State<AppState>,
     headers: HeaderMap,
+    path: Result<PathParam<String>, PathRejection>,
     payload: Result<Json<SyncRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let user_id = authenticated_user_id(&headers)?;
+    assert_mailbox_id(path, user_id)?;
     let Json(request) = payload.map_err(|error| ApiError::invalid_params(error.body_text()))?;
     let limit = request.limit.unwrap_or(25);
     if !(1..=100).contains(&limit) {
@@ -1073,10 +1114,12 @@ pub(crate) async fn sync(
 pub(crate) async fn rescan(
     State(state): State<AppState>,
     headers: HeaderMap,
+    path: Result<PathParam<String>, PathRejection>,
     gate: Result<Query<WriteGate>, QueryRejection>,
     payload: Result<Json<RescanRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let user_id = authenticated_user_id(&headers)?;
+    assert_mailbox_id(path, user_id)?;
     let Query(gate) = gate.map_err(|error| ApiError::invalid_params(error.body_text()))?;
     let Json(request) = payload.map_err(|error| ApiError::invalid_params(error.body_text()))?;
     let range = RescanRange::parse(&request)?;
@@ -1595,7 +1638,16 @@ impl Service {
         self.workbench.get_sync_run(user_id, run_id).await
     }
 
-    pub(crate) async fn cache_message(&self, user_id: i64, id: i64) -> Result<Value, ApiError> {
+    /// 抓一封邮件的正文，并把「这一趟做了什么」一起交出去。
+    ///
+    /// 调用方必须知道 `enqueued`：抓正文会顺带按当前规则重新索引这封邮件，命中了就
+    /// 直接建账单文档、排第一个解析任务。不知道这件事的调用方接着又排一次重解析，
+    /// 同一封邮件就连出两版 revision。
+    pub(crate) async fn cache_message(
+        &self,
+        user_id: i64,
+        id: i64,
+    ) -> Result<CachedMessage, ApiError> {
         let locator = self.workbench.message_locator(user_id, id).await?;
         let mut mailbox = self.load_mailbox(user_id).await.map_err(ApiError::oauth)?;
         if !mailbox.enabled {
@@ -1612,18 +1664,22 @@ impl Service {
                 "邮箱服务器已经重建该文件夹，原邮件 UID 已失效；请按日期执行历史扫描。",
             ));
         }
-        self.handle_uid(
-            user_id,
-            locator.uid_validity,
-            locator.uid,
-            &mailbox,
-            &mut session,
-            true,
-        )
-        .await
-        .map_err(MessageError::into_api_error)?;
+        let outcome = self
+            .handle_uid(
+                user_id,
+                locator.uid_validity,
+                locator.uid,
+                &mailbox,
+                &mut session,
+                true,
+            )
+            .await
+            .map_err(MessageError::into_api_error)?;
         let _ = within(self.config.operation_timeout, "退出邮箱", session.logout()).await;
-        self.workbench.get_message(user_id, id).await
+        Ok(CachedMessage {
+            message: self.workbench.get_message(user_id, id).await?,
+            enqueued: outcome.delivery == MessageDelivery::Created,
+        })
     }
 
     async fn load_mailbox(&self, user_id: i64) -> Result<MailboxRecord, String> {
@@ -1746,6 +1802,14 @@ impl Service {
                 break;
             }
             result.scanned += 1;
+            // 处理之前也打一拍心跳。只在处理完之后打的话，一封带大附件的邮件取上
+            // 三分钟，清扫器就判这轮同步失去心跳、收成 failed，等它跑完 finish 一行
+            // 都更不动，整轮结果静默丢掉。
+            if let Some(run_id) = run_id
+                && let Err(error) = self.update_run_progress(user_id, run_id, &result).await
+            {
+                tracing::warn!(user_id, run_id, %error, "邮箱同步心跳保存失败");
+            }
             let handled = self
                 .handle_uid(user_id, uid_validity, uid, &mailbox, &mut session, false)
                 .await;
@@ -1761,12 +1825,16 @@ impl Service {
                     count_classification(&mut result, outcome.classification);
                 }
                 Err(error) => {
-                    let retryable = matches!(error, MessageError::Retryable(_));
+                    // Permanent 是这封邮件本身没法用（编码坏了、超大），下一轮再取还是一样，
+                    // 游标可以越过它。Retryable 和 Local 都是我们这边的问题——网络断了、
+                    // 库写不进去——推游标就等于宣布这封邮件已处理，它从此脱离增量同步，
+                    // 只能靠猜日期做历史扫描才找得回来。所以这两种中断本轮，下轮从原地重来。
+                    let stop = stops_the_round(&error);
                     result.failed += 1;
                     result
                         .errors
                         .push(format!("邮件 UID {uid} 处理失败：{error}"));
-                    if retryable {
+                    if stop {
                         break;
                     }
                 }
@@ -1824,6 +1892,10 @@ impl Service {
                 break;
             }
             result.scanned += 1;
+            // 同增量同步：处理前后各一拍，别让一封大附件把整轮扫描熬成「失去心跳」。
+            if let Err(error) = self.update_run_progress(user_id, run_id, &result).await {
+                tracing::warn!(user_id, run_id, %error, "历史扫描心跳保存失败");
+            }
             match self
                 .handle_uid(user_id, uid_validity, uid, &mailbox, &mut session, false)
                 .await
@@ -1833,12 +1905,13 @@ impl Service {
                     count_classification(&mut result, outcome.classification);
                 }
                 Err(error) => {
-                    let retryable = matches!(error, MessageError::Retryable(_));
+                    // 同增量同步：本地写失败也要停，接着扫下去只是把同一个故障重复几百遍。
+                    let stop = stops_the_round(&error);
                     result.failed += 1;
                     result
                         .errors
                         .push(format!("邮件 UID {uid} 处理失败：{error}"));
-                    if retryable {
+                    if stop {
                         let _ = self.update_run_progress(user_id, run_id, &result).await;
                         break;
                     }
@@ -2078,6 +2151,15 @@ fn select_rescan_uids(mut uids: Vec<u32>, limit: usize) -> Vec<u32> {
     uids
 }
 
+/// 抓一封邮件正文的结果。
+#[derive(Debug, Clone)]
+pub(crate) struct CachedMessage {
+    /// 抓完之后这封邮件的样子，逐字就是 `GET /v1/mail-messages/{id}` 的响应。
+    pub message: Value,
+    /// 这一趟顺带建出了账单文档并排了第一个解析任务。调用方据此决定还要不要再排一次。
+    pub enqueued: bool,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct MessageOutcome {
     delivery: MessageDelivery,
@@ -2114,6 +2196,19 @@ impl MessageError {
             Self::Local(error) => ApiError::database(error),
             Self::Permanent(error) | Self::Retryable(error) => ApiError::oauth(error),
         }
+    }
+}
+
+/// 这封邮件失败之后，本轮还能不能接着往下走。
+///
+/// 判据是「下一轮重来会不会不一样」：Permanent 是邮件本身的问题，重来还是一样，
+/// 越过它；另外两种是我们这边的问题（连接断了、库写不进去），必须原地停住。
+/// 增量同步里这个判断还额外决定游标推不推——越过一封没处理成的邮件，
+/// 它就永远收不到了。
+fn stops_the_round(error: &MessageError) -> bool {
+    match error {
+        MessageError::Permanent(_) => false,
+        MessageError::Retryable(_) | MessageError::Local(_) => true,
     }
 }
 
@@ -2976,5 +3071,20 @@ mod tests {
         assert!(cipher.decrypt(8, &encrypted).is_err());
         assert!(validate_password(&"x".repeat(4097)).is_err());
         assert!(validate_password("line\nbreak").is_err());
+    }
+
+    #[test]
+    fn only_a_broken_message_lets_the_cursor_move_past_it() {
+        // 本地写失败推游标 = 这封邮件从此脱离增量同步，只能靠猜日期做历史扫描才找得回来。
+        assert!(stops_the_round(&MessageError::Local(
+            "邮件工作台索引失败".to_owned()
+        )));
+        assert!(stops_the_round(&MessageError::Retryable(
+            "IMAP 连接断开".to_owned()
+        )));
+        // 邮件本身用不了，重来一次还是一样，越过它才走得下去。
+        assert!(!stops_the_round(&MessageError::Permanent(
+            "邮件超过大小上限".to_owned()
+        )));
     }
 }

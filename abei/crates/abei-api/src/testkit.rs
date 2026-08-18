@@ -688,13 +688,17 @@ pub fn mock_server_recording(recorder: Recorder) -> Router {
         .route(
             "/v1/bills/{id}/{action}",
             post(
-                move |Path((id, action)): Path<(String, String)>, Json(body): Json<Value>| {
+                move |Path((id, action)): Path<(String, String)>,
+                      axum::extract::RawQuery(query): axum::extract::RawQuery,
+                      Json(body): Json<Value>| {
                     let bill_actions = bill_actions.clone();
                     async move {
+                        // query 也记进去：确认闸靠 ?confirm=true 层层转发，漏了要能被测试抓到。
+                        let query = query.map(|q| format!("?{q}")).unwrap_or_default();
                         bill_actions
                             .lock()
                             .unwrap()
-                            .push((format!("POST /v1/bills/{id}/{action}"), body));
+                            .push((format!("POST /v1/bills/{id}/{action}{query}"), body));
                         Json(json!({ "data": { "id": id, "attributes": {
                             "status": if action == "ignore" { "archived" } else { "pending" }
                         } } }))
@@ -895,14 +899,14 @@ pub fn mock_server_recording(recorder: Recorder) -> Router {
                             format!("POST /internal/v1/bill-imports/{id}/{action}"),
                             body,
                         ));
-                        Json(json!({ "data": {
-                            "id": id,
-                            "status": if action == "complete" {
-                                "succeeded".to_owned()
-                            } else {
-                                action
-                            }
-                        } }))
+                        // release 在 abei-server 那边就是「按 external_id 去 Firefly 查证」，
+                        // 查到就落 reconciled。假服务器照这个结果答。
+                        let status = match action.as_str() {
+                            "complete" => "succeeded".to_owned(),
+                            "release" => "reconciled".to_owned(),
+                            other => other.to_owned(),
+                        };
+                        Json(json!({ "data": { "id": id, "status": status } }))
                     }
                 },
             ),

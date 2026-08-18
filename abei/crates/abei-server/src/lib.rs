@@ -205,6 +205,11 @@ pub fn build_app(state: AppState) -> Router {
             axum::routing::patch(mail::api::update_rule),
         )
         .route("/v1/mail-rules/{id}/publish", post(mail::api::publish_rule))
+        .route("/v1/mail-rules/{id}/apply", post(mail::api::apply_rule))
+        .route(
+            "/v1/mail-rules/{id}/apply-status",
+            get(mail::api::apply_status),
+        )
         .route(
             "/v1/mail-rules/{id}/rollback",
             post(mail::api::rollback_rule),
@@ -338,12 +343,24 @@ pub fn build_app(state: AppState) -> Router {
             post(billing::api::release_uncertain_import),
         )
         .route(
+            "/internal/v1/bill-imports/undo",
+            post(billing::api::undo_imports),
+        )
+        .route(
             "/v1/bill-account-mappings",
             get(billing::api::list_account_mappings).put(billing::api::upsert_account_mapping),
         )
         .route(
             "/v1/bill-account-mappings/{id}",
             delete(billing::api::delete_account_mapping),
+        )
+        .route(
+            "/v1/bill-channel-accounts",
+            get(billing::api::list_channel_accounts),
+        )
+        .route(
+            "/v1/bill-channel-accounts/{id}/confirm",
+            post(billing::api::confirm_channel_account),
         )
         .route("/v1/bills", get(billing::api::list_documents))
         .route("/v1/bills/{id}", get(billing::api::get_document))

@@ -120,6 +120,43 @@ pub async fn import_document(
     ))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UndoImportInput {
+    row_ids: Vec<ResourceId>,
+}
+
+/// 撤销入账：删掉账本里那几笔，把行放回待处理。
+///
+/// 以前这件事由前端自己做——直接删 Firefly 的交易组。删完账本上没有了，abei 这边
+/// 一无所知：行还停在已入账，「查看交易」指向一笔不存在的交易，而且再也重新入不了账。
+/// 撤销会动账本，所以走确认闸；令牌和入账走同一条转交路径。
+pub async fn undo_imports(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AuthIdentity>,
+    AuthToken(token): AuthToken,
+    gate: Gate,
+    ValidJson(input): ValidJson<UndoImportInput>,
+) -> Result<Json<Value>, Problem> {
+    gate.check(Risk::Confirm, "bill-rows.undo-import")?;
+    let row_ids = parse_row_ids(&input.row_ids)?;
+    if gate.previewing() {
+        return Ok(Json(json!({ "dry_run": true, "would": {
+            "row_ids": row_ids, "action": "undo-import"
+        }})));
+    }
+    let (_, value) = super::server::request_json_with_token(
+        &state,
+        &identity.0,
+        Method::POST,
+        "/internal/v1/bill-imports/undo",
+        &json!({ "row_ids": row_ids }),
+        &token,
+    )
+    .await?;
+    Ok(Json(value))
+}
+
 pub async fn get_attempt(
     State(state): State<AppState>,
     Extension(identity): Extension<AuthIdentity>,
@@ -137,6 +174,11 @@ pub async fn get_attempt(
     Ok(Json(value))
 }
 
+/// 对账：转发给 abei-server，它拿着用户令牌自己按 `external_id` 回查。
+///
+/// 这里以前有一整套同样的逻辑——查 Firefly、按结果分三支、分别再打回 abei-server。
+/// 两处各写一遍就会各自漂移一点，而且这条路上真正危险的判断（「查不到」到底是
+/// 没记上还是查询本身失败）必须由写状态的那一侧来做。现在只做转发。
 pub async fn reconcile_attempt(
     State(state): State<AppState>,
     Extension(identity): Extension<AuthIdentity>,
@@ -144,78 +186,24 @@ pub async fn reconcile_attempt(
     Path(id): Path<String>,
 ) -> Result<Json<Value>, Problem> {
     validate_attempt_id(&id)?;
-    let (_, attempt) = server_json(
+    let (_, value) = super::server::request_json_with_token(
         &state,
         &identity.0,
-        Method::GET,
-        &format!("/v1/bill-import-attempts/{id}"),
-        &Value::Null,
+        Method::POST,
+        &format!("/internal/v1/bill-imports/{id}/release"),
+        &json!({}),
+        &token,
     )
     .await?;
-    if attempt["data"]["status"] != "uncertain" {
-        return Err(Problem::new(
-            axum::http::StatusCode::CONFLICT,
-            "Conflict",
-            "当前状态不允许这一步",
-        )
-        .detail("只有 uncertain 导入尝试需要对账。"));
-    }
-    let external_id = attempt["data"]["external_id"]
-        .as_str()
-        .ok_or_else(|| Problem::internal("导入尝试缺少 external_id。"))?;
-    let query = format!("external_id_is:\"{external_id}\"");
-    let found = state
-        .firefly
-        .get_json(
-            &token,
-            "/api/v1/search/transactions",
-            &[("query", query), ("limit", "10".to_owned())],
-        )
-        .await?;
-    let mut group_ids = found["data"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|item| parse_positive_id(&item["id"]))
-        .collect::<Vec<_>>();
-    group_ids.sort_unstable();
-    group_ids.dedup();
-    match group_ids.as_slice() {
-        [group_id] => {
-            let (_, completed) = server_json(
-                &state,
-                &identity.0,
-                Method::POST,
-                &format!("/internal/v1/bill-imports/{id}/complete"),
-                &json!({ "transaction_group_id": group_id, "reconciled": true }),
-            )
-            .await?;
-            Ok(Json(json!({ "data": completed["data"], "match_count": 1 })))
-        }
-        [] => {
-            let released = server_json(
-                &state,
-                &identity.0,
-                Method::POST,
-                &format!("/internal/v1/bill-imports/{id}/release"),
-                &json!({}),
-            )
-            .await;
-            let value = match released {
-                Ok((_, value)) => value,
-                Err(problem) if problem.status == axum::http::StatusCode::CONFLICT => attempt,
-                Err(problem) => return Err(problem),
-            };
-            Ok(Json(json!({ "data": value["data"], "match_count": 0 })))
-        }
-        _ => Err(Problem::new(
-            axum::http::StatusCode::CONFLICT,
-            "MultipleMatches",
-            "对账找到多条交易",
-        )
-        .detail("同一个 external_id 在 Firefly 中出现多次，需要人工处理，系统不会自动选择。")
-        .upstream(json!({ "transaction_group_ids": group_ids }))),
-    }
+    // 对上了账 attempt 会落 reconciled/succeeded，没对上落 retryable。
+    // match_count 是给客户端看的老字段，从结果状态推出来，不再单独查一遍。
+    let match_count = match value["data"]["status"].as_str() {
+        Some("reconciled" | "succeeded") => 1,
+        _ => 0,
+    };
+    Ok(Json(
+        json!({ "data": value["data"], "match_count": match_count }),
+    ))
 }
 
 pub async fn retry_attempt(
@@ -299,6 +287,33 @@ pub async fn delete_mapping(
         &identity.0,
         Method::DELETE,
         &format!("/v1/bill-account-mappings/{id}?confirm=true"),
+        &Value::Null,
+    )
+    .await?;
+    Ok(Json(value))
+}
+
+/// 确认「新账单就记进这个已有账户」。
+///
+/// confirm 档：这一下定的是一整条渠道往后所有账单的去向，绑错了要一笔笔撤回来。
+pub async fn confirm_channel_account(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Path(id): Path<String>,
+    gate: Gate,
+) -> Result<Json<Value>, Problem> {
+    gate.check(Risk::Confirm, "bill-channel-accounts.confirm")?;
+    check_id(&id)?;
+    if gate.previewing() {
+        return Ok(Json(json!({ "dry_run": true, "would": {
+            "channel_account_id": id, "action": "confirm"
+        }})));
+    }
+    let (_, value) = server_json(
+        &state,
+        &identity.0,
+        Method::POST,
+        &format!("/v1/bill-channel-accounts/{id}/confirm?confirm=true"),
         &Value::Null,
     )
     .await?;

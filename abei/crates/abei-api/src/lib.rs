@@ -107,6 +107,10 @@ pub fn build_app(state: AppState) -> Router {
             "/v1/bill-rows/import",
             post(routes::bill_imports::import_rows),
         )
+        .route(
+            "/v1/bill-rows/undo-import",
+            post(routes::bill_imports::undo_imports),
+        )
         .route("/v1/bill-rows/{id}/split", post(routes::rows::split))
         .route(
             "/v1/bill-rows/{id}/mark-unique",
@@ -148,6 +152,11 @@ pub fn build_app(state: AppState) -> Router {
             "/v1/bill-account-mappings/{id}",
             delete(routes::bill_imports::delete_mapping),
         )
+        .route("/v1/bill-channel-accounts", get(routes::server::proxy))
+        .route(
+            "/v1/bill-channel-accounts/{id}/confirm",
+            post(routes::bill_imports::confirm_channel_account),
+        )
         .route("/v1/mailboxes", get(routes::server::proxy))
         .route(
             "/v1/mailboxes/{id}",
@@ -176,6 +185,11 @@ pub fn build_app(state: AppState) -> Router {
         .route("/v1/mail-rules/test", post(routes::server::proxy))
         .route("/v1/mail-rules/{id}", patch(routes::server::proxy))
         .route("/v1/mail-rules/{id}/publish", post(routes::server::proxy))
+        .route("/v1/mail-rules/{id}/apply", post(routes::server::proxy))
+        .route(
+            "/v1/mail-rules/{id}/apply-status",
+            get(routes::server::proxy),
+        )
         .route("/v1/mail-rules/{id}/rollback", post(routes::server::proxy))
         .route(
             "/v1/mail-samples",
