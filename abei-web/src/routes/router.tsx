@@ -1,6 +1,6 @@
 import { createRootRoute, createRoute, createRouter, lazyRouteComponent, Link, redirect } from '@tanstack/react-router'
 import { AppShell } from '../components/layout/AppShell'
-import { isInboxView, type InboxView } from '../features/bill-inbox/billInboxHelpers'
+import { normalizeInboxSearch, type InboxSearch } from '../features/bill-inbox/billInboxHelpers'
 import { isBudgetsTab } from '../features/budgets/budgetsHelpers'
 import { validateTransactionSearch } from './transactionSearch'
 
@@ -8,6 +8,10 @@ const TodayPage = lazyRouteComponent(() => import('../features/today/TodayPage')
 const AssistantPage = lazyRouteComponent(() => import('../features/assistant/AssistantPage'), 'AssistantPage')
 const TransactionsPage = lazyRouteComponent(() => import('../features/transactions/TransactionsPage'), 'TransactionsPage')
 const BillInboxPage = lazyRouteComponent(() => import('../features/bill-inbox/BillInboxPage'), 'BillInboxPage')
+const MailProcessingPage = lazyRouteComponent(
+  () => import('../features/bill-inbox/MailProcessingPage'),
+  'MailProcessingPage',
+)
 const GoogleOAuthCallbackPage = lazyRouteComponent(
   () => import('../features/bill-inbox/GoogleOAuthCallbackPage'),
   'GoogleOAuthCallbackPage',
@@ -52,19 +56,26 @@ const transactionsRoute = createRoute({
 const billInboxRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/bill-inbox',
-  validateSearch: (search: Record<string, unknown>): {
-    source?: string
-    view?: InboxView
-    task?: string
-  } => ({
-    /** 渠道过滤，undefined = 全部渠道 */
-    source: typeof search.source === 'string' && search.source !== '' ? search.source : undefined,
-    /** 状态 tab：待入账 / 待确认 / 已忽略 / 已入账，undefined = 待入账 */
-    view: isInboxView(search.view) ? search.view : undefined,
-    /** 来源面板选中的那封邮件（bill task id），undefined = 全部邮件 */
+  /**
+   * 两层坐标：tab（待处理 / 已完成）+ done（已完成层看哪一半）+ section（待处理层滚到哪一块）。
+   * 四个老 view 值（importable/attention/dismissed/imported）在这里被折算过去，
+   * 旧链接和旧书签照常能开——折算规则连同用例都在 billInboxHelpers 里。
+   */
+  validateSearch: (search: Record<string, unknown>): InboxSearch => normalizeInboxSearch(search),
+  component: BillInboxPage,
+})
+
+/**
+ * 「邮件处理」二级页（L2）。只有一个坐标：钉在哪一封邮件上（要解锁的那封）。
+ * 首屏的聚合横幅点「去解锁」时带着 task 进来，落地就能看见密码框。
+ */
+const mailProcessingRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/bill-inbox/mail',
+  validateSearch: (search: Record<string, unknown>): { task?: string } => ({
     task: typeof search.task === 'string' && search.task !== '' ? search.task : undefined,
   }),
-  component: BillInboxPage,
+  component: MailProcessingPage,
 })
 
 const googleOAuthCallbackRoute = createRoute({
@@ -184,6 +195,7 @@ const routeTree = rootRoute.addChildren([
   assistantRoute,
   transactionsRoute,
   billInboxRoute,
+  mailProcessingRoute,
   googleOAuthCallbackRoute,
   accountsRoute,
   accountDetailRoute,

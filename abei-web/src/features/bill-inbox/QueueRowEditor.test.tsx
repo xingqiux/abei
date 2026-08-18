@@ -5,13 +5,11 @@ import { QueueRowEditor } from './QueueRowEditor'
 
 const mocks = vi.hoisted(() => ({
   updateRow: vi.fn(),
-  categoryFeedback: vi.fn(),
   toast: vi.fn(),
 }))
 
 vi.mock('../../api/queries', () => ({
   useUpdateBillStatementRow: () => ({ mutateAsync: mocks.updateRow, isPending: false }),
-  useCategoryFeedback: () => ({ mutateAsync: mocks.categoryFeedback, isPending: false }),
 }))
 vi.mock('../../store/toastStore', () => ({ showToast: mocks.toast }))
 vi.mock('../../components/abei/CategoryPicker', () => ({
@@ -44,12 +42,11 @@ function makeRow(overrides: Record<string, unknown> = {}): BillQueueRow {
 describe('QueueRowEditor', () => {
   beforeEach(() => {
     mocks.updateRow.mockReset().mockResolvedValue({})
-    mocks.categoryFeedback.mockReset().mockResolvedValue({})
     mocks.toast.mockReset()
   })
 
   it('挂载时就带着这一行的值，不需要外面灌', () => {
-    render(<QueueRowEditor row={makeRow()} ai={false} counterparty="星巴克" onEndEdit={vi.fn()} />)
+    render(<QueueRowEditor row={makeRow()} onEndEdit={vi.fn()} />)
 
     expect(screen.getByLabelText('描述')).toHaveValue('星巴克')
     expect(screen.getByLabelText('来源账户')).toHaveValue('招行信用卡')
@@ -62,7 +59,7 @@ describe('QueueRowEditor', () => {
 
   it('保存只写「要记成什么」，不回写银行原文', async () => {
     const onEndEdit = vi.fn()
-    render(<QueueRowEditor row={makeRow()} ai={false} counterparty="星巴克" onEndEdit={onEndEdit} />)
+    render(<QueueRowEditor row={makeRow()} onEndEdit={onEndEdit} />)
 
     fireEvent.change(screen.getByLabelText('描述'), { target: { value: '星巴克 晨会' } })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
@@ -80,7 +77,7 @@ describe('QueueRowEditor', () => {
   })
 
   it('金额非法时不发请求，只提示', async () => {
-    render(<QueueRowEditor row={makeRow()} ai={false} counterparty="" onEndEdit={vi.fn()} />)
+    render(<QueueRowEditor row={makeRow()} onEndEdit={vi.fn()} />)
 
     fireEvent.change(screen.getByLabelText('金额'), { target: { value: '0' } })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
@@ -89,21 +86,5 @@ describe('QueueRowEditor', () => {
       expect.objectContaining({ message: '请输入大于 0 的金额', kind: 'error' }),
     ))
     expect(mocks.updateRow).not.toHaveBeenCalled()
-  })
-
-  it('改掉 AI 建议的分类才问要不要立规则', () => {
-    const { rerender } = render(
-      <QueueRowEditor row={makeRow()} ai counterparty="星巴克" onEndEdit={vi.fn()} />,
-    )
-
-    // 没动分类的时候不该问：那等于每次编辑都弹一次同样的问题
-    expect(screen.queryByText(/以后「星巴克」都归/)).not.toBeInTheDocument()
-
-    fireEvent.change(screen.getByLabelText('分类'), { target: { value: '咖啡' } })
-    expect(screen.getByText(/以后「星巴克」都归「咖啡」/)).toBeInTheDocument()
-
-    // ai 为假时永远不问
-    rerender(<QueueRowEditor row={makeRow()} ai={false} counterparty="星巴克" onEndEdit={vi.fn()} />)
-    expect(screen.queryByText(/以后「星巴克」都归/)).not.toBeInTheDocument()
   })
 })

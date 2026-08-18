@@ -93,7 +93,9 @@ export function ToastContainer() {
 
   return (
     <div
-      className="pointer-events-none fixed top-5 right-5 z-100 flex flex-col items-end gap-2"
+      // 层级要压过弹窗（Modal 是 z-200）：入账失败的提示原来被遮罩盖着，
+      // 用户在弹窗里只看到「没反应」，于是再点一次。
+      className="pointer-events-none fixed top-5 right-5 z-[210] flex flex-col items-end gap-2"
       aria-live="polite"
     >
       {toasts.map((toast) => (

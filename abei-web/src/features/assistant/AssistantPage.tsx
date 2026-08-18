@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  ArrowLeft,
+  CaretDown,
+  CaretRight,
+  ChatTeardropText,
   Check,
   Clock,
   Lock,
@@ -22,12 +26,17 @@ import {
   streamAssistantMessage,
   type AssistantApproval,
   type AssistantMessage,
+  type AssistantSession,
 } from "../../api/assistant";
+import { useAiRun, useAiRuns } from "../../api/queries";
+import type { AiRun, AiRunDetailEntry } from "../../api/schemas";
 import { Button, IconButton } from "../../components/ui/Button";
 import { ErrorState } from "../../components/abei/ErrorState";
-import { CONTROL_COMPACT, Input, Textarea } from "../../components/ui/Field";
+import { Input, Textarea } from "../../components/ui/Field";
 import { useCapabilityIndex } from "../../api/queries";
 import { needsSecretInput } from "../../api/catalog";
+import { formatDateTime } from "../../lib/format";
+import { txSearch, type TransactionSearch } from "../../routes/transactionSearch";
 import { showToast } from "../../store/toastStore";
 
 const STARTERS = [
@@ -35,6 +44,9 @@ const STARTERS = [
   "有哪些账单还没处理？",
   "帮我审阅最新一份账单",
 ];
+
+/** 回填建议落在交易页的「未分类」视图里。 */
+const UNCATEGORIZED_SEARCH = { ...txSearch(), view: "uncategorized" } as TransactionSearch;
 
 interface ToolActivity {
   id: string;
@@ -66,8 +78,414 @@ function userInputField(name: string) {
   );
 }
 
+/**
+ * AI 页。
+ *
+ * 主体是一条工作时间线：阿贝自己跑的活（预填、回填、词表扫描）和你跟它的对话
+ * 混在一起按时间倒序排。对话不再是这一页的门面——它只是时间线里的一种条目，
+ * 点开才进去。这样「阿贝到底替我干了什么」是一眼能看见的，而不是藏在后台日志里。
+ */
 export function AssistantPage() {
   const search = useSearch({ from: "/assistant" });
+  const navigate = useNavigate({ from: "/assistant" });
+  /** 还没有会话 id 的新对话。有 id 之后就跟着 search.session 走。 */
+  const [composing, setComposing] = useState(false);
+
+  const healthQuery = useQuery({
+    queryKey: ["assistant-health"],
+    queryFn: ({ signal }) => getAssistantHealth(signal),
+  });
+  const configured = healthQuery.data?.configured === true;
+
+  function openSession(session?: string) {
+    setComposing(session === undefined);
+    void navigate({ search: { session }, replace: true });
+  }
+
+  function backToTimeline() {
+    setComposing(false);
+    void navigate({ search: { session: undefined }, replace: true });
+  }
+
+  if (search.session || composing) {
+    return (
+      <ConversationView
+        sessionId={search.session}
+        configured={configured}
+        healthLoading={healthQuery.isLoading}
+        healthError={healthQuery.isError}
+        onRetryHealth={() => void healthQuery.refetch()}
+        onBack={backToTimeline}
+        onSessionCreated={(id) => void navigate({ search: { session: id }, replace: true })}
+      />
+    );
+  }
+
+  return (
+    <TimelineView
+      configured={configured}
+      healthLoading={healthQuery.isLoading}
+      healthError={healthQuery.isError}
+      onRetryHealth={() => void healthQuery.refetch()}
+      onOpenSession={openSession}
+      onOpenSettings={() => void navigate({ to: "/settings" })}
+    />
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * 工作时间线
+ * ------------------------------------------------------------------ */
+
+type TimelineItem =
+  | { key: string; at: string; kind: "run"; run: AiRun }
+  | { key: string; at: string; kind: "session"; session: AssistantSession };
+
+function TimelineView({
+  configured,
+  healthLoading,
+  healthError,
+  onRetryHealth,
+  onOpenSession,
+  onOpenSettings,
+}: {
+  configured: boolean;
+  healthLoading: boolean;
+  healthError: boolean;
+  onRetryHealth: () => void;
+  onOpenSession: (session?: string) => void;
+  onOpenSettings: () => void;
+}) {
+  const runsQuery = useAiRuns({ enabled: configured });
+  const sessionsQuery = useQuery({
+    queryKey: ["assistant-sessions"],
+    queryFn: ({ signal }) => listAssistantSessions(signal),
+    enabled: configured,
+  });
+
+  const items = useMemo<TimelineItem[]>(() => {
+    const merged: TimelineItem[] = [
+      ...(runsQuery.data ?? []).map((run) => ({
+        key: `run-${run.id}`,
+        at: run.started_at,
+        kind: "run" as const,
+        run,
+      })),
+      ...(sessionsQuery.data ?? []).map((session) => ({
+        key: `session-${session.id}`,
+        at: session.updatedAt,
+        kind: "session" as const,
+        session,
+      })),
+    ];
+    return merged.sort((left, right) => right.at.localeCompare(left.at));
+  }, [runsQuery.data, sessionsQuery.data]);
+
+  const loading = healthLoading || runsQuery.isLoading || sessionsQuery.isLoading;
+
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="flex items-center gap-2 text-xl font-semibold text-[var(--text-primary)]">
+            <Sparkle aria-hidden className="size-5 text-[var(--brand-text)]" />
+            AI
+          </h1>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">
+            阿贝干过的活都记在这里，你跟它说过的话也在。
+          </p>
+        </div>
+        <Button
+          variant="primary"
+          size="md"
+          disabled={!configured}
+          onClick={() => onOpenSession()}
+        >
+          <Plus aria-hidden className="size-4" />
+          问一句
+        </Button>
+      </div>
+
+      {healthError ? (
+        <div className="rounded-lg bg-[var(--surface-1)] p-6 shadow-[var(--shadow-card)] ring-1 ring-[var(--ring-card)]">
+          <AssistantConnectionError onRetry={onRetryHealth} />
+        </div>
+      ) : !configured && !healthLoading ? (
+        <div className="rounded-lg bg-[var(--surface-1)] p-6 shadow-[var(--shadow-card)] ring-1 ring-[var(--ring-card)]">
+          <AssistantSetupState onOpenSettings={onOpenSettings} onRetry={onRetryHealth} />
+        </div>
+      ) : loading ? (
+        <p role="status" className="py-12 text-center text-sm text-[var(--text-secondary)]">
+          正在加载…
+        </p>
+      ) : runsQuery.isError && sessionsQuery.isError ? (
+        <ErrorState
+          message="这一页没打开"
+          error={runsQuery.error}
+          onRetry={() => {
+            void runsQuery.refetch();
+            void sessionsQuery.refetch();
+          }}
+        />
+      ) : items.length === 0 ? (
+        <div className="rounded-lg bg-[var(--surface-1)] px-6 py-14 text-center shadow-[var(--shadow-card)] ring-1 ring-[var(--ring-card)]">
+          <Sparkle aria-hidden className="mx-auto size-7 text-[var(--brand-text)]" />
+          <h2 className="mt-3 text-base font-semibold text-[var(--text-primary)]">
+            阿贝还没干过活
+          </h2>
+          <p className="mx-auto mt-1 max-w-sm text-sm leading-6 text-[var(--text-secondary)]">
+            它替你补分类、补描述、给未分类交易出建议之后，每一轮都会记在这里，
+            连依据哪条规则都写清楚。你也可以现在就问它一句。
+          </p>
+        </div>
+      ) : (
+        <ul role="list" className="flex flex-col gap-2">
+          {items.map((item) =>
+            item.kind === "run" ? (
+              <RunRow key={item.key} run={item.run} />
+            ) : (
+              <SessionRow
+                key={item.key}
+                session={item.session}
+                onOpen={() => onOpenSession(item.session.id)}
+              />
+            ),
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+const RUN_KIND_LABELS: Record<string, string> = {
+  autofill: "预填",
+  backfill: "回填",
+  vocab_scan: "词表扫描",
+  learn: "学规则",
+};
+
+/** 每种活干完之后该去哪儿看结果。 */
+const RUN_TARGETS: Record<string, { label: string; render: () => ReactElement }> = {
+  autofill: {
+    label: "去收件箱看",
+    render: () => (
+      <Link to="/bill-inbox" className={TIMELINE_LINK}>
+        去收件箱看
+      </Link>
+    ),
+  },
+  backfill: {
+    label: "去交易页看",
+    render: () => (
+      <Link to="/transactions" search={UNCATEGORIZED_SEARCH} className={TIMELINE_LINK}>
+        去交易页看
+      </Link>
+    ),
+  },
+  vocab_scan: {
+    label: "去分类页看",
+    render: () => (
+      <Link to="/reference-data" className={TIMELINE_LINK}>
+        去分类页看
+      </Link>
+    ),
+  },
+  learn: {
+    label: "去规则文档看",
+    render: () => (
+      <Link to="/profile" className={TIMELINE_LINK}>
+        去规则文档看
+      </Link>
+    ),
+  },
+};
+
+const TIMELINE_LINK =
+  "shrink-0 text-xs text-[var(--brand-text)] underline underline-offset-2 hover:no-underline";
+
+function numberOf(summary: Record<string, unknown>, key: string): number {
+  const value = summary[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+/** 一行摘要：干了什么、给了多少、其中多少是规则直接判的。 */
+export function runSummaryText(run: AiRun): string {
+  if (run.status === "failed") return `没跑成：${run.error ?? "原因不明"}`;
+  const rows = numberOf(run.summary, "rows");
+  const byRule = numberOf(run.summary, "by_rule");
+  const byModel = numberOf(run.summary, "by_model") + numberOf(run.summary, "by_doc");
+  const split = rows > 0 ? `（规则 ${byRule} / 模型 ${byModel}）` : "";
+  if (run.kind === "autofill") return `给 ${rows} 行补了建议${split}`;
+  if (run.kind === "backfill") return `给 ${rows} 笔交易出了分类建议${split}`;
+  if (run.kind === "vocab_scan") return `提了 ${rows} 条分类建议`;
+  if (run.kind === "learn") {
+    const learned = numberOf(run.summary, "learned");
+    const retired = numberOf(run.summary, "retired");
+    const stopped = retired > 0 ? `，停用 ${retired} 条` : "";
+    return `往记账规则里加了 ${learned} 条${stopped}`;
+  }
+  return `产出 ${rows} 条`;
+}
+
+function RunRow({ run }: { run: AiRun }) {
+  const [expanded, setExpanded] = useState(false);
+  const detailQuery = useAiRun(expanded ? run.id : undefined);
+  const kindLabel = RUN_KIND_LABELS[run.kind] ?? run.kind;
+  const triggerLabel = run.trigger === "manual" ? "手动" : "自动";
+  const target = RUN_TARGETS[run.kind];
+  const notes = Array.isArray(run.summary.notes) ? (run.summary.notes as string[]) : [];
+
+  return (
+    <li className="rounded-lg bg-[var(--surface-1)] shadow-[var(--shadow-card)] ring-1 ring-[var(--ring-card)]">
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+          {expanded ? (
+            <CaretDown aria-hidden className="size-4 shrink-0 text-[var(--text-tertiary)]" />
+          ) : (
+            <CaretRight aria-hidden className="size-4 shrink-0 text-[var(--text-tertiary)]" />
+          )}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm text-[var(--text-primary)]">
+              {kindLabel} · {triggerLabel} · {runSummaryText(run)}
+            </span>
+            <span className="mt-0.5 block text-[11px] text-[var(--text-tertiary)]">
+              {formatDateTime(run.started_at)}
+            </span>
+          </span>
+        </button>
+        {target?.render()}
+      </div>
+
+      {expanded && (
+        <div className="border-t border-[var(--border-subtle)] px-3 py-2.5">
+          {notes.length > 0 && (
+            <ul role="list" className="mb-2 flex flex-col gap-1">
+              {notes.map((note) => (
+                <li key={note} className="text-xs text-[var(--attention)]">
+                  {note}
+                </li>
+              ))}
+            </ul>
+          )}
+          {detailQuery.isLoading ? (
+            <p role="status" className="text-xs text-[var(--text-secondary)]">
+              正在读取明细…
+            </p>
+          ) : detailQuery.isError ? (
+            <ErrorState
+              message="明细没读出来"
+              error={detailQuery.error}
+              onRetry={() => void detailQuery.refetch()}
+            />
+          ) : (detailQuery.data?.detail ?? []).length === 0 ? (
+            <p className="text-xs text-[var(--text-secondary)]">这一轮没有逐条明细。</p>
+          ) : (
+            <ul role="list" className="flex flex-col gap-1.5">
+              {(detailQuery.data?.detail ?? []).map((entry, index) => (
+                <RunDetailRow key={`${entry.row_id ?? entry.journal_id ?? index}`} entry={entry} />
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
+/** 依据人话：规则命中就把文档里那一行原样摆出来。 */
+export function basisText(basis: string): string {
+  if (basis.startsWith("rule:")) return `依据规则：${basis.slice("rule:".length)}`;
+  if (basis === "doc") return "参考了规则文档";
+  if (basis === "scan") return "按账本统计得出";
+  if (basis === "learn") return "按你改过的记录得出";
+  return "模型判断";
+}
+
+function RunDetailRow({ entry }: { entry: AiRunDetailEntry }) {
+  const subject =
+    entry.description ?? entry.name ?? (entry.row_id ? `第 ${entry.row_id} 行` : entry.journal_id);
+  const values = entry.values ?? {};
+  const given = Object.entries(values)
+    .map(([key, value]) => `${DETAIL_FIELD_LABELS[key] ?? key}：${String(value)}`)
+    .join(" · ");
+  return (
+    <li className="text-xs leading-5">
+      <span className="text-[var(--text-primary)]">{subject}</span>
+      {given && <span className="text-[var(--text-secondary)]"> — {given}</span>}
+      <span className="ml-1 text-[var(--text-tertiary)]">（{basisText(entry.basis)}）</span>
+    </li>
+  );
+}
+
+const DETAIL_FIELD_LABELS: Record<string, string> = {
+  category_name: "分类",
+  firefly_description: "描述",
+  source_name: "转出",
+  destination_name: "转入",
+  notes: "备注",
+};
+
+function SessionRow({
+  session,
+  onOpen,
+}: {
+  session: AssistantSession;
+  onOpen: () => void;
+}) {
+  return (
+    <li className="rounded-lg bg-[var(--surface-1)] shadow-[var(--shadow-card)] ring-1 ring-[var(--ring-card)]">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-[var(--surface-hover)]"
+      >
+        <ChatTeardropText aria-hidden className="size-4 shrink-0 text-[var(--text-tertiary)]" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm text-[var(--text-primary)]">
+            对话 · {session.title}
+          </span>
+          <span className="mt-0.5 block text-[11px] text-[var(--text-tertiary)]">
+            {formatDateTime(session.updatedAt)}
+          </span>
+        </span>
+        {session.pendingApprovals > 0 && (
+          <span
+            className="size-1.5 shrink-0 rounded-full bg-[var(--attention-mark)]"
+            aria-label="有待审批操作"
+          />
+        )}
+        <CaretRight aria-hidden className="size-4 shrink-0 text-[var(--text-tertiary)]" />
+      </button>
+    </li>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * 对话：时间线里一条会话点开之后的样子
+ * ------------------------------------------------------------------ */
+
+function ConversationView({
+  sessionId,
+  configured,
+  healthLoading,
+  healthError,
+  onRetryHealth,
+  onBack,
+  onSessionCreated,
+}: {
+  sessionId?: string;
+  configured: boolean;
+  healthLoading: boolean;
+  healthError: boolean;
+  onRetryHealth: () => void;
+  onBack: () => void;
+  onSessionCreated: (id: string) => void;
+}) {
   const navigate = useNavigate({ from: "/assistant" });
   const queryClient = useQueryClient();
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
@@ -79,24 +497,14 @@ export function AssistantPage() {
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const healthQuery = useQuery({
-    queryKey: ["assistant-health"],
-    queryFn: ({ signal }) => getAssistantHealth(signal),
-  });
-  const configured = healthQuery.data?.configured === true;
-  const sessionsQuery = useQuery({
-    queryKey: ["assistant-sessions"],
-    queryFn: ({ signal }) => listAssistantSessions(signal),
-    enabled: configured,
-  });
   const historyQuery = useQuery({
-    queryKey: ["assistant-history", search.session],
-    queryFn: ({ signal }) => getAssistantHistory(search.session!, signal),
-    enabled: configured && Boolean(search.session),
+    queryKey: ["assistant-history", sessionId],
+    queryFn: ({ signal }) => getAssistantHistory(sessionId!, signal),
+    enabled: configured && Boolean(sessionId),
   });
 
   useEffect(() => {
-    if (!search.session) {
+    if (!sessionId) {
       setMessages([]);
       setApprovals([]);
       setActivities([]);
@@ -107,22 +515,13 @@ export function AssistantPage() {
       setApprovals(historyQuery.data.approvals);
       setActivities([]);
     }
-  }, [search.session, historyQuery.data]);
+  }, [sessionId, historyQuery.data]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [messages, approvals, activities]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
-
-  const activeSession = useMemo(
-    () => sessionsQuery.data?.find((session) => session.id === search.session),
-    [search.session, sessionsQuery.data],
-  );
-  function openSession(session?: string) {
-    if (streaming) return;
-    void navigate({ search: { session }, replace: true });
-  }
 
   async function send(text = draft) {
     const prompt = text.trim();
@@ -148,13 +547,13 @@ export function AssistantPage() {
         timestamp: Date.now(),
       },
     ]);
-    let nextSessionId = search.session;
+    let nextSessionId = sessionId;
     let eventError: string | null = null;
 
     try {
       await streamAssistantMessage({
         message: prompt,
-        sessionId: search.session,
+        sessionId,
         signal: controller.signal,
         onEvent: (event) => {
           if (event.type === "meta") {
@@ -190,8 +589,8 @@ export function AssistantPage() {
         },
       });
       if (eventError) setMessages((current) => removeEmptyAssistant(current));
-      if (nextSessionId && nextSessionId !== search.session) {
-        await navigate({ search: { session: nextSessionId }, replace: true });
+      if (nextSessionId && nextSessionId !== sessionId) {
+        onSessionCreated(nextSessionId);
       }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["assistant-sessions"] }),
@@ -259,213 +658,122 @@ export function AssistantPage() {
   return (
     <div className="flex min-h-[calc(100dvh-10rem)] flex-col overflow-hidden rounded-lg bg-[var(--surface-1)] shadow-[var(--shadow-card)] ring-1 ring-[var(--ring-card)] md:h-[calc(100dvh-7rem)] md:min-h-[560px]">
       <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <Sparkle
-              aria-hidden
-              className="size-4 text-[var(--brand-text)]"
-            />
-            <h1 className="truncate text-sm font-semibold text-[var(--text-primary)]">
-              财务助手
-            </h1>
-          </div>
-          {/* 模型型号只在设置页出现（设计稿 03 §3）：聊天页顶上顶着一串
-              `openai · gpt-5.6-sol`，对着它聊天的人一次也用不上。 */}
-          <p className="mt-0.5 truncate text-[11px] text-[var(--text-tertiary)]">
-            {healthQuery.isLoading
-              ? "正在连接模型"
-              : configured
-                ? "已连接"
-                : healthQuery.isError
-                  ? "连接中断"
-                  : "尚未启用"}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <select
-            aria-label="切换对话"
-            value={search.session ?? ""}
-            disabled={streaming}
-            onChange={(event) => openSession(event.target.value || undefined)}
-            className={`${CONTROL_COMPACT} max-w-44 md:hidden`}
-          >
-            <option value="">新对话</option>
-            {(sessionsQuery.data ?? []).map((session) => (
-              <option key={session.id} value={session.id}>
-                {session.title}
-              </option>
-            ))}
-          </select>
-          <IconButton
-            label="新对话"
-            onClick={() => openSession()}
-            disabled={streaming || !search.session}
-          >
-            <Plus aria-hidden className="size-4" />
+        <div className="flex min-w-0 items-center gap-2">
+          <IconButton label="回到时间线" onClick={onBack} disabled={streaming}>
+            <ArrowLeft aria-hidden className="size-4" />
           </IconButton>
+          <div className="min-w-0">
+            <h1 className="truncate text-sm font-semibold text-[var(--text-primary)]">
+              {historyQuery.data?.session.title ?? "新对话"}
+            </h1>
+            {/* 模型型号只在设置页出现（设计稿 03 §3）：聊天页顶上顶着一串
+                `openai · gpt-5.6-sol`，对着它聊天的人一次也用不上。 */}
+            <p className="mt-0.5 truncate text-[11px] text-[var(--text-tertiary)]">
+              {healthLoading
+                ? "正在连接模型"
+                : configured
+                  ? "已连接"
+                  : healthError
+                    ? "连接中断"
+                    : "尚未启用"}
+            </p>
+          </div>
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 md:grid-cols-[240px_minmax(0,1fr)]">
-        <aside className="hidden min-h-0 border-r border-[var(--border-subtle)] md:flex md:flex-col">
-          <div className="flex items-center justify-between px-3 py-2.5">
-            <span className="text-xs font-semibold text-[var(--text-secondary)]">
-              最近对话
-            </span>
-            <IconButton
-              label="新对话"
-              onClick={() => openSession()}
-              disabled={streaming}
-            >
-              <Plus aria-hidden className="size-4" />
-            </IconButton>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-            {sessionsQuery.isError && (
-              // 原来只有一行红字，没有出路：加载失败是可以重试的，不该让人只能刷新整页
-              <div className="flex flex-col items-start gap-2 px-2 py-3">
-                <p className="text-xs text-[var(--danger)]">对话列表加载失败</p>
-                <Button
-                  variant="secondary"
-                  size="xs"
-                  onClick={() => void sessionsQuery.refetch()}
-                >
-                  重试
-                </Button>
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-5 sm:px-6">
+            {healthError ? (
+              <AssistantConnectionError onRetry={onRetryHealth} />
+            ) : !configured && !healthLoading ? (
+              <AssistantSetupState
+                onOpenSettings={() => void navigate({ to: "/settings" })}
+                onRetry={onRetryHealth}
+              />
+            ) : historyQuery.isLoading ? (
+              <div className="m-auto text-sm text-[var(--text-secondary)]">
+                正在载入对话…
+              </div>
+            ) : historyQuery.isError ? (
+              // 不处理的话会落到下面的「空对话」分支，看起来像这段记录被清空了
+              <div className="m-auto w-full max-w-sm">
+                <ErrorState
+                  message="这段对话没能打开"
+                  error={historyQuery.error}
+                  onRetry={() => void historyQuery.refetch()}
+                />
+              </div>
+            ) : messages.length === 0 &&
+              activities.length === 0 &&
+              approvals.length === 0 ? (
+              <EmptyConversation
+                onChoose={(prompt) => void send(prompt)}
+                disabled={!configured}
+              />
+            ) : (
+              <div className="flex flex-col gap-5">
+                {messages.map((message) => (
+                  <MessageBubble key={message.id} message={message} />
+                ))}
+                {activities.map((activity) => (
+                  <ToolRow key={activity.id} activity={activity} />
+                ))}
+                {approvals.map((approval) => (
+                  <ApprovalRow
+                    key={approval.id}
+                    approval={approval}
+                    onDecide={decide}
+                  />
+                ))}
+                {streamError && (
+                  <div
+                    role="alert"
+                    className="flex items-start gap-2 text-sm text-[var(--danger)]"
+                  >
+                    <Warning aria-hidden className="mt-0.5 size-4 shrink-0" />
+                    {streamError}
+                  </div>
+                )}
               </div>
             )}
-            {!sessionsQuery.isError
-              && !sessionsQuery.isLoading
-              && (sessionsQuery.data ?? []).length === 0 && (
-              <p className="px-2 py-3 text-xs text-[var(--text-tertiary)]">
-                还没有对话。在右边问一句就开始了。
-              </p>
-            )}
-            {(sessionsQuery.data ?? []).map((session) => (
-              <button
-                key={session.id}
-                type="button"
-                disabled={streaming}
-                onClick={() => openSession(session.id)}
-                className={`mb-0.5 flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-xs transition-colors ${
-                  session.id === search.session
-                    ? "bg-[var(--surface-selected)] text-[var(--text-primary)]"
-                    : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
-                }`}
-              >
-                <span className="truncate">{session.title}</span>
-                {session.pendingApprovals > 0 && (
-                  <span
-                    className="size-1.5 shrink-0 rounded-full bg-[var(--attention-mark)]"
-                    aria-label="有待审批操作"
-                  />
-                )}
-              </button>
-            ))}
+            <div ref={bottomRef} />
           </div>
-        </aside>
+        </div>
 
-        <section className="flex min-h-0 min-w-0 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-5 sm:px-6">
-              {healthQuery.isError ? (
-                <AssistantConnectionError
-                  onRetry={() => void healthQuery.refetch()}
-                />
-              ) : !configured && !healthQuery.isLoading ? (
-                <AssistantSetupState
-                  onOpenSettings={() => void navigate({ to: "/settings" })}
-                  onRetry={() => void healthQuery.refetch()}
-                />
-              ) : historyQuery.isLoading ? (
-                <div className="m-auto text-sm text-[var(--text-secondary)]">
-                  正在载入对话…
-                </div>
-              ) : historyQuery.isError ? (
-                // 不处理的话会落到下面的「空对话」分支，看起来像这段记录被清空了
-                <div className="m-auto w-full max-w-sm">
-                  <ErrorState
-                    message="这段对话没能打开"
-                    error={historyQuery.error}
-                    onRetry={() => void historyQuery.refetch()}
-                  />
-                </div>
-              ) : messages.length === 0 &&
-                activities.length === 0 &&
-                approvals.length === 0 ? (
-                <EmptyConversation
-                  onChoose={(prompt) => void send(prompt)}
-                  disabled={!configured}
-                />
-              ) : (
-                <div className="flex flex-col gap-5">
-                  {messages.map((message) => (
-                    <MessageBubble key={message.id} message={message} />
-                  ))}
-                  {activities.map((activity) => (
-                    <ToolRow key={activity.id} activity={activity} />
-                  ))}
-                  {approvals.map((approval) => (
-                    <ApprovalRow
-                      key={approval.id}
-                      approval={approval}
-                      onDecide={decide}
-                    />
-                  ))}
-                  {streamError && (
-                    <div
-                      role="alert"
-                      className="flex items-start gap-2 text-sm text-[var(--danger)]"
-                    >
-                      <Warning
-                        aria-hidden
-                        className="mt-0.5 size-4 shrink-0"
-                      />
-                      {streamError}
-                    </div>
-                  )}
-                </div>
-              )}
-              <div ref={bottomRef} />
-            </div>
-          </div>
-
-          <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--surface-1)] p-3 sm:px-5">
-            <div className="mx-auto flex max-w-3xl items-end gap-2">
-              <Textarea
-                aria-label="给财务助手发消息"
-                rows={2}
-                value={draft}
-                disabled={!configured || streaming}
-                placeholder={
-                  activeSession ? "继续这段对话…" : "问账单、消费或分类…"
+        <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--surface-1)] p-3 sm:px-5">
+          <div className="mx-auto flex max-w-3xl items-end gap-2">
+            <Textarea
+              aria-label="给阿贝发消息"
+              rows={2}
+              value={draft}
+              disabled={!configured || streaming}
+              placeholder={sessionId ? "继续这段对话…" : "问账单、消费或分类…"}
+              className="max-h-36 min-h-12 resize-none"
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  void send();
                 }
-                className="max-h-36 min-h-12 resize-none"
-                onChange={(event) => setDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    void send();
-                  }
-                }}
-              />
-              <IconButton
-                label={streaming ? "正在回复" : "发送"}
-                variant="soft"
-                disabled={!draft.trim() || !configured || streaming}
-                onClick={() => void send()}
-                className="mb-2 size-8"
-              >
-                {streaming ? (
-                  <Clock aria-hidden className="size-4 animate-pulse" />
-                ) : (
-                  <PaperPlaneTilt aria-hidden className="size-4" />
-                )}
-              </IconButton>
-            </div>
+              }}
+            />
+            <IconButton
+              label={streaming ? "正在回复" : "发送"}
+              variant="soft"
+              disabled={!draft.trim() || !configured || streaming}
+              onClick={() => void send()}
+              className="mb-2 size-8"
+            >
+              {streaming ? (
+                <Clock aria-hidden className="size-4 animate-pulse" />
+              ) : (
+                <PaperPlaneTilt aria-hidden className="size-4" />
+              )}
+            </IconButton>
           </div>
-        </section>
-      </div>
+        </div>
+      </section>
     </div>
   );
 }
@@ -760,7 +1068,7 @@ function ApprovalRow({
             pending && (
               <p className="mt-2 text-xs text-[var(--text-secondary)]">
                 {needsInput
-                  ? "这一步要你先填好，确认后才会执行。"
+                  ? "这一步要先填好，确认后才会执行。"
                   : "确认后才会执行。"}
               </p>
             )

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createTransactionSplits, getBudgetLimits, getCategories, getCurrencies, updateTransactionSplits } from './firefly'
+import { createTransactionSplits, getBillRows, getBudgetLimits, getCategories, getCurrencies, undoBillImport, updateTransactionSplits } from './firefly'
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -132,6 +132,32 @@ describe('transaction writes', () => {
   })
 })
 
+describe('getBillRows', () => {
+  it('把「只看某封邮件」当成 document_id 交给服务端过滤', async () => {
+    mocks.apiGet.mockResolvedValueOnce({ data: [], meta: { pagination: { total: 0, total_pages: 1 } } })
+    await getBillRows({ group: 'attention', source: 'cmb', documentId: '42', page: 2, limit: 50 })
+    expect(mocks.apiGet).toHaveBeenCalledWith('/v1/bill-rows', {
+      group: 'attention',
+      source: 'cmb',
+      document_id: '42',
+      page: 2,
+      limit: 50,
+    })
+  })
+
+  it('没选邮件时不带 document_id（undefined 参数会被丢掉）', async () => {
+    mocks.apiGet.mockResolvedValueOnce({ data: [], meta: { pagination: { total: 0, total_pages: 1 } } })
+    await getBillRows({ group: 'importable' })
+    expect(mocks.apiGet).toHaveBeenCalledWith('/v1/bill-rows', {
+      group: 'importable',
+      source: undefined,
+      document_id: undefined,
+      page: 1,
+      limit: 200,
+    })
+  })
+})
+
 describe('paginated collection APIs', () => {
   it('loads categories from Firefly', async () => {
     mocks.apiGet.mockResolvedValueOnce({
@@ -191,5 +217,30 @@ describe('paginated collection APIs', () => {
       page: 2,
     })
     expect(result.data.map(({ id }) => id)).toEqual(['10', '11'])
+  })
+})
+
+describe('undoBillImport', () => {
+  it('把行号发给服务端撤销通道，并带上确认闸', async () => {
+    mocks.apiPost.mockResolvedValueOnce({
+      data: {
+        rows: [
+          { row_id: '11', outcome: 'undone', transaction_group_id: '900' },
+          { row_id: '12', outcome: 'failed', error: 'Firefly 不让删' },
+        ],
+        summary: { total: 2, undone: 1, not_imported: 0, not_found: 0, failed: 1 },
+      },
+    })
+
+    const result = await undoBillImport(['11', '12'])
+
+    // 撤销的对象是行不是交易组：交易删完还要把行放回队列，只有服务端做得到。
+    const [path, body, params] = mocks.apiPost.mock.calls[0] as [string, unknown, Record<string, unknown>]
+    expect(path).toBe('/v1/bill-rows/undo-import')
+    expect(body).toEqual({ row_ids: [11, 12] })
+    expect(params).toMatchObject({ confirm: true })
+    // 一批里每行下场可能不同，逐行结局得原样透给界面。
+    expect(result.data.summary.undone).toBe(1)
+    expect(result.data.rows[1].outcome).toBe('failed')
   })
 })

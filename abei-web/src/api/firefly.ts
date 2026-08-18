@@ -11,7 +11,7 @@ import {
   viaFirefly,
   type QueryParams,
 } from './client'
-import { gateParams, type WriteGate } from './gate'
+import { CONFIRMED, gateParams, type WriteGate } from './gate'
 // 生成物：由 abei/openapi.json 出，`npm run gen:api` 重新生成，别手改。
 import { zRowsSplitBody, zRowsUpdateBody } from './generated/zod.gen'
 import {
@@ -26,9 +26,11 @@ import {
   attachmentItemResponseSchema,
   attachmentsResponseSchema,
   billImportResponseSchema,
+  billUndoImportResponseSchema,
   billImportAttemptResponseSchema,
   billAccountMappingResponseSchema,
   billAccountMappingsResponseSchema,
+  billChannelAccountsResponseSchema,
   billInboxSummarySchema,
   billProcessingSummarySchema,
   billRowLinksResponseSchema,
@@ -68,9 +70,11 @@ import {
   type AttachmentItemResponse,
   type AttachmentsResponse,
   type BillImportResponse,
+  type BillUndoImportResponse,
   type BillImportAttemptResponse,
   type BillAccountMappingResponse,
   type BillAccountMappingsResponse,
+  type BillChannelAccountsResponse,
   type BillInboxSummary,
   type BillProcessingSummary,
   type BillRowLink,
@@ -457,12 +461,15 @@ export type BillTaskSource = 'alipay' | 'wechat' | 'cmb' | 'boc'
 export async function getBillRows(opts: {
   group: BillRowGroup
   source?: string
+  /** 只看某封邮件解析出的流水。服务端按 document 过滤，前端不再自己筛。 */
+  documentId?: string
   page?: number
   limit?: number
 }): Promise<BillRowsResponse> {
   const raw = await apiGet('/v1/bill-rows', {
     group: opts.group,
     source: opts.source,
+    document_id: opts.documentId,
     page: opts.page ?? 1,
     limit: opts.limit ?? 200,
   })
@@ -476,7 +483,8 @@ export async function getBillRows(opts: {
 export async function dismissBillRows(
   body: { row_ids: string[] } | { filter: 'machine_duplicates' },
 ): Promise<BillRowsBulkResult> {
-  const raw = await apiPost('/v1/bill-rows/dismiss', body)
+  // rows.dismiss 是 confirm 档；页面侧点「忽略」本身就是点名确认，且有「恢复」可撤。
+  const raw = await apiPost('/v1/bill-rows/dismiss', body, gateParams(CONFIRMED))
   return billRowsBulkResultSchema.parse(raw)
 }
 
@@ -500,6 +508,24 @@ export async function importBillRows(body: {
     gateParams(body.confirm ? { confirm: true } : { dryRun: true }),
   )
   return billImportResponseSchema.parse(raw)
+}
+
+/**
+ * POST /api/v1/bill-rows/undo-import —— 撤销入账。
+ *
+ * 以前这件事是前端自己做的：直接删 Firefly 的交易组。删完账本上没有了，abei 那边
+ * 一无所知——行还停在已入账，「查看交易」指向一笔不存在的交易，而且再也重新入不了账。
+ * 现在交给服务端一次做完：删交易、行回待处理、导入尝试标成已撤销。
+ *
+ * 走 confirm 档：撤销会动账本。界面上点「撤销」这个动作本身就是点名确认。
+ */
+export async function undoBillImport(rowIds: string[]): Promise<BillUndoImportResponse> {
+  const raw = await apiPost(
+    '/v1/bill-rows/undo-import',
+    { row_ids: rowIds.map(Number) },
+    gateParams(CONFIRMED),
+  )
+  return billUndoImportResponseSchema.parse(raw)
 }
 
 export async function getBillImportAttempt(attemptId: string): Promise<BillImportAttemptResponse> {
@@ -539,6 +565,22 @@ export async function deleteBillAccountMapping(mappingId: string): Promise<void>
   await apiDeleteJson(`/v1/bill-account-mappings/${mappingId}`, {}, { confirm: true })
 }
 
+/** GET /v1/bill-channel-accounts —— 哪些渠道的账户还等着人点一次头。 */
+export async function getBillChannelAccounts(): Promise<BillChannelAccountsResponse> {
+  const raw = await apiGet('/v1/bill-channel-accounts')
+  return billChannelAccountsResponseSchema.parse(raw)
+}
+
+/**
+ * 确认「新账单就记进这个已有账户」。
+ *
+ * 走 confirm 档：这一下之后，这一渠道往后所有流水都会落进那个已经记了账的账户，
+ * 认错了账户比记错一笔金额更难收拾。
+ */
+export async function confirmBillChannelAccount(mappingId: string): Promise<unknown> {
+  return apiPost(`/v1/bill-channel-accounts/${mappingId}/confirm`, {}, gateParams(CONFIRMED))
+}
+
 /* ------------------------------------------------------------------ *
  * 账单收件箱：已建模的能力
  *
@@ -570,25 +612,20 @@ export async function getBillTask(taskId: string): Promise<BillTaskItemResponse>
   return billTaskItemResponseSchema.parse(raw)
 }
 
-export async function getAllBillTasks(opts: {
+/**
+ * 渠道条上的邮件 chip 只需要最近这一页邮件。
+ *
+ * 这里原来是「先拉第一页看总页数，再并发把剩下几十页全拉回来」，只为了渲染
+ * 一排 chip：邮件攒够几百封时，进一次收件箱就是十几个并发请求、上兆响应，
+ * 而屏幕上那条 chip 区最多也就放得下十几个。总数由 meta.pagination 带回来，
+ * 想看更早的邮件走邮件工作台，不在这条 chip 上翻。
+ */
+export async function getRecentBillTasks(opts: {
   source?: string
   status?: string
   limit?: number
 }): Promise<BillTasksResponse> {
-  const limit = Math.min(opts.limit ?? MAX_PAGE_SIZE, MAX_PAGE_SIZE)
-  const first = await getBillTasks({ ...opts, limit, page: 1 })
-  const totalPages = first.meta?.pagination?.total_pages ?? 1
-  if (totalPages <= 1) return first
-
-  const remaining = await Promise.all(
-    Array.from({ length: totalPages - 1 }, (_, index) =>
-      getBillTasks({ ...opts, limit, page: index + 2 }),
-    ),
-  )
-  return {
-    ...first,
-    data: [first, ...remaining].flatMap((page) => page.data),
-  }
+  return getBillTasks({ ...opts, limit: Math.min(opts.limit ?? MAX_PAGE_SIZE, MAX_PAGE_SIZE), page: 1 })
 }
 
 /**
@@ -715,12 +752,13 @@ export async function ignoreBillTask(taskId: string, gate: WriteGate): Promise<u
 }
 
 export async function archiveBillTask(taskId: string): Promise<BillTaskItemResponse> {
-  const raw = await apiPost(`/v1/bill-documents/${taskId}/archive`, {})
+  // bill-documents.archive 是 confirm 档，调用方页面先弹过确认。
+  const raw = await apiPost(`/v1/bill-documents/${taskId}/archive`, {}, gateParams(CONFIRMED))
   return billTaskItemResponseSchema.parse(raw)
 }
 
 export async function deleteBillTask(taskId: string): Promise<void> {
-  await apiPost(`/v1/bill-documents/${taskId}/archive`, {})
+  await apiPost(`/v1/bill-documents/${taskId}/archive`, {}, gateParams(CONFIRMED))
 }
 
 /** POST /v1/bills/sync：投递邮箱同步任务，进度从 bill-inbox summary 读取。 */

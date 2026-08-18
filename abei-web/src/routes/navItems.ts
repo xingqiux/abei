@@ -46,7 +46,7 @@ export const NAV_ITEMS: NavItemDef[] = [
   { label: '概况', to: '/', icon: SquaresFour },
   { label: '账单收件箱', to: '/bill-inbox', icon: Tray },
   { label: '交易', to: '/transactions', icon: ArrowsLeftRight },
-  { label: '财务助手', to: '/assistant', icon: Sparkle },
+  { label: 'AI', to: '/assistant', icon: Sparkle },
   { label: '账户', to: '/accounts', icon: Wallet },
   { label: '预算', to: '/budgets', icon: Money },
   { label: '分类与标签', to: '/reference-data', icon: Tag },

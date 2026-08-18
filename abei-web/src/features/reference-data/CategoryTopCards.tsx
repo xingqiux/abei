@@ -1,14 +1,12 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { CaretDown, CaretRight, Question, Sparkle } from '@phosphor-icons/react'
+import { Question, Sparkle } from '@phosphor-icons/react'
 import { AssistantApiError } from '../../api/assistant'
 import {
   useActVocabSuggestion,
-  useCategoryRules,
   useCreateCategory,
   useRunBackfill,
   useUpdateCategory,
-  useUpdateCategoryRule,
   useVocabSuggestions,
 } from '../../api/queries'
 import type { VocabSuggestion } from '../../api/schemas'
@@ -18,9 +16,11 @@ import { showToast } from '../../store/toastStore'
 import { txSearch, type TransactionSearch } from '../../routes/transactionSearch'
 
 /**
- * 分类管理页顶部的三张卡：未分类交易、AI 词表建议、已学会的规则。
- * 三张都是「有才显示」——没有未分类交易、没有建议、没有规则时整卡不出现，
- * 不摆空卡占地方。
+ * 分类管理页顶部的两张卡：未分类交易、AI 词表建议。
+ * 两张都是「有才显示」——没有未分类交易、没有建议时整卡不出现，不摆空卡占地方。
+ *
+ * 这里以前还有第三张「已学会的规则」。规则改由用户自己在《个人记账规则》
+ * 文档里写（/profile 页），这张卡就没有对应的东西可看了。
  */
 
 /**
@@ -34,7 +34,6 @@ export function CategoryTopCards({ uncategorizedCount }: { uncategorizedCount: n
     <>
       <UncategorizedCard count={uncategorizedCount} />
       <VocabSuggestionsCard />
-      <LearnedRulesCard />
     </>
   )
 }
@@ -188,84 +187,6 @@ function VocabSuggestionsCard() {
           </li>
         ))}
       </ul>
-    </Card>
-  )
-}
-
-const RULE_ORIGIN_LABELS: Record<string, string> = {
-  correction: '来自纠正',
-  manual: '手动创建',
-}
-
-function LearnedRulesCard() {
-  const query = useCategoryRules()
-  const updateRule = useUpdateCategoryRule()
-  const [expanded, setExpanded] = useState(false)
-
-  const rules = query.data ?? []
-  if (rules.length === 0) return null
-
-  function toggle(id: string, enabled: boolean) {
-    updateRule.mutate(
-      { id, enabled },
-      {
-        onSuccess: () => showToast({ message: enabled ? '规则已启用' : '规则已停用' }),
-        onError: () => showToast({ kind: 'error', message: '操作失败，稍后再试' }),
-      },
-    )
-  }
-
-  return (
-    <Card padded={false}>
-      <button
-        type="button"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((value) => !value)}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--surface-hover)]"
-      >
-        <span className="min-w-0">
-          <span className="block text-sm font-medium text-[var(--text-primary)]">
-            已生成规则 <span className="num">{rules.length}</span> 条
-          </span>
-          <span className="mt-0.5 block text-xs text-[var(--text-secondary)]">
-            修改 AI 建议的分类会记为一条规则。停用不删除数据。
-          </span>
-        </span>
-        {expanded ? (
-          <CaretDown aria-hidden className="size-4 shrink-0 text-[var(--text-tertiary)]" />
-        ) : (
-          <CaretRight aria-hidden className="size-4 shrink-0 text-[var(--text-tertiary)]" />
-        )}
-      </button>
-
-      {expanded && (
-        <ul role="list" className="divide-y divide-[var(--border-subtle)] border-t border-[var(--border-subtle)]">
-          {rules.map((rule) => (
-            <li
-              key={rule.id}
-              className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5"
-            >
-              <span className={`min-w-0 text-sm ${rule.enabled ? 'text-[var(--text-primary)]' : 'text-[var(--text-tertiary)]'}`}>
-                「{rule.pattern}」 → {rule.category_name}
-                <span className="ml-2 text-xs text-[var(--text-secondary)]">
-                  命中 <span className="num">{rule.hit_count ?? 0}</span> 次
-                  {' · '}
-                  {RULE_ORIGIN_LABELS[rule.origin] ?? '来自纠正'}
-                  {!rule.enabled && ` · 已停用${rule.disabled_reason ? `（${rule.disabled_reason}）` : ''}`}
-                </span>
-              </span>
-              <Button
-                variant="ghost"
-                size="xs"
-                disabled={updateRule.isPending}
-                onClick={() => toggle(rule.id, !rule.enabled)}
-              >
-                {rule.enabled ? '停用' : '启用'}
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
     </Card>
   )
 }

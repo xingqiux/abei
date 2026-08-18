@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react'
 import { ArrowsClockwise, DotsThree, Prohibit } from '@phosphor-icons/react'
+import { Link } from '@tanstack/react-router'
 import type { BillTask } from '../../api/schemas'
 import {
   useArchiveBillTask,
@@ -13,7 +14,7 @@ import { showToast } from '../../store/toastStore'
 import { Button, IconButton } from '../../components/ui/Button'
 import { DROPDOWN_ITEM } from '../../components/ui/Dropdown'
 import { Field, Input } from '../../components/ui/Field'
-import { Modal } from '../../components/abei/Modal'
+import { ConfirmDialog } from '../../components/abei/ConfirmDialog'
 import { StatusChip } from '../../components/abei/StatusChip'
 import { Skeleton } from '../../components/abei/Skeleton'
 import { InlineError } from '../../components/abei/ErrorState'
@@ -21,22 +22,25 @@ import { LottieIcon } from '../../components/abei/LottieIcon'
 import { formatMonthDay } from '../../lib/format'
 import { PlatformMark } from './PlatformMark'
 import type { PlatformKey } from './brandMarks'
-import { mailStateBadge, mailSubject } from './billInboxHelpers'
+import { mailStateBadge, mailSubject, type SourceGroup } from './billInboxHelpers'
+import * as copy from './copy'
 
-export interface SourceGroup {
-  key: string
-  label: string
-  platform: PlatformKey
-  tasks: BillTask[]
-}
+/** 一个渠道下先摆多少封邮件 chip，其余用「还有 N 封」领出来 */
+const MAIL_CHIP_LIMIT = 8
+
+/** 形状定义搬去了 billInboxHelpers（二级页也要用），这里只转出去 */
+export type { SourceGroup } from './billInboxHelpers'
 
 /**
- * 顶部渠道条（来源面板的第三态，定稿用的就是它）。
+ * 渠道筛选条（来源面板的第三态，定稿用的就是它）。
  *
  * 原来这是左边一整栏，占掉 248px，主区被挤到看不下几列；而它一天里真正被用到的
- * 只有「换个来源看看」和「这封邮件要解锁」两件事。于是整栏收成一排 chip 钉在顶上，
- * 主区拿到全宽；选中某个渠道才展开它名下的邮件，选中的那封要是卡住了，
- * 解锁 / 重新解析就在下面那条里做完。
+ * 只有「换个来源看看」和「这封邮件要解锁」两件事。于是整栏收成一排 chip，
+ * 主区拿到全宽。
+ *
+ * 批次五又把「这封邮件要解锁」那一半拆走了：邮件清单和它的解锁 / 重新解析
+ * 属于「邮箱 → 流水」这条管道，归页头的管道条（MailPicker）；留在列表控制区里的
+ * 只剩纯粹的筛选动作，一行 chip 而已。
  */
 export function ChannelBar({
   groups,
@@ -48,7 +52,6 @@ export function ChannelBar({
   selectedSource,
   onSelectSource,
   selectedTaskId,
-  onSelectTask,
 }: {
   groups: SourceGroup[]
   /** 渠道 key → 当前 tab 下这个渠道有多少笔 */
@@ -61,65 +64,104 @@ export function ChannelBar({
   /** null = 全部渠道 */
   selectedSource: string | null
   onSelectSource: (source: string | null) => void
+  /** null = 不钉在某一封邮件上。这里只用来判断「全部来源」高不高亮。 */
+  selectedTaskId: string | null
+}) {
+  return (
+    <nav aria-label="来源渠道" className="flex items-center gap-1.5 overflow-x-auto sm:flex-wrap sm:overflow-x-visible">
+      {/* 窄屏渠道多起来会换两三行，把顶部条撑得很高，改成横向滚动 */}
+      <ChannelChip
+        label={copy.CHANNEL_ALL}
+        count={totalCount}
+        selected={selectedSource === null && selectedTaskId === null}
+        onClick={() => onSelectSource(null)}
+      />
+      {groups.map((group) => (
+        <ChannelChip
+          key={group.key}
+          label={group.label}
+          platform={group.platform}
+          count={counts[group.key]}
+          selected={selectedSource === group.key}
+          onClick={() => onSelectSource(selectedSource === group.key ? null : group.key)}
+        />
+      ))}
+      {Boolean(error) && <InlineError message={copy.CHANNELS_ERROR} error={error} onRetry={onRetryLoad} />}
+      {loading && groups.length === 0 && <Skeleton className="h-7 w-40" />}
+      {!loading && !error && groups.length === 0 && (
+        <span className="text-[11.5px] text-[var(--text-secondary)]">{copy.CHANNELS_EMPTY}</span>
+      )}
+    </nav>
+  )
+}
+
+/**
+ * 邮件清单。管道条展开后出现的那一层：这批流水是从哪几封邮件来的、
+ * 哪一封要人动手（待解锁 / 解析失败）、怎么动手。
+ *
+ * 和渠道筛选条分家的理由：chip 那一排回答「我现在只想看谁」，是筛选；
+ * 这一层回答「邮箱那头发生了什么」，是管道。两件事挤在同一个控件里的结果是
+ * 选中一个渠道就多出一行邮件、把下面的列表整体顶下去一截。
+ */
+export function MailPicker({
+  groups,
+  selectedTaskId,
+  onSelectTask,
+}: {
+  groups: SourceGroup[]
   /** null = 不钉在某一封邮件上 */
   selectedTaskId: string | null
   onSelectTask: (taskId: string | null) => void
 }) {
-  const selectedGroup = groups.find((group) => group.key === selectedSource) ?? null
-  const mails = selectedGroup?.tasks ?? []
+  const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const selectedTask = groups.flatMap((group) => group.tasks).find((task) => task.id === selectedTaskId) ?? null
 
-  return (
-    <nav aria-label="来源渠道" className="flex flex-col gap-2">
-      {/* 窄屏渠道多起来会换两三行，把顶部条撑得很高，改成横向滚动 */}
-      <div className="flex items-center gap-1.5 overflow-x-auto sm:flex-wrap sm:overflow-x-visible">
-        <ChannelChip
-          label="全部来源"
-          count={totalCount}
-          selected={selectedSource === null && selectedTaskId === null}
-          onClick={() => onSelectSource(null)}
-        />
-        {groups.map((group) => (
-          <ChannelChip
-            key={group.key}
-            label={group.label}
-            platform={group.platform}
-            count={counts[group.key]}
-            selected={selectedSource === group.key}
-            onClick={() => onSelectSource(selectedSource === group.key ? null : group.key)}
-          />
-        ))}
-        {Boolean(error) && <InlineError message="来源邮件加载失败" error={error} onRetry={onRetryLoad} />}
-        {loading && groups.length === 0 && <Skeleton className="h-7 w-40" />}
-        {!loading && !error && groups.length === 0 && (
-          <span className="text-[11.5px] text-[var(--text-secondary)]">
-            没有解析中的账单邮件，可在右上角同步邮件。
-          </span>
-        )}
-      </div>
+  if (groups.every((group) => group.tasks.length === 0)) {
+    return (
+      <p className="text-[11.5px] text-[var(--text-secondary)]">{copy.MAILS_EMPTY}</p>
+    )
+  }
 
-      {/* 选中渠道才展开它名下的邮件：不选的时候这一排是纯噪音 */}
-      {selectedGroup && mails.length > 0 && (
-        <div className="flex items-start gap-1.5">
-          <span className="shrink-0 pt-1 text-[11px] text-[var(--text-tertiary)]">邮件</span>
-          {/* 一个渠道可能囤了几十封，限高滚动，别把置顶条撑成半屏 */}
-          <div className="flex max-h-[64px] flex-wrap items-center gap-1.5 overflow-y-auto pr-1">
+  return (
+    <div className="flex flex-col gap-2">
+      {groups.filter((group) => group.tasks.length > 0).map((group) => {
+        const expanded = expandedKey === group.key
+        const mails = expanded ? group.tasks : group.tasks.slice(0, MAIL_CHIP_LIMIT)
+        return (
+          <div key={group.key} className="flex flex-wrap items-start gap-1.5">
+            <span className="flex shrink-0 items-center gap-1.5 pt-1 text-[11.5px] text-[var(--text-secondary)]">
+              <PlatformMark platform={group.platform} size={18} title="" />
+              {group.label}
+            </span>
+            {/*
+              一个渠道可能囤了几十封。原来是限高 64px 内部滚动：第九封往后没有任何
+              提示，看着就像这个渠道只有八封。改成先放一排，多的用一句话领出来。
+            */}
             {mails.map((task) => (
               <MailChip
                 key={task.id}
                 task={task}
-                channelLabel={selectedGroup.label}
+                channelLabel={group.label}
                 selected={selectedTaskId === task.id}
                 onSelect={() => onSelectTask(selectedTaskId === task.id ? null : task.id)}
               />
             ))}
+            {group.tasks.length > MAIL_CHIP_LIMIT && (
+              <button
+                type="button"
+                onClick={() => setExpandedKey(expanded ? null : group.key)}
+                className="h-7 shrink-0 rounded-full border border-[var(--border-subtle)] px-2.5 text-[11.5px] text-[var(--brand-text)] hover:bg-[var(--surface-hover)]"
+              >
+                {expanded ? copy.MAILS_COLLAPSE : copy.moreMails(group.tasks.length - MAIL_CHIP_LIMIT)}
+              </button>
+            )}
           </div>
-        </div>
-      )}
+        )
+      })}
 
       {/* 选中的这封要人动手（等密码 / 解析崩了）才出这条，平时不占地方 */}
       {selectedTask && <MailActions task={selectedTask} />}
-    </nav>
+    </div>
   )
 }
 
@@ -189,7 +231,7 @@ function MailChip({
  * 选中那封邮件的操作条：解锁、重新解析、忽略这封。
  *
  * 原来这些按钮挂在左栏每一行邮件上，十一封邮件就是十一组按钮；现在只给
- * 当下选中的那一封出一条，卡住的（待解锁 / 解析失败）默认把话说完，
+ * 当下选中的那一封出一条，要动手的（待解锁 / 解析失败）默认把话说完，
  * 正常的那几封只留一个「…」菜单。
  */
 function MailActions({ task }: { task: BillTask }) {
@@ -216,7 +258,11 @@ function MailActions({ task }: { task: BillTask }) {
   const errorText = attrs.error_message || attrs.error_code || null
   // 密码错了后端退回 needs_secret，把原因留在输入框旁：光靠 toast 不够，
   // 它几秒就没了，刷新一下就再也看不出自己错在哪。
-  const secretError = attrs.error_code === 'secret_rejected' ? errorText : null
+  // 这里必须走人话映射：error_message 常常是空的，原样印就是一个
+  // 「secret_rejected」贴在密码框下面。
+  const secretError = attrs.error_code === 'secret_rejected'
+    ? copy.waitingReasonText('secret_rejected')
+    : null
 
   /**
    * 第一步：干跑。`bills.unlock` 是 confirm 档，不先问一句服务端就是 409。
@@ -225,7 +271,7 @@ function MailActions({ task }: { task: BillTask }) {
   async function previewUnlock() {
     const value = secretValue.trim()
     if (!value) {
-      showToast({ message: '请输入密码或验证码', kind: 'error' })
+      showToast({ message: copy.MAIL_UNLOCK_EMPTY, kind: 'error' })
       return
     }
     try {
@@ -301,7 +347,11 @@ function MailActions({ task }: { task: BillTask }) {
         >
           {/* 用真 label 而不是 placeholder：placeholder 一输入就消失，
               用户回头看不出这格填的是什么 */}
-          <Field label="解压密码" hint="提交后重新解析附件" error={secretError ?? undefined}>
+          <Field
+            label={copy.MAIL_UNLOCK_FIELD_LABEL}
+            hint={copy.MAIL_UNLOCK_FIELD_HINT}
+            error={secretError ?? undefined}
+          >
             <Input
               type="password"
               autoComplete="off"
@@ -313,10 +363,10 @@ function MailActions({ task }: { task: BillTask }) {
             {secretMutation.isPending ? (
               <>
                 <LottieIcon kind="loading" size={12} color="var(--brand-on)" />
-                解锁中…
+                {copy.MAIL_UNLOCK_BUTTON_BUSY}
               </>
             ) : (
-              '解锁'
+              copy.MAIL_UNLOCK_BUTTON
             )}
           </Button>
         </form>
@@ -325,18 +375,29 @@ function MailActions({ task }: { task: BillTask }) {
       {failed && (
         <div className="flex flex-wrap items-center gap-2">
           {/* 后端 error_message 是英文技术原文，只当细节放小字，正文说清楚出了什么事 */}
-          <p className="text-[11.5px] text-[var(--danger)]">解析这封邮件时出错，流水没有生成。</p>
+          <p className="text-[11.5px] text-[var(--danger)]">{copy.MAIL_PARSE_FAILED}</p>
           {errorText && <p className="text-[10.5px] text-[var(--text-tertiary)]">{errorText}</p>}
         </div>
       )}
 
       {!needsSecret && !failed && (
-        <p className="text-[11.5px] text-[var(--text-secondary)]">只看这封邮件解析出的流水。</p>
+        <p className="text-[11.5px] text-[var(--text-secondary)]">{copy.MAIL_PICKED_NOTE}</p>
       )}
 
       <span className="ml-auto flex items-center gap-1.5">
+        {/*
+          「按邮件筛流水」不在这一页做：流水队列在收件箱首屏，这里只把人带回去
+          并带上筛选。同一份列表在两个页面各渲染一遍，两边的勾选和光标就会打架。
+        */}
+        <Link
+          to="/bill-inbox"
+          search={{ task: task.id }}
+          className="shrink-0 rounded px-1.5 py-1 text-[11.5px] font-semibold text-[var(--brand-text)] underline-offset-2 hover:underline"
+        >
+          {copy.MAIL_VIEW_ROWS}
+        </Link>
         <Button variant="soft" size="xs" disabled={retryMutation.isPending} onClick={() => void retry()}>
-          {retryMutation.isPending ? '重新解析中…' : '重新解析'}
+          {retryMutation.isPending ? '重新解析中…' : copy.RETRY_PARSE}
         </Button>
         <Menu>
           <MenuButton as="div">
@@ -352,7 +413,7 @@ function MailActions({ task }: { task: BillTask }) {
             <MenuItem disabled={retryMutation.isPending}>
               <button type="button" onClick={() => void retry()} className={`${DROPDOWN_ITEM} text-[var(--text-primary)]`}>
                 <ArrowsClockwise aria-hidden className="size-4" />
-                重新解析
+                {copy.RETRY_PARSE}
               </button>
             </MenuItem>
             <MenuItem>
@@ -362,27 +423,21 @@ function MailActions({ task }: { task: BillTask }) {
                 className={`${DROPDOWN_ITEM} text-[var(--danger)] data-focus:bg-[var(--danger-soft)]`}
               >
                 <Prohibit aria-hidden className="size-4" />
-                忽略这封邮件
+                {copy.MAIL_IGNORE}
               </button>
             </MenuItem>
           </MenuItems>
         </Menu>
       </span>
 
-      <Modal
+      <ConfirmDialog
         open={ignoreOpen}
         onClose={() => setIgnoreOpen(false)}
-        title="忽略这封邮件"
-        footer={
-          <>
-            <Button variant="secondary" size="md" onClick={() => setIgnoreOpen(false)}>
-              留在收件箱
-            </Button>
-            <Button variant="danger" size="md" disabled={archiveMutation.isPending} onClick={() => void ignoreMail()}>
-              {archiveMutation.isPending ? '忽略中…' : '忽略这封邮件'}
-            </Button>
-          </>
-        }
+        title={copy.MAIL_IGNORE}
+        confirmLabel={copy.MAIL_IGNORE}
+        pendingLabel="忽略中…"
+        pending={archiveMutation.isPending}
+        onConfirm={() => void ignoreMail()}
       >
         <p>
           这封邮件会从收件箱移走，它名下
@@ -390,36 +445,24 @@ function MailActions({ task }: { task: BillTask }) {
           还没入账的流水一并进「已忽略」，在那里可以逐笔恢复。已入账的交易不受影响，
           原始邮件和附件都保留。
         </p>
-      </Modal>
+      </ConfirmDialog>
 
       {/* 提交密码前的确认。上一步的干跑没把密码发出去，这一步才真提交。 */}
-      <Modal
+      <ConfirmDialog
         open={unlockPreview !== null}
         onClose={() => setUnlockPreview(null)}
         title="确认提交密码"
-        footer={
-          <>
-            <Button variant="secondary" size="md" onClick={() => setUnlockPreview(null)}>
-              先不提交
-            </Button>
-            <Button
-              variant="primary"
-              size="md"
-              disabled={secretMutation.isPending || !secretValue.trim()}
-              onClick={() => void confirmUnlock()}
-            >
-              {secretMutation.isPending ? '提交中…' : '确认提交'}
-            </Button>
-          </>
-        }
+        confirmLabel="提交密码并重新解析"
+        pendingLabel="提交中…"
+        tone="primary"
+        pending={secretMutation.isPending}
+        onConfirm={() => void confirmUnlock()}
       >
-        <div className="flex flex-col gap-2">
-          <p>{unlockPreview}</p>
-          <p className="text-[11.5px] text-[var(--text-secondary)]">
-            这一步只是预览，密码还没发出去。确认后才会提交给这份账单并重新解析。
-          </p>
-        </div>
-      </Modal>
+        <p>{unlockPreview}</p>
+        <p className="text-[11.5px] text-[var(--text-secondary)]">
+          这一步只是预览，密码还没发出去。确认后才会提交给这份账单并重新解析。
+        </p>
+      </ConfirmDialog>
     </div>
   )
 }

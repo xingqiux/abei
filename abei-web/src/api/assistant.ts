@@ -1,11 +1,11 @@
 import { getActiveToken, UNAUTHORIZED_EVENT } from "./client";
 import {
+  aiRunItemResponseSchema,
+  aiRunsResponseSchema,
   backfillSuggestionsResponseSchema,
-  categoryRuleItemResponseSchema,
-  categoryRulesResponseSchema,
   vocabSuggestionsResponseSchema,
+  type AiRun,
   type BackfillSuggestion,
-  type CategoryRule,
   type VocabSuggestion,
 } from "./schemas";
 
@@ -186,54 +186,40 @@ export function runAutofill(taskIds?: string[]): Promise<AutofillRunResult> {
 }
 
 /* ------------------------------------------------------------------ *
- * 分类引擎：规则、纠正反馈、未分类回填、词表建议
+ * 分类引擎：工作记录、未分类回填、词表建议
  * 都住在 abei-agent 侧，和 autofill 同源同鉴权。
+ *
+ * 分类规则不在这里：规则住在用户自己写的《个人记账规则》文档里
+ * （/profile 页，slug personal-accounting-rules），agent 跑批时现读现用。
  * ------------------------------------------------------------------ */
 
-/** GET /api/ai/category-rules —— 「已学会的规则」列表 */
-export async function getCategoryRules(
+/** GET /api/ai/runs —— 阿贝干过的活，倒序分页，不带明细 */
+export async function getAiRuns(
+  params: { limit?: number; offset?: number; kind?: string } = {},
   signal?: AbortSignal,
-): Promise<CategoryRule[]> {
-  const raw = await assistantJson<unknown>("/api/ai/category-rules", { signal });
-  return categoryRulesResponseSchema.parse(raw).data;
-}
-
-/** PATCH /api/ai/category-rules/:id —— 只切停用开关，不删数据 */
-export async function updateCategoryRule(
-  id: string,
-  enabled: boolean,
-): Promise<CategoryRule> {
+): Promise<AiRun[]> {
+  const query = new URLSearchParams();
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  if (params.offset !== undefined) query.set("offset", String(params.offset));
+  if (params.kind !== undefined) query.set("kind", params.kind);
+  const suffix = query.toString();
   const raw = await assistantJson<unknown>(
-    `/api/ai/category-rules/${encodeURIComponent(id)}`,
-    { method: "PATCH", body: JSON.stringify({ enabled }) },
+    suffix ? `/api/ai/runs?${suffix}` : "/api/ai/runs",
+    { signal },
   );
-  return categoryRuleItemResponseSchema.parse(raw).data;
+  return aiRunsResponseSchema.parse(raw).data;
 }
 
-/** DELETE /api/ai/category-rules/:id */
-export function deleteCategoryRule(id: string): Promise<void> {
-  return assistantVoid(`/api/ai/category-rules/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
-}
-
-/**
- * POST /api/ai/category-feedback —— 纠正即学习。
- * make_rule=true 生成一条规则；false 只当反馈样本记着（同一模式改够次数才会提示立规则）。
- */
-export interface CategoryFeedbackInput {
-  pattern: string;
-  category_name: string;
-  make_rule: boolean;
-}
-
-export function postCategoryFeedback(
-  payload: CategoryFeedbackInput,
-): Promise<void> {
-  return assistantVoid("/api/ai/category-feedback", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+/** GET /api/ai/runs/:id —— 单条，带每一条建议的明细和依据 */
+export async function getAiRun(
+  id: string,
+  signal?: AbortSignal,
+): Promise<AiRun> {
+  const raw = await assistantJson<unknown>(
+    `/api/ai/runs/${encodeURIComponent(id)}`,
+    { signal },
+  );
+  return aiRunItemResponseSchema.parse(raw).data;
 }
 
 /**

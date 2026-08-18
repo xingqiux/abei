@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { BillQueueRow } from '../../api/schemas'
-import { useCategoryFeedback, useUpdateBillStatementRow } from '../../api/queries'
+import { useUpdateBillStatementRow } from '../../api/queries'
 import { CategoryPicker, DOMAINS_BY_TX_TYPE, type CategoryDomain } from '../../components/abei/CategoryPicker'
 import { Button } from '../../components/ui/Button'
 import { AbeiApiError } from '../../api/client'
@@ -39,28 +39,18 @@ function domainsFor(fireflyType: string): CategoryDomain[] {
 export function QueueRowEditor({
   row,
   attentionKind,
-  /** AI 建议过分类。人把建议改掉时才问要不要立成规则 */
-  ai,
-  /** 立规则用的模式：优先对手方，退回商家 / 来源账户 */
-  counterparty,
   onEndEdit,
 }: {
   row: BillQueueRow
   attentionKind?: AttentionKind
-  ai: boolean
-  counterparty: string
   onEndEdit: () => void
 }) {
   const a = row.attributes
   const updateMutation = useUpdateBillStatementRow()
-  const categoryFeedback = useCategoryFeedback()
 
   const initialDescription = rowDescription(a)
   const [desc, setDesc] = useState(initialDescription === '--' ? '' : initialDescription)
   const [category, setCategory] = useState(() => asText(a.category_name))
-  /** 进编辑时的分类，用来判断人是不是把 AI 建议的那个改掉了。冻在挂载那一刻，行刷新也不动。 */
-  const [categoryAtOpen] = useState(() => asText(a.category_name))
-  const [makeRule, setMakeRule] = useState(false)
   const [amount, setAmount] = useState(() => rowAmount(a))
   const [transactionType, setTransactionType] = useState(a.firefly_type ?? '')
   const [date, setDate] = useState(() => rowDate(a)?.slice(0, 10) ?? '')
@@ -100,18 +90,6 @@ export function QueueRowEditor({
           firefly_amount: amountStr,
         },
       })
-      // 反馈是「顺手学一条规则」，失败不该让人以为这一笔没存上，所以单独 catch
-      if (makeRule && category.trim() && counterparty) {
-        try {
-          await categoryFeedback.mutateAsync({
-            pattern: counterparty,
-            category_name: category.trim(),
-            make_rule: true,
-          })
-        } catch {
-          showToast({ message: '已保存，但规则创建失败', kind: 'error', duration: 6000 })
-        }
-      }
       onEndEdit()
       showToast({ message: '已保存', kind: 'success' })
     } catch (err) {
@@ -163,24 +141,13 @@ export function QueueRowEditor({
         inputMode="decimal"
         className={`${CELL} num text-right`}
       />
-      {/* AI 建议的分类被人改掉了：顺手问一句要不要立成规则，以后同一个对手方自动归这儿 */}
-      {ai && counterparty !== '' && category.trim() !== '' && category.trim() !== categoryAtOpen.trim() && (
-        <label className="col-span-2 flex items-center gap-2 text-[11.5px] text-[var(--text-secondary)] sm:col-span-4">
-          <input
-            type="checkbox"
-            checked={makeRule}
-            onChange={(e) => setMakeRule(e.target.checked)}
-            className="size-4 accent-[var(--brand)]"
-          />
-          以后「{counterparty}」都归「{category.trim()}」
-        </label>
-      )}
       <input
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         aria-label="备注"
         placeholder="备注"
-        autoFocus={attentionKind === 'note'}
+        // 「需修正」多半缺的就是描述/备注这一格，光标直接落这儿
+        autoFocus={attentionKind === 'needs_fix'}
         className={`${CELL} col-span-2 sm:col-span-3`}
       />
       <div className="col-span-2 flex items-center justify-end gap-1.5 sm:col-span-1">

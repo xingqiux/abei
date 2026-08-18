@@ -130,7 +130,7 @@ export function FeedbackPage() {
               {(listQuery.data?.pending.length ?? 0) > 0 && (
                 <section aria-labelledby="pending-feedback-heading" className="border-b border-[var(--border-subtle)] bg-[var(--attention-soft)]/45">
                   <h2 id="pending-feedback-heading" className="px-4 pt-3 text-xs font-semibold text-[var(--attention)]">
-                    需要你处理
+                    待处理
                   </h2>
                   <ul role="list" className="divide-y divide-[var(--border-subtle)]">
                     {listQuery.data?.pending.map((submission) => submission.state === 'needs_information' ? (

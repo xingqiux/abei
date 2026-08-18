@@ -1,39 +1,49 @@
 import { useRef, useState, type ReactNode } from 'react'
-import { CaretRight } from '@phosphor-icons/react'
+import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react'
+import { CaretRight, DotsThree } from '@phosphor-icons/react'
 import { Link } from '@tanstack/react-router'
 import type { BillQueueRow } from '../../api/schemas'
-import { useMarkBillRowUnique, useUpdateBillStatementRow } from '../../api/queries'
+import { useBillRowLinkDecision, useMarkBillRowUnique, useUpdateBillStatementRow } from '../../api/queries'
 import { StatusChip } from '../../components/abei/StatusChip'
 import { showToast } from '../../store/toastStore'
 import { formatAmount } from '../../lib/format'
 import { AbeiApiError } from '../../api/client'
 import {
+  channelDisplayName,
+  currencyPrefix,
+  currencyPrefixOf,
   directionColorClass,
+  directionLabel,
   directionSign,
   dismissReasonLabel,
+  hasIssue,
   fundingAccount,
   isAiSuggested,
+  isMergedRow,
   narrowMetaLine,
+  pairOf,
   rowAmount,
   rowBadge,
+  rowDate,
   rowDescription,
   rowMerchant,
   rowPlatform,
   type AttentionKind,
   type InboxView,
 } from './billInboxHelpers'
+import * as copy from './copy'
 import { PlatformMark } from './PlatformMark'
+import { BRAND_MARKS, type PlatformKey } from './brandMarks'
+import { CompareTable, type CompareField } from './CompareTable'
 import { PairingSuggestions } from './PairingSuggestions'
+import { RowPairPanel } from './PairCard'
 import { QueueRowEditor } from './QueueRowEditor'
 import { RowTimeline } from './RowTimeline'
 import { SplitBillRowDialog } from './SplitBillRowDialog'
 import { TaskEvidencePanel } from './TaskEvidencePanel'
-import { Button } from '../../components/ui/Button'
+import { Button, IconButton } from '../../components/ui/Button'
+import { DROPDOWN_ITEM } from '../../components/ui/Dropdown'
 import { txSearch } from '../../routes/transactionSearch'
-
-function asText(v: unknown): string {
-  return typeof v === 'string' ? v : ''
-}
 
 /**
  * AI 建议的值：品牌色 soft 底 + 虚线下划线（设计稿 03 §3）。
@@ -91,7 +101,8 @@ export function QueueRow({
   onRestore,
   onReconcile,
   onRetryImport,
-  onMapAccount,
+  onImport,
+  onSplitDialogChange,
   busy = false,
 }: {
   row: BillQueueRow
@@ -111,22 +122,46 @@ export function QueueRow({
   onRestore?: () => void
   onReconcile?: () => void
   onRetryImport?: () => void
-  onMapAccount?: () => void
+  /** 只入这一笔。给的是「这行自己就能入账」的行，批量按钮之外的单行出口。 */
+  onImport?: () => void
+  /** 拆分弹窗开合要往上报：页面靠它整体停用全局快捷键 */
+  onSplitDialogChange?: (open: boolean) => void
   busy?: boolean
 }) {
   const a = row.attributes
   const badge = rowBadge(row)
   const ai = isAiSuggested(row)
-  /** 立规则用的模式：优先对手方，退回商家 / 来源账户 */
-  const counterparty = (asText(a.counterparty) || asText(a.destination_name) || asText(a.source_name)).trim()
   const reasons = a.reasons ?? []
   const importAttempt = a.import_attempt
-  const needsAccountMapping = a.issues?.some((issue) => issue.code === 'account_mapping_required') ?? false
+  const isDuplicateSuspect = a.duplicate_state === 'duplicate'
+    || a.duplicate_state === 'conflict'
+    || hasIssue(row, 'duplicate_suspect')
   const updateMutation = useUpdateBillStatementRow()
   const markUniqueMutation = useMarkBillRowUnique()
+  const linkDecision = useBillRowLinkDecision()
+  /** 这一行有没有和另一笔并成一条。并了就得写在脸上，并给一个拆开的出口。 */
+  const pair = pairOf(row)
+  const merged = isMergedRow(row)
+
+  /** 拆开：撤回那条配对，两笔各自回到待处理 */
+  async function splitPair() {
+    if (!pair) return
+    try {
+      await linkDecision.mutateAsync({ linkId: pair.link_id, action: 'undo' })
+      showToast({ kind: 'success', message: copy.PAIR_UNDO_DONE })
+    } catch (err) {
+      const message = err instanceof AbeiApiError ? err.message : copy.PAIR_SAVE_FAILED
+      showToast({ message, kind: 'error', duration: 6000 })
+    }
+  }
 
   const [showEvidence, setShowEvidence] = useState(false)
-  const [splitOpen, setSplitOpen] = useState(false)
+  const [splitOpen, setSplitOpenState] = useState(false)
+
+  function setSplitOpen(open: boolean) {
+    setSplitOpenState(open)
+    onSplitDialogChange?.(open)
+  }
   /** 勾选那一下有没有按住 shift；change 事件读不到修饰键，只能提前记一笔 */
   const shiftHeld = useRef(false)
 
@@ -161,12 +196,71 @@ export function QueueRow({
 
   const transactionGroupId = a.transaction_group_id == null ? null : String(a.transaction_group_id)
 
-  // 这一格里有没有不靠悬停就该看见的东西（状态签 / 恢复 / 查看交易）。
-  const alwaysVisible =
-    mode === 'dismissed'
-    || mode === 'imported'
-    || (badge != null && !editing)
-    || (mode === 'attention' && (importAttempt != null || needsAccountMapping))
+  /**
+   * 行内动作分两档：一个常驻的主动作 + 一个「…」菜单。
+   *
+   * 主动作按结构化字段选，不按分节名选 —— 分节是叙事，字段才决定这行现在能做什么。
+   * 顺序即优先级：卡在哪一步就先给哪一步的出口，都不卡才轮到「编辑」。
+   */
+  interface RowAction {
+    label: string
+    onClick?: () => void
+    /** 有值表示这个动作是条链接（交易组 id），点了跳交易页 */
+    href?: string
+    variant?: 'primary' | 'soft' | 'ghost' | 'ghost-danger'
+    pending?: boolean
+    danger?: boolean
+  }
+
+  const actions: RowAction[] = []
+  if (mode === 'dismissed') {
+    if (onRestore) actions.push({ label: copy.ROW_RESTORE, onClick: onRestore })
+  } else if (mode === 'imported') {
+    if (transactionGroupId) actions.push({ label: copy.ROW_VIEW_TRANSACTION, href: transactionGroupId })
+  } else if (!editing) {
+    if (importAttempt?.status === 'uncertain' && onReconcile) {
+      actions.push({ label: copy.ROW_RECONCILE, onClick: onReconcile, variant: 'primary' })
+    }
+    if (importAttempt?.status === 'retryable' && onRetryImport) {
+      actions.push({ label: copy.ROW_RETRY_IMPORT, onClick: onRetryImport, variant: 'primary' })
+    }
+    if (attentionKind === 'pairing_suggested') {
+      actions.push({
+        label: expanded ? copy.ROW_PAIR_CLOSE : copy.ROW_PAIR_OPEN,
+        onClick: onToggleExpand,
+        variant: 'primary',
+      })
+    }
+    if (isDuplicateSuspect) {
+      actions.push({
+        label: copy.ROW_NOT_DUPLICATE,
+        onClick: () => void markUnique(),
+        variant: 'soft',
+        pending: markUniqueMutation.isPending,
+      })
+    }
+    if (a.status === 'needs_split') {
+      actions.push({ label: copy.ROW_SPLIT, onClick: () => setSplitOpen(true), variant: 'soft' })
+    }
+    // 待入账的行字段已经齐了，主动作就是入账；批量按钮在分节头上，这里是单行出口
+    if (onImport) actions.push({ label: copy.ROW_IMPORT, onClick: onImport, variant: 'primary' })
+    // 合并是系统替用户做的判断，反悔的出口必须一直在，不能只藏在展开层里
+    if (merged) {
+      actions.push({
+        label: copy.MERGED_SPLIT,
+        onClick: () => void splitPair(),
+        variant: 'ghost',
+        pending: linkDecision.isPending,
+      })
+    }
+    actions.push({ label: copy.ROW_EDIT, onClick: onStartEdit, variant: 'ghost' })
+    if (onDismiss) {
+      actions.push({ label: copy.ROW_DISMISS, onClick: onDismiss, variant: 'ghost-danger', danger: true })
+    }
+  }
+
+  const primaryAction = actions[0] ?? null
+  const menuActions = actions.slice(1)
 
   return (
     <div
@@ -214,10 +308,11 @@ export function QueueRow({
         <PlatformMark platform={rowPlatform(a)} size={22} />
 
         {/* 主列要保底宽度：其余列全是固定宽，窄一点的视口下 flex-1 会被挤成 0，整列消失 */}
-        <span className="min-w-24 flex-1 truncate text-[var(--text-primary)]">
+        {/* 主文案和辅助文案拉开两档：这一格是行的主语，字重要压得住旁边的小字 */}
+        <span className="min-w-24 flex-1 truncate font-medium text-[var(--text-primary)]">
           <AiValue ai={ai}>{rowMerchant(a)}</AiValue>
         </span>
-        <span className="hidden w-[104px] shrink-0 truncate sm:block">
+        <span className="hidden w-[var(--bill-cat-w)] shrink-0 truncate sm:block">
           {a.category_name ? <CategoryCell label={a.category_name} ai={ai} /> : null}
         </span>
         {/*
@@ -225,11 +320,11 @@ export function QueueRow({
           右边那截商户名描述里已经有了，左边那截才是这行独有的信息。
           完整流向在展开区里。
         */}
-        <span className="hidden w-[132px] shrink-0 truncate text-right text-[11.5px] text-[var(--text-secondary)] xl:block">
+        <span className="hidden w-[var(--bill-account-w)] shrink-0 truncate text-right text-[11.5px] text-[var(--text-secondary)] xl:block">
           {fundingAccount(a)}
         </span>
-        <span className={`num w-[104px] shrink-0 text-right ${directionColorClass(a.direction)}`}>
-          {directionSign(a.direction)}{a.currency_symbol ?? a.currency_code ?? ''}{formatAmount(rowAmount(a))}
+        <span className={`num w-[var(--bill-amount-w)] shrink-0 text-right ${directionColorClass(a.direction)}`}>
+          {directionSign(a.direction)}{currencyPrefix(a)}{formatAmount(rowAmount(a))}
         </span>
 
         {/*
@@ -242,121 +337,106 @@ export function QueueRow({
         </span>
 
         <span
-          className={`ml-auto flex w-auto shrink-0 items-center justify-end gap-1 sm:absolute sm:inset-y-0 sm:right-[112px] sm:ml-0 sm:pl-4 ${
-            mode === 'attention' ? 'sm:w-[196px]' : 'sm:w-[150px]'
+          className={`ml-auto flex w-auto shrink-0 items-center justify-end gap-1 sm:absolute sm:inset-y-0 sm:right-[var(--bill-action-right)] sm:ml-0 sm:pl-4 ${
+            mode === 'attention' ? 'sm:w-[230px]' : 'sm:w-[188px]'
           } ${
-            // 常驻内容（状态签、恢复/查看交易）得有底色盖住账户列；纯悬停动作的行不能常驻底色，
-            // 否则整列账户名被一片同色挡住，看着像根本没渲染。
-            alwaysVisible
-              ? 'bg-inherit'
-              : 'bg-transparent group-hover:bg-inherit focus-within:bg-inherit'
+            // 动作现在一律常驻，底色也就一律要有：它盖住的是账户列，
+            // 透明底会让按钮和账户名叠印在一起。
+            'bg-inherit'
           }`}
         >
           {mode === 'dismissed' && (
-            <>
-              <StatusChip label={dismissReasonLabel(a.dismissed_reason)} kind="muted" />
-              {onRestore && (
-                <Button size="xs" variant="soft" disabled={busy} onClick={onRestore}>
-                  恢复
-                </Button>
-              )}
-            </>
+            <StatusChip label={dismissReasonLabel(a.dismissed_reason)} kind="muted" />
           )}
 
-          {mode === 'imported' && (
-            <>
-              {badge && <StatusChip label={badge.label} kind={badge.kind} />}
-              {transactionGroupId && (
-                <Link
-                  to="/transactions"
-                  search={txSearch({ transaction: Number(transactionGroupId) })}
-                  className="rounded px-1.5 py-1 text-xs font-semibold text-[var(--brand-text)] underline-offset-2 hover:underline"
-                >
-                  查看交易
-                </Link>
-              )}
-            </>
+          {/*
+            合并过的行要在行上就认得出来：双渠道标 + 一个「已合并」小签。
+            只在展开层里说的话，一屏三十行里哪几行是两笔并出来的完全看不出，
+            而合计和笔数都已经按一条算了。
+          */}
+          {merged && pair && (
+            <span className="flex shrink-0 items-center gap-0.5" title={copy.MERGED_CHIP}>
+              <ChannelMark channelKey={row.attributes.task?.source ?? ''} />
+              <ChannelMark channelKey={pair.other.channel_key ?? ''} />
+              <StatusChip label={copy.MERGED_CHIP} kind="muted" />
+            </span>
           )}
 
-          {(mode === 'importable' || mode === 'attention') && !editing && (
+          {mode !== 'dismissed' && badge && <StatusChip label={badge.label} kind={badge.kind} />}
+
+          {mode === 'attention' && !editing && (
             <>
-              {badge && <StatusChip label={badge.label} kind={badge.kind} />}
-              {mode === 'attention' && importAttempt?.status === 'uncertain' && (
-                <>
-                  <StatusChip label="结果待对账" kind="warn" />
-                  {onReconcile && (
-                    <Button size="xs" variant="soft" disabled={busy} onClick={onReconcile}>
-                      对账
-                    </Button>
-                  )}
-                </>
-              )}
-              {mode === 'attention' && importAttempt?.status === 'retryable' && (
-                <>
-                  <StatusChip label="可以重试" kind="warn" />
-                  {onRetryImport && (
-                    <Button size="xs" variant="soft" disabled={busy} onClick={onRetryImport}>
-                      重试
-                    </Button>
-                  )}
-                </>
-              )}
-              {mode === 'attention' && (importAttempt?.status === 'prepared' || importAttempt?.status === 'sending') && (
+              {importAttempt?.status === 'uncertain' && <StatusChip label="结果待核实" kind="warn" />}
+              {importAttempt?.status === 'retryable' && <StatusChip label="入账失败" kind="warn" />}
+              {(importAttempt?.status === 'prepared' || importAttempt?.status === 'sending') && (
                 <StatusChip label="正在入账" kind="muted" />
               )}
-              {mode === 'attention' && needsAccountMapping && onMapAccount && (
-                <Button size="xs" variant="soft" disabled={busy} onClick={onMapAccount}>
-                  映射账户
-                </Button>
-              )}
-              {/*
-                悬停才显形，但键盘聚焦时必须现出来，否则 Tab 过去是几个隐形按钮。
-                用 opacity 而不是 hidden，正是为了让它们始终可聚焦。
-              */}
-              <span className="flex items-center gap-1 transition-opacity sm:pointer-events-none sm:opacity-0 sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 sm:focus-within:pointer-events-auto sm:focus-within:opacity-100">
-                {mode === 'attention' && attentionKind === 'transfer' && (
+            </>
+          )}
+
+          {/*
+            这一行最重要的那个动作常驻。
+            原来除了状态签之外全部藏在悬停后面：触屏没有悬停，键盘用户 Tab 过去
+            是几个隐形按钮，而鼠标用户得先把指针放上去才知道这行能做什么。
+            现在按行的结构化字段选出一个主动作摆出来，其余进「…」。
+          */}
+          {primaryAction && !editing && (
+            primaryAction.href
+              ? (
+                  <Link
+                    to="/transactions"
+                    search={txSearch({ transaction: Number(primaryAction.href) })}
+                    className="shrink-0 rounded px-1.5 py-1 text-xs font-semibold text-[var(--brand-text)] underline-offset-2 hover:underline"
+                  >
+                    {primaryAction.label}
+                  </Link>
+                )
+              : (
                   <Button
                     size="xs"
-                    variant="soft"
-                    disabled={updateMutation.isPending}
-                    onClick={() => void setType('transfer', '已确认为转账')}
+                    variant={primaryAction.variant ?? 'soft'}
+                    disabled={busy || primaryAction.pending}
+                    onClick={primaryAction.onClick}
                   >
-                    确认转账
+                    {primaryAction.label}
                   </Button>
-                )}
-                {mode === 'attention' && (attentionKind === 'duplicate' || attentionKind === 'conflict') && (
-                  <Button size="xs" variant="soft" disabled={updateMutation.isPending} onClick={() => void markUnique()}>
-                    不是重复
-                  </Button>
-                )}
-                {mode === 'attention' && attentionKind === 'split' && (
-                  <Button size="xs" variant="soft" onClick={() => setSplitOpen(true)}>
-                    拆分
-                  </Button>
-                )}
-                <Button size="xs" variant="ghost" onClick={onStartEdit}>
-                  {attentionKind === 'note' ? '补备注' : '编辑'}
-                </Button>
-                {onDismiss && (
-                  <Button size="xs" variant="ghost-danger" disabled={busy} onClick={onDismiss}>
-                    忽略
-                  </Button>
-                )}
-              </span>
-            </>
+                )
+          )}
+
+          {menuActions.length > 0 && !editing && (
+            <Menu>
+              <MenuButton as="div">
+                <IconButton label={`${rowDescription(a)} 的更多操作`} className="size-6">
+                  <DotsThree aria-hidden className="size-4" weight="bold" />
+                </IconButton>
+              </MenuButton>
+              <MenuItems
+                anchor="bottom end"
+                transition
+                className="z-200 mt-1 min-w-48 rounded-md bg-[var(--surface-2)] py-1 shadow-[var(--shadow-pop)] ring-1 ring-[var(--border-subtle)] transition focus:outline-none data-closed:scale-95 data-closed:opacity-0 data-enter:duration-100 data-enter:ease-out data-leave:duration-75 data-leave:ease-in"
+              >
+                {menuActions.map((action) => (
+                  <MenuItem key={action.label} disabled={action.pending}>
+                    <button
+                      type="button"
+                      onClick={action.onClick}
+                      className={`${DROPDOWN_ITEM} ${
+                        action.danger ? 'text-[var(--danger)] data-focus:bg-[var(--danger-soft)]' : 'text-[var(--text-primary)]'
+                      }`}
+                    >
+                      {action.label}
+                    </button>
+                  </MenuItem>
+                ))}
+              </MenuItems>
+            </Menu>
           )}
         </span>
       </div>
 
       {/* 二级：行内编辑 */}
       {editing && (
-        <QueueRowEditor
-          row={row}
-          attentionKind={attentionKind}
-          ai={ai}
-          counterparty={counterparty}
-          onEndEdit={onEndEdit}
-        />
+        <QueueRowEditor row={row} attentionKind={attentionKind} onEndEdit={onEndEdit} />
       )}
 
       {/* 二级：详情（原始字段 / 判重理由 / AI 建议） → 三级：来源凭证 */}
@@ -364,18 +444,28 @@ export function QueueRow({
         <div className="mx-2 mb-2 flex flex-col gap-2 rounded-md bg-[var(--surface-2)] p-3 text-[11.5px] leading-relaxed">
           <dl className="grid grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-2">
             <Detail label="原始日期" value={a.occurred_at ?? '--'} mono />
-            <Detail label="原始金额" value={`${a.currency_symbol ?? a.currency_code ?? ''}${formatAmount(a.amount ?? '0')}`} mono />
+            <Detail label="原始金额" value={`${currencyPrefix(a)}${formatAmount(a.amount ?? '0')}`} mono />
             <Detail label="对手方" value={a.counterparty || '--'} />
-            <Detail label="收支方向" value={a.direction || '--'} />
-            <Detail label="账户流向" value={`${a.source_name ?? '?'} → ${a.destination_name ?? '?'}`} />
+            <Detail label="收支方向" value={directionLabel(a.direction)} />
+            {/* 「? → 上海盒马」读不出缺的是哪一头，把缺的那一端说出来 */}
+            <Detail
+              label="账户流向"
+              value={`${a.source_name || '付款账户待定'} → ${a.destination_name || '收款账户待定'}`}
+            />
             <Detail label="判重" value={duplicateLabel(a.duplicate_state, a.duplicate_of_row_id)} />
             {a.category_name ? <Detail label="分类" value={a.category_name} /> : null}
             {a.notes ? <Detail label="备注" value={a.notes} /> : null}
             {mode === 'dismissed' ? <Detail label="忽略原因" value={dismissReasonLabel(a.dismissed_reason)} /> : null}
-            {a.error_message ? <Detail label="出错信息" value={a.error_message} /> : null}
-            {importAttempt?.status ? <Detail label="导入状态" value={importAttemptStatusLabel(importAttempt.status)} /> : null}
-            {importAttempt?.error_message ? <Detail label="导入错误" value={importAttempt.error_message} /> : null}
-            {importAttempt?.retry_after ? <Detail label="可重试时间" value={importAttempt.retry_after} mono /> : null}
+            {/*
+              后端给的 error_message 是英文技术原文。正文说人话，原文降为小字：
+              直接把「Failed to resolve account」印在「出错原因」后面，等于没说。
+            */}
+            {a.error_message ? <Detail label="出错原因" value={copy.ROW_DETAIL_ERROR} note={a.error_message} /> : null}
+            {importAttempt?.status ? <ImportStatusDetail status={importAttempt.status} /> : null}
+            {importAttempt?.error_message
+              ? <Detail label="入账出错" value={copy.ROW_DETAIL_IMPORT_ERROR} note={importAttempt.error_message} />
+              : null}
+            {importAttempt?.retry_after ? <Detail label="最早可重试" value={importAttempt.retry_after} mono /> : null}
           </dl>
 
           {reasons.length > 0 && (
@@ -393,49 +483,34 @@ export function QueueRow({
           */}
           {mode === 'attention' && (
             <div className="flex flex-wrap items-center gap-1.5">
+              {/* 展开区里的按钮把后果写全，不留实现名词（external_id / Firefly 发送） */}
               {importAttempt?.status === 'uncertain' && onReconcile && (
                 <Button size="xs" variant="soft" disabled={busy} onClick={onReconcile}>
-                  按 external_id 对账
+                  按凭证号核实账本里有没有这笔
                 </Button>
               )}
               {importAttempt?.status === 'retryable' && onRetryImport && (
                 <Button size="xs" variant="soft" disabled={busy} onClick={onRetryImport}>
-                  重新发送到 Firefly
+                  重试入账，成功即进已入账
                 </Button>
               )}
-              {needsAccountMapping && onMapAccount && (
-                <Button size="xs" variant="soft" disabled={busy} onClick={onMapAccount}>
-                  选择 Firefly 账户
+              {a.firefly_type === 'transfer' && (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  disabled={updateMutation.isPending}
+                  onClick={() => void setType(
+                    directionLabel(a.direction) === '收入' ? 'deposit' : 'withdrawal',
+                    '已改成普通收支',
+                  )}
+                >
+                  不是转账，按普通收支记
                 </Button>
               )}
-              {attentionKind === 'transfer' && (
-                <>
-                  <Button
-                    size="xs"
-                    variant="soft"
-                    disabled={updateMutation.isPending}
-                    onClick={() => void setType('transfer', '已确认为转账')}
-                  >
-                    {a.destination_name ? `确认转账到 ${a.destination_name}` : '确认是转账'}
-                  </Button>
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    disabled={updateMutation.isPending}
-                    onClick={() => void setType(a.direction === '收入' ? 'deposit' : 'withdrawal', '已改回普通收支')}
-                  >
-                    不是转账
-                  </Button>
-                </>
-              )}
-              {(attentionKind === 'duplicate' || attentionKind === 'conflict') && (
-                <Button size="xs" variant="soft" disabled={updateMutation.isPending} onClick={() => void markUnique()}>
-                  不是重复
-                </Button>
-              )}
-              {attentionKind === 'split' && (
+              {/* 判重那两颗按钮不在这里：它们跟着下面的并排对比走，看完再点 */}
+              {a.status === 'needs_split' && (
                 <Button size="xs" variant="soft" onClick={() => setSplitOpen(true)}>
-                  拆分这笔
+                  拆成多笔再入账
                 </Button>
               )}
             </div>
@@ -447,7 +522,46 @@ export function QueueRow({
             </p>
           )}
 
-          <PairingSuggestions rowId={row.id} />
+          {/*
+            疑似重复不能只写一句「和已有交易很像」——像在哪儿一个字都没说，
+            用户没有依据能判断。把账本里那一笔并排摆出来，两个按钮说清后果。
+          */}
+          {isDuplicateSuspect && (
+            <section className="flex flex-col gap-2 rounded-md bg-[var(--surface-1)] p-2.5">
+              <h4 className="text-[12px] font-semibold text-[var(--text-primary)]">{copy.DUP_COMPARE_TITLE}</h4>
+              {a.duplicate_of ? (
+                <CompareTable
+                  leftLabel={copy.DUP_THIS_LABEL}
+                  rightLabel={copy.DUP_OTHER_LABEL}
+                  mergeSame={false}
+                  fields={duplicateFields(row)}
+                />
+              ) : (
+                <p className="text-[11px] text-[var(--text-tertiary)]">{copy.DUP_MISSING}</p>
+              )}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {onDismiss && (
+                  <Button size="xs" variant="soft" disabled={busy} onClick={onDismiss}>
+                    {copy.DUP_IGNORE}
+                  </Button>
+                )}
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  disabled={markUniqueMutation.isPending}
+                  onClick={() => void markUnique()}
+                >
+                  {copy.DUP_NOT_DUPLICATE}
+                </Button>
+              </div>
+            </section>
+          )}
+
+          {/*
+            配对：服务端把对侧随行下发之后就地渲染；老响应没有 pair 字段时
+            退回单发一趟 /links 的老面板，不然这一段会整块消失。
+          */}
+          {pair ? <RowPairPanel row={row} /> : <PairingSuggestions rowId={row.id} />}
 
           <RowTimeline row={row} />
 
@@ -486,29 +600,61 @@ export function QueueRow({
   )
 }
 
-function Detail({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+function Detail({
+  label,
+  value,
+  note,
+  mono = false,
+}: {
+  label: string
+  value: string
+  /** 技术原文（错误码、后端英文 message）。永远只当小字，不进正文。 */
+  note?: string | null
+  mono?: boolean
+}) {
   return (
     <div className="flex gap-2">
       <dt className="w-[64px] shrink-0 text-[var(--text-secondary)]">{label}</dt>
-      <dd className={`min-w-0 flex-1 break-words text-[var(--text-primary)] ${mono ? 'num' : ''}`}>{value}</dd>
+      <dd className="min-w-0 flex-1">
+        <span className={`block break-words text-[var(--text-primary)] ${mono ? 'num' : ''}`}>{value}</span>
+        {note && <span className="block break-words text-[10.5px] text-[var(--text-tertiary)]">{note}</span>}
+      </dd>
     </div>
   )
 }
 
-function duplicateLabel(state: string, ofRowId: string | number | null | undefined): string {
-  const suffix = ofRowId ? `（对应流水 #${String(ofRowId)}）` : ''
-  if (state === 'duplicate') return `机器判定重复${suffix}`
-  if (state === 'conflict') return `与已有交易冲突${suffix}`
-  return '没有重复'
+/** 入账状态。认不出的状态码不直出，兜底一句人话 + 原码小字。 */
+function ImportStatusDetail({ status }: { status: string }) {
+  const { text, detail } = copy.importAttemptStatusText(status)
+  return <Detail label="入账状态" value={text} note={detail} />
 }
 
-function importAttemptStatusLabel(status: string): string {
-  if (status === 'prepared') return '已准备，等待发送'
-  if (status === 'sending') return '正在发送'
-  if (status === 'uncertain') return '结果不确定，需要对账'
-  if (status === 'retryable') return '发送失败，可以重试'
-  if (status === 'rejected') return 'Firefly 已拒绝'
-  if (status === 'reconciled') return '已对账'
-  if (status === 'succeeded') return '已成功'
-  return status
+/** 行上的小号渠道标。合并过的行要一眼看出是哪两个渠道并出来的。 */
+function ChannelMark({ channelKey }: { channelKey: string }) {
+  const platform = (channelKey in BRAND_MARKS ? channelKey : 'other') as PlatformKey
+  return <PlatformMark platform={platform} size={16} title={channelDisplayName(channelKey)} />
+}
+
+/** 判重并排对比的四项：日期、金额、描述、账户 */
+function duplicateFields(row: BillQueueRow): CompareField[] {
+  const a = row.attributes
+  const other = a.duplicate_of ?? {}
+  const otherAmount = Math.abs(Number(other.signed_amount ?? '0') || 0)
+  return [
+    { label: copy.FIELD_DATE, left: rowDate(a) ?? '', right: (other.occurred_at ?? '').slice(0, 10) },
+    {
+      label: copy.FIELD_AMOUNT,
+      left: `${currencyPrefix(a)}${formatAmount(rowAmount(a))}`,
+      right: `${currencyPrefixOf(other.currency_code)}${formatAmount(String(otherAmount))}`,
+    },
+    { label: copy.FIELD_DESCRIPTION, left: rowDescription(a), right: other.description ?? '' },
+    { label: copy.FIELD_ACCOUNT, left: fundingAccount(a), right: other.source_name ?? other.destination_name ?? '' },
+  ]
+}
+
+function duplicateLabel(state: string, ofRowId: string | number | null | undefined): string {
+  const suffix = ofRowId ? `（对应流水 #${String(ofRowId)}）` : ''
+  if (state === 'duplicate') return `系统判定重复${suffix}`
+  if (state === 'conflict') return `和账本里已有的交易对不上${suffix}`
+  return '没有发现重复'
 }

@@ -132,6 +132,19 @@
 
   /* 密度：交易行高，设置里可切 44/48 */
   --row-h: 44px;
+
+  /* 收件箱队列的列宽。
+     金额列、分类列、账户列的宽度原来是三处写死的字面量（w-[104px]、
+     pr-[calc(0.5rem+104px)]、sm:right-[112px]），改一个必须同时改另外两个，
+     漏一个的表现是「日合计和金额差几像素对不齐」——不看设计稿根本发现不了。
+     收成一组变量之后，右浮动作条的偏移由金额列宽算出来，不再是独立的数。 */
+  --bill-cat-w: 104px;
+  --bill-account-w: 132px;
+  --bill-amount-w: 104px;
+  /* 行内动作浮在金额左侧：让开金额列，再留 8px 间距 */
+  --bill-action-right: calc(var(--bill-amount-w) + 8px);
+  /* 分组头上的当日合计要和金额列右对齐：让开金额列 + 行的右内边距 */
+  --bill-total-pad: calc(var(--bill-amount-w) + 0.5rem);
 }
 
 :root[data-density='comfortable'] {

@@ -1912,6 +1912,226 @@ export type BillAccountMappingsDeleteResponses = {
 
 export type BillAccountMappingsDeleteResponse = BillAccountMappingsDeleteResponses[keyof BillAccountMappingsDeleteResponses];
 
+export type BillInboxSummaryData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v1/bill-inbox/summary';
+};
+
+export type BillInboxSummaryErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type BillInboxSummaryError = BillInboxSummaryErrors[keyof BillInboxSummaryErrors];
+
+export type BillInboxSummaryResponses = {
+    /**
+     * 收件箱概览。
+     */
+    200: {
+        channels: Array<{
+            counts: {
+                attention: number;
+                dismissed: number;
+                importable: number;
+                imported: number;
+            };
+            failed?: number;
+            /**
+             * 渠道标识，例如 cmb。
+             */
+            key: string;
+            last_received_at?: string | null;
+            last_status?: string | null;
+            /**
+             * 中文显示名，例如「招商银行」。认不出来的 key 原样返回。
+             */
+            name: string;
+            needs_code?: number;
+            parsed?: number;
+            to_store?: number;
+            unprocessed?: number;
+        }>;
+        counts: {
+            attention: number;
+            dismissed: number;
+            importable: number;
+            imported: number;
+        };
+        /**
+         * 解析失败的邮件数。
+         */
+        failed: number;
+        mailbox_sync?: {
+            [key: string]: unknown;
+        };
+        /**
+         * 等用户补密码的邮件数（按文档的最新一条解析任务算）。
+         */
+        needs_code: number;
+        parse_jobs?: Array<{
+            [key: string]: unknown;
+        }>;
+        pending_total?: number;
+        todo?: {
+            [key: string]: unknown;
+        };
+        unclassified_mail?: number;
+        /**
+         * 排队中或正在解析的邮件数。
+         */
+        unprocessed: number;
+    };
+};
+
+export type BillInboxSummaryResponse = BillInboxSummaryResponses[keyof BillInboxSummaryResponses];
+
+export type BillRowsListData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * 四分组之一。不填是全部。
+         */
+        group?: 'importable' | 'attention' | 'dismissed' | 'imported';
+        /**
+         * 渠道 key，例如 cmb。
+         */
+        channel?: string;
+        /**
+         * channel 的旧名字，等价。
+         */
+        source?: string;
+        /**
+         * 只看某一封邮件解析出来的流水。点名之后归档的文档也看得见。
+         */
+        document_id?: string;
+        page?: number;
+        limit?: number;
+    };
+    url: '/v1/bill-rows';
+};
+
+export type BillRowsListErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type BillRowsListError = BillRowsListErrors[keyof BillRowsListErrors];
+
+export type BillRowsListResponses = {
+    /**
+     * 账单流水分页。
+     */
+    200: {
+        data: Array<{
+            attributes: {
+                /**
+                 * 待确认的行为什么要人看。非待确认的行是 null。前端按这个分节，不要拿 reasons 的中文做匹配。
+                 */
+                attention_kind: 'account_unmapped' | 'pairing_suggested' | 'duplicate_suspect' | 'import_failed' | 'import_pending' | 'needs_fix' | null;
+                group: 'importable' | 'attention' | 'dismissed' | 'imported';
+                /**
+                 * 每一条都带 code 和 message。进了待确认的行至少有一条。
+                 */
+                issues: Array<{
+                    /**
+                     * account_mapping_required / account_mapping_ambiguous / invalid_date / missing_amount / missing_type / missing_description / duplicate_suspect / pair_suggested / import_failed 等。
+                     */
+                    code: string;
+                    message: string;
+                    severity?: string;
+                }>;
+            };
+            id: string;
+            type: 'bill-row';
+        }>;
+        meta?: {
+            [key: string]: unknown;
+        };
+    };
+};
+
+export type BillRowsListResponse = BillRowsListResponses[keyof BillRowsListResponses];
+
 export type RowsDismissData = {
     /**
      * RowsBulkParams
@@ -2139,6 +2359,124 @@ export type RowsRestoreResponses = {
 };
 
 export type RowsRestoreResponse = RowsRestoreResponses[keyof RowsRestoreResponses];
+
+export type BillRowsUndoImportData = {
+    body: {
+        /**
+         * 要撤销的流水 id，一次最多 500 条。
+         */
+        row_ids: Array<string | number>;
+    };
+    path?: never;
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 必须显式确认。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/bill-rows/undo-import';
+};
+
+export type BillRowsUndoImportErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type BillRowsUndoImportError = BillRowsUndoImportErrors[keyof BillRowsUndoImportErrors];
+
+export type BillRowsUndoImportResponses = {
+    /**
+     * 逐行的撤销结果。
+     */
+    200: {
+        data: {
+            rows: Array<{
+                error?: string | null;
+                /**
+                 * undone 是交易已删（或本来就不在）、行已回待处理。
+                 */
+                outcome: 'undone' | 'not_imported' | 'not_found' | 'failed';
+                row_id: string;
+                transaction_group_id?: string | null;
+            }>;
+            summary: {
+                failed: number;
+                not_found?: number;
+                not_imported?: number;
+                total: number;
+                undone: number;
+            };
+        };
+    };
+};
+
+export type BillRowsUndoImportResponse = BillRowsUndoImportResponses[keyof BillRowsUndoImportResponses];
 
 export type RowsUpdateManyData = {
     /**
@@ -4778,6 +5116,296 @@ export type MailRulesUpdateResponses = {
 };
 
 export type MailRulesUpdateResponse = MailRulesUpdateResponses[keyof MailRulesUpdateResponses];
+
+export type MailRulesApplyData = {
+    body?: {
+        /**
+         * 这一趟最多看多少封，从最近的往回数。
+         */
+        limit?: number;
+        /**
+         * 只扫没归类的，还是全部邮件。
+         */
+        scope?: 'unclassified' | 'all';
+    };
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * 只校验和预览，不写入。
+         */
+        dry_run?: boolean;
+        /**
+         * 必须显式确认。
+         */
+        confirm?: boolean;
+    };
+    url: '/v1/mail-rules/{id}/apply';
+};
+
+export type MailRulesApplyErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    409: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailRulesApplyError = MailRulesApplyErrors[keyof MailRulesApplyErrors];
+
+export type MailRulesApplyResponses = {
+    /**
+     * 预览：这一趟会命中多少封。
+     */
+    200: {
+        [key: string]: unknown;
+    };
+    /**
+     * 任务已创建，处理在后台进行。
+     */
+    202: {
+        data: {
+            created_at?: string;
+            /**
+             * 整批没跑起来时的原因。
+             */
+            error?: string | null;
+            /**
+             * 单封处理出错的数量，不影响其余。
+             */
+            failed: number;
+            finished_at?: string | null;
+            /**
+             * 条件命中、要处理的邮件数。
+             */
+            matched: number;
+            /**
+             * 顺带排上的解析任务数。
+             */
+            reparse_jobs: number;
+            /**
+             * 已经改完归类的邮件数。
+             */
+            rerouted: number;
+            /**
+             * 任务标识。从来没跑过是 null。
+             */
+            run_id?: string | null;
+            scope?: 'unclassified' | 'all' | null;
+            /**
+             * interrupted 是任务失去心跳，多半是服务在处理途中重启了。
+             */
+            state: 'idle' | 'running' | 'interrupted' | 'succeeded' | 'failed';
+            /**
+             * 这一趟一共看过多少封邮件。
+             */
+            total_scanned: number;
+        };
+    };
+};
+
+export type MailRulesApplyResponse = MailRulesApplyResponses[keyof MailRulesApplyResponses];
+
+export type MailRulesApplyStatusData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/v1/mail-rules/{id}/apply-status';
+};
+
+export type MailRulesApplyStatusErrors = {
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    400: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    401: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    404: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+    /**
+     * RFC 9457 problem+json。reason 是机读驼峰码。
+     */
+    502: {
+        detail?: string;
+        /**
+         * 机读错误码，驼峰。
+         */
+        reason: string;
+        resource?: string;
+        status: number;
+        title: string;
+        type: string;
+        upstream?: unknown;
+        verb?: string;
+    };
+};
+
+export type MailRulesApplyStatusError = MailRulesApplyStatusErrors[keyof MailRulesApplyStatusErrors];
+
+export type MailRulesApplyStatusResponses = {
+    /**
+     * 批量重归类的进度。
+     */
+    200: {
+        data: {
+            created_at?: string;
+            /**
+             * 整批没跑起来时的原因。
+             */
+            error?: string | null;
+            /**
+             * 单封处理出错的数量，不影响其余。
+             */
+            failed: number;
+            finished_at?: string | null;
+            /**
+             * 条件命中、要处理的邮件数。
+             */
+            matched: number;
+            /**
+             * 顺带排上的解析任务数。
+             */
+            reparse_jobs: number;
+            /**
+             * 已经改完归类的邮件数。
+             */
+            rerouted: number;
+            /**
+             * 任务标识。从来没跑过是 null。
+             */
+            run_id?: string | null;
+            scope?: 'unclassified' | 'all' | null;
+            /**
+             * interrupted 是任务失去心跳，多半是服务在处理途中重启了。
+             */
+            state: 'idle' | 'running' | 'interrupted' | 'succeeded' | 'failed';
+            /**
+             * 这一趟一共看过多少封邮件。
+             */
+            total_scanned: number;
+        };
+    };
+};
+
+export type MailRulesApplyStatusResponse = MailRulesApplyStatusResponses[keyof MailRulesApplyStatusResponses];
 
 export type MailRulesPublishData = {
     body?: {

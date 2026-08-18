@@ -17,7 +17,7 @@ const iso = (offsetDays: number) => {
 const mocks = vi.hoisted(() => ({
   refetch: vi.fn(),
   state: {
-    todo: { importable: 0, attention: 0, stuck_tasks: 0, total: 0, hasDanger: false, isLoading: false, isError: false },
+    todo: { importable: 0, attention: 0, stuck_tasks: 0, total: 0, pending: 0, hasDanger: false, isLoading: false, isError: false },
     locked: [] as string[],
     accounts: [] as AccountFixture[],
     summary: {} as Record<string, unknown>,
@@ -94,7 +94,7 @@ function group(id: string, date: string, description: string, amount = '10.00', 
 }
 
 beforeEach(() => {
-  mocks.state.todo = { importable: 0, attention: 0, stuck_tasks: 0, total: 0, hasDanger: false, isLoading: false, isError: false }
+  mocks.state.todo = { importable: 0, attention: 0, stuck_tasks: 0, total: 0, pending: 0, hasDanger: false, isLoading: false, isError: false }
   mocks.state.locked = []
   mocks.state.accounts = []
   mocks.state.summary = {}
@@ -122,7 +122,7 @@ describe('概况页 时间线', () => {
   })
 
   it('今天无入账且收件箱非空时给入账入口', () => {
-    mocks.state.todo = { ...mocks.state.todo, importable: 4, total: 4 }
+    mocks.state.todo = { ...mocks.state.todo, importable: 4, total: 4, pending: 4 }
 
     render(<TodayPage />)
 
@@ -140,7 +140,7 @@ describe('概况页 时间线', () => {
 
   it('停摆超过三天时画出断层并给出天数', () => {
     mocks.state.accounts = [account('1', 'asset', '100.00', { last_activity: `${iso(-9)}T00:00:00+08:00` })]
-    mocks.state.todo = { ...mocks.state.todo, importable: 12, total: 12 }
+    mocks.state.todo = { ...mocks.state.todo, importable: 12, total: 12, pending: 12 }
     mocks.state.transactions = { data: [group('1', iso(-9), '超市')] }
 
     render(<TodayPage />)
@@ -241,7 +241,7 @@ describe('概况页 本期与待处理', () => {
   })
 
   it('待处理四类各占一行，未分类指向交易页', () => {
-    mocks.state.todo = { ...mocks.state.todo, importable: 12, attention: 3, total: 15 }
+    mocks.state.todo = { ...mocks.state.todo, importable: 12, attention: 3, total: 15, pending: 15 }
     mocks.state.locked = ['支付宝', '微信支付']
     mocks.state.uncategorizedTotal = 47
 

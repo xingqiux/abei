@@ -32,6 +32,20 @@ function relationLabel(relation: string): string {
   return relation === 'refund_candidate' ? '可能是这笔的退款' : '可能和这笔是同一笔'
 }
 
+/**
+ * 已确认的那条要说清楚是谁确认的。
+ *
+ * 最高置信档（订单号或交易号完全对得上）系统自己就合了，不进待办。但「系统替你
+ * 做了一件事」必须写在脸上，否则人翻到已完成层会以为是自己点过——一句
+ * 「已确认」既解释不了这条哪儿来的，也让人不敢去动它。
+ */
+export function decisionSentence(link: BillRowLink, otherDismissed: boolean): string {
+  const head = link.attributes.decided_by === 'auto'
+    ? '订单号完全对得上，已自动合并。'
+    : '已确认。'
+  return otherDismissed ? `${head}那一笔已经并进这一笔，不再单独入账。` : head
+}
+
 export function PairingSuggestions({ rowId }: { rowId: string }) {
   const links = useBillRowLinks(rowId)
   const decide = useBillRowLinkDecision()
@@ -43,12 +57,17 @@ export function PairingSuggestions({ rowId }: { rowId: string }) {
       await decide.mutateAsync({ linkId: link.id, action, keepRowId: action === 'confirm' ? rowId : undefined })
       showToast({
         kind: 'success',
-        message: action === 'confirm' ? '已确认是同一笔' : action === 'reject' ? '已记下不是同一笔' : '已撤回',
+        message:
+          action === 'confirm'
+            ? '已合并成一条，另一笔不再单独入账'
+            : action === 'reject'
+              ? '已记下不是同一笔，两条都保留'
+              : '已撤回，两条回到各自原样',
       })
     } catch (error) {
       showToast({
         kind: 'error',
-        message: error instanceof AbeiApiError ? error.message : '这一步没做成',
+        message: error instanceof AbeiApiError ? error.message : '没能保存这次判断，请重试',
         duration: 6000,
       })
     }
@@ -77,7 +96,7 @@ export function PairingSuggestions({ rowId }: { rowId: string }) {
               </span>
               {confirmed && (
                 <span className="text-[var(--text-secondary)]">
-                  已确认。{other.status === 'dismissed' ? '那一笔已经并进这一笔，不再单独入账。' : ''}
+                  {decisionSentence(link, other.status === 'dismissed')}
                 </span>
               )}
             </div>
@@ -89,10 +108,10 @@ export function PairingSuggestions({ rowId }: { rowId: string }) {
               ) : (
                 <>
                   <Button size="xs" variant="soft" disabled={decide.isPending} onClick={() => void run(link, 'confirm')}>
-                    是同一笔
+                    确认是同一笔，合并保留一条
                   </Button>
                   <Button size="xs" variant="ghost" disabled={decide.isPending} onClick={() => void run(link, 'reject')}>
-                    不是
+                    不是同一笔，两条都保留
                   </Button>
                 </>
               )}

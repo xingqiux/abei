@@ -309,7 +309,7 @@ export const billInboxSummarySchema = z
 
 export type BillInboxSummary = z.infer<typeof billInboxSummarySchema>
 
-/** 一条卡住的解析任务：失败了要重试，或者在等账单密码。 */
+/** 一条要人动手的解析任务：解析失败了要重试，或者在等账单解压密码。 */
 export const billProcessingStuckJobSchema = z
   .object({
     job_id: z.string(),
@@ -492,6 +492,7 @@ export const billImportAttemptStatusSchema = z.enum([
   'retryable',
   'uncertain',
   'reconciled',
+  'undone',
 ])
 
 export const billImportAttemptSummarySchema = z
@@ -503,8 +504,27 @@ export const billImportAttemptSummarySchema = z
     retry_after: z.string().nullable().optional(),
     transaction_group_id: z.union([z.string(), z.number()]).nullable().optional(),
     updated_at: z.string().nullable().optional(),
+    /**
+     * 这一条是哪一次入账动作写进去的。一次批量入账里的每一行共用一个编号，
+     * 已完成层靠它把行聚成「这一批」并给整批撤回。这一列上线之前入的账没有编号
+     * （null），那些行只能逐行撤销。
+     */
+    batch_id: z.string().nullable().optional(),
   })
   .passthrough()
+
+/**
+ * 行上的结构化问题。`code` 是判定依据（前端分节、按钮显隐只认它），
+ * `message` 是给人看的一句话。老响应可能只有其中一半，两个都当可选。
+ */
+export const billRowIssueSchema = z
+  .object({
+    code: z.string().optional(),
+    message: z.string().nullable().optional(),
+  })
+  .passthrough()
+
+export type BillRowIssue = z.infer<typeof billRowIssueSchema>
 
 export const billStatementRowAttributesSchema = z
   .object({
@@ -532,7 +552,7 @@ export const billStatementRowAttributesSchema = z
     tags: z.array(z.string()).nullable().optional(),
     transaction_group_id: z.union([z.string(), z.number()]).nullable().optional(),
     error_message: z.string().nullable().optional(),
-    issues: z.array(z.record(z.string(), z.unknown())).optional(),
+    issues: z.array(billRowIssueSchema).optional(),
     import_attempt: billImportAttemptSummarySchema.nullable().optional(),
     /** 非空表示这个值是 AI 建议的（目前只有 'ai'）；人改过后端会清空。 */
     suggested_by: z.string().nullable().optional(),
@@ -577,11 +597,62 @@ export const billRowTaskRefSchema = z
 
 export type BillRowTaskRef = z.infer<typeof billRowTaskRefSchema>
 
+/**
+ * 行上随手带着的「另一笔」摘要。配对（pair）和判重（duplicate_of）各一份。
+ *
+ * 两个 id 早就有了，缺的一直是「另一笔长什么样」——没有这份摘要，列表里
+ * 只能写「和已有交易很像」，用户没有任何依据能判断像不像。
+ * 每一项都放宽成可空：服务端老响应里整个对象都是 null。
+ */
+const billRowSideSchema = z
+  .object({
+    id: z.string().nullable().optional(),
+    status: z.string().nullable().optional(),
+    occurred_at: z.string().nullable().optional(),
+    signed_amount: z.string().nullable().optional(),
+    currency_code: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    counterparty: z.string().nullable().optional(),
+    source_name: z.string().nullable().optional(),
+    destination_name: z.string().nullable().optional(),
+    channel_key: z.string().nullable().optional(),
+  })
+  .passthrough()
+
+export type BillRowSide = z.infer<typeof billRowSideSchema>
+
+/**
+ * 这一行和另一行的配对关系。state='confirmed' + decided_by='auto' 就是
+ * 「系统凭强证据自己合的」——界面必须把它写在脸上，并给一个拆开的出口。
+ * state 收成 string 而不是 enum：服务端将来加一档也不该让整页 parse 失败。
+ */
+export const billRowPairSchema = z
+  .object({
+    link_id: z.string(),
+    relation: z.string().nullable().optional(),
+    state: z.string().nullable().optional(),
+    decided_by: z.string().nullable().optional(),
+    other: billRowSideSchema,
+  })
+  .passthrough()
+
+export type BillRowPair = z.infer<typeof billRowPairSchema>
+
 export const billQueueRowAttributesSchema = billStatementRowAttributesSchema.extend({
   group: billRowGroupSchema.optional(),
-  /** 进入「待确认」的中文理由，可能不止一条 */
+  /** 进入「待确认」的中文理由，可能不止一条。只用来展示，不拿来分类。 */
   reasons: z.array(z.string()).optional(),
+  /**
+   * 服务端给的待确认分节依据（account_unmapped / pairing_suggested /
+   * duplicate_suspect / import_failed / import_pending / needs_fix）。
+   * 故意收成 string 而不是 enum：服务端将来加一类，也不该让整页 parse 失败。
+   */
+  attention_kind: z.string().nullable().optional(),
   task: billRowTaskRefSchema.nullable().optional(),
+  /** 和这一行配成一对的那一笔（建议或已合并）。没有配对时是 null。 */
+  pair: billRowPairSchema.nullable().optional(),
+  /** duplicate_of_row_id 指向的那一笔的摘要，判重对比要用。 */
+  duplicate_of: billRowSideSchema.nullable().optional(),
 })
 
 export const billQueueRowSchema = z
@@ -611,6 +682,8 @@ export const billRowLinkSchema = z
         confidence: z.string(),
         evidence: z.record(z.string(), z.unknown()).nullable().optional(),
         decided_at: z.string().nullable().optional(),
+        /** 谁下的这个决定：'user' 是人点的，'auto' 是最高置信档系统自动合的。 */
+        decided_by: z.enum(['user', 'auto']).nullable().optional(),
         related_row: z
           .object({
             id: z.string(),
@@ -675,6 +748,7 @@ export const billImportRowResultSchema = z
     duplicate_of_row_id: z.union([z.string(), z.number()]).nullable().optional(),
     user_modified_at: z.string().nullable().optional(),
     error: z.string().nullable().optional(),
+    reason_code: z.string().nullable().optional(),
     attempt_id: z.string().nullable().optional(),
     transaction_group_id: z.union([z.string(), z.number()]).nullable().optional(),
   })
@@ -702,6 +776,41 @@ export const billImportResponseSchema = z
 export type BillImportRowResult = z.infer<typeof billImportRowResultSchema>
 export type BillImportResponse = z.infer<typeof billImportResponseSchema>
 
+/**
+ * 撤销入账的结果，逐行一个结局。
+ *
+ * 一批里每一行的下场可能都不一样：一行的交易删掉了，另一行 Firefly 不让删。
+ * 只回一个总的成功/失败会让用户以为全撤了，而账本上还留着几笔。
+ */
+export const billUndoImportRowSchema = z
+  .object({
+    row_id: z.string(),
+    outcome: z.enum(['undone', 'not_imported', 'not_found', 'failed']),
+    transaction_group_id: z.string().nullable().optional(),
+    error: z.string().nullable().optional(),
+  })
+  .passthrough()
+
+export const billUndoImportResponseSchema = z.object({
+  data: z
+    .object({
+      rows: z.array(billUndoImportRowSchema),
+      summary: z
+        .object({
+          total: z.number(),
+          undone: z.number(),
+          not_imported: z.number().optional().default(0),
+          not_found: z.number().optional().default(0),
+          failed: z.number(),
+        })
+        .passthrough(),
+    })
+    .passthrough(),
+})
+
+export type BillUndoImportRow = z.infer<typeof billUndoImportRowSchema>
+export type BillUndoImportResponse = z.infer<typeof billUndoImportResponseSchema>
+
 export const billImportAttemptSchema = billImportAttemptSummarySchema.extend({
   bill_row_id: z.string(),
   attempt_no: z.number(),
@@ -723,6 +832,30 @@ export const billImportAttemptResponseSchema = z
 export type BillImportAttempt = z.infer<typeof billImportAttemptSchema>
 export type BillImportAttemptResponse = z.infer<typeof billImportAttemptResponseSchema>
 
+/**
+ * 账户映射状态，由服务端 billing/mappings.rs 下发：
+ * - mapped：这条账户提示已经唯一对上一个 Firefly 账户
+ * - unmapped：待入账的行里出现过这个提示，但还没对上账户
+ * - ambiguous：对上了多个不同账户，需要人来选一个
+ */
+export const billAccountMappingStatusSchema = z.enum([
+  'mapped',
+  'unmapped',
+  'ambiguous',
+  // 系统入账时发现 Firefly 里已经有同名账户，没敢直接绑，等人点一次头。
+  'pending_confirmation',
+])
+
+/** 未映射/多义条目上带的候选映射，供人挑选 */
+export const billAccountMappingCandidateSchema = z
+  .object({
+    id: z.string(),
+    account_hint: z.string(),
+    firefly_account_id: z.string(),
+    firefly_account_name: z.string(),
+  })
+  .passthrough()
+
 export const billAccountMappingSchema = z
   .object({
     id: z.string(),
@@ -731,13 +864,22 @@ export const billAccountMappingSchema = z
       .object({
         channel_key: z.string(),
         account_hint: z.string(),
-        firefly_account_id: z.string(),
-        firefly_account_name: z.string(),
+        // 未映射候选（id 形如 pending:<channel>:<hint>）这几个字段全是 null，
+        // 只有真正落库的映射才有值，所以一律 nullable。
+        firefly_account_id: z.string().nullable().optional(),
+        firefly_account_name: z.string().nullable().optional(),
         firefly_account_type: z.string().nullable().optional(),
-        source: z.string(),
+        source: z.string().nullable().optional(),
         last_verified_at: z.string().nullable().optional(),
-        created_at: z.string(),
-        updated_at: z.string(),
+        created_at: z.string().nullable().optional(),
+        updated_at: z.string().nullable().optional(),
+        // 下面几个只在列表接口出现，单条接口（upsert/get）不下发。
+        usage_count: z.number().nullable().optional(),
+        mapping_status: billAccountMappingStatusSchema.catch('mapped').optional(),
+        /** 映射本身生效没有：'active' 才会盖到流水上，'pending_confirmation' 在等人点头。 */
+        state: z.string().nullable().optional(),
+        normalized_hints: z.array(z.string()).nullable().optional(),
+        candidate_mappings: z.array(billAccountMappingCandidateSchema).nullable().optional(),
       })
       .passthrough(),
   })
@@ -751,6 +893,38 @@ export const billAccountMappingResponseSchema = z
   .object({ data: billAccountMappingSchema })
   .passthrough()
 
+/**
+ * GET /v1/bill-channel-accounts：等人点头的渠道账户。
+ *
+ * 入账时没有映射的渠道，系统会自己在 Firefly 建一个同名资产账户。
+ * 只有一种情况不敢自己来：Firefly 里已经有一个同名账户了——那可能是人自己
+ * 建的、已经记了半年账的那个。这时系统把这条映射挂成待确认，收件箱顶上问一句。
+ */
+export const billChannelAccountSchema = z
+  .object({
+    id: z.string(),
+    type: z.string().optional(),
+    attributes: z
+      .object({
+        channel_key: z.string(),
+        channel_name: z.string(),
+        account_hint: z.string(),
+        firefly_account_id: z.string().nullable().optional(),
+        firefly_account_name: z.string().nullable().optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough()
+
+export const billChannelAccountsResponseSchema = z
+  .object({ data: z.array(billChannelAccountSchema) })
+  .passthrough()
+
+export type BillChannelAccount = z.infer<typeof billChannelAccountSchema>
+export type BillChannelAccountsResponse = z.infer<typeof billChannelAccountsResponseSchema>
+
+export type BillAccountMappingStatus = z.infer<typeof billAccountMappingStatusSchema>
+export type BillAccountMappingCandidate = z.infer<typeof billAccountMappingCandidateSchema>
 export type BillAccountMapping = z.infer<typeof billAccountMappingSchema>
 export type BillAccountMappingsResponse = z.infer<typeof billAccountMappingsResponseSchema>
 export type BillAccountMappingResponse = z.infer<typeof billAccountMappingResponseSchema>
@@ -1074,30 +1248,46 @@ export const budgetGroupsResponseSchema = z.object({ data: z.array(budgetGroupSc
 export type BudgetGroup = z.infer<typeof budgetGroupSchema>
 
 /**
- * GET /api/ai/category-rules（abei-agent）—— 「已学会的规则」。
- * 规则只从用户纠正衍生，界面上只能看和停用，没有编辑器。
- * origin=correction 是用户纠正学来的，manual 是人手立的。
+ * GET /api/ai/runs（abei-agent）—— 阿贝干过的活。
+ *
+ * summary 是时间线那一行要的数（rows / by_rule / by_model…），字段随 kind 变，
+ * 所以这里不逐个声明，页面按 kind 取自己认识的那几个。
+ * detail 只有单条接口才有：每条建议给了什么、依据哪条规则。
  */
-export const categoryRuleSchema = z
+export const aiRunDetailEntrySchema = z
   .object({
-    id: z.string(),
-    pattern_type: z.enum(['merchant', 'keyword']).catch('merchant'),
-    pattern: z.string(),
-    category_name: z.string(),
-    origin: z.enum(['correction', 'manual']).catch('correction'),
-    enabled: z.boolean(),
-    hit_count: z.number().nullable().optional(),
-    created_at: z.string().nullable().optional(),
-    last_hit_at: z.string().nullable().optional(),
-    /** 目标分类被删时规则自动停用，这里放一句人话原因 */
-    disabled_reason: z.string().nullable().optional(),
+    kind: z.string().optional(),
+    row_id: z.string().nullable().optional(),
+    task_id: z.number().nullable().optional(),
+    journal_id: z.string().nullable().optional(),
+    transaction_group_id: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    name: z.string().nullable().optional(),
+    values: z.record(z.string(), z.unknown()).nullable().optional(),
+    /** `rule:<规则原文行>`、`doc`（模型看过规则文档）或 `model`（纯模型判断） */
+    basis: z.string(),
   })
   .passthrough()
 
-export const categoryRulesResponseSchema = z.object({ data: z.array(categoryRuleSchema) }).passthrough()
-export const categoryRuleItemResponseSchema = z.object({ data: categoryRuleSchema }).passthrough()
+export const aiRunSchema = z
+  .object({
+    id: z.string(),
+    kind: z.string(),
+    trigger: z.enum(['auto', 'manual']).catch('auto'),
+    started_at: z.string(),
+    finished_at: z.string().nullable().optional(),
+    status: z.enum(['running', 'succeeded', 'failed']).catch('succeeded'),
+    summary: z.record(z.string(), z.unknown()).catch({}),
+    detail: z.array(aiRunDetailEntrySchema).nullable().optional(),
+    error: z.string().nullable().optional(),
+  })
+  .passthrough()
 
-export type CategoryRule = z.infer<typeof categoryRuleSchema>
+export const aiRunsResponseSchema = z.object({ data: z.array(aiRunSchema) }).passthrough()
+export const aiRunItemResponseSchema = z.object({ data: aiRunSchema }).passthrough()
+
+export type AiRun = z.infer<typeof aiRunSchema>
+export type AiRunDetailEntry = z.infer<typeof aiRunDetailEntrySchema>
 
 /**
  * GET /api/ai/vocab-suggestions —— AI 对词表说话的唯一方式：只建议，不自动改。

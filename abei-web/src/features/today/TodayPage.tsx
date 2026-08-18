@@ -262,7 +262,7 @@ export function TodayPage() {
                 ))}
               </ul>
             )}
-            {todo.total > 0 && (
+            {todo.pending > 0 && (
               <Link
                 to="/bill-inbox"
                 className="mt-1 inline-flex items-center justify-center gap-1 rounded-md bg-[var(--brand)] px-3 py-1.5 text-[13px] font-semibold text-[var(--brand-on)] transition-colors hover:bg-[var(--brand-hover)]"
@@ -302,11 +302,11 @@ export function TodayPage() {
                 node="now"
                 title={tail.todayGroup ? `今天已入账 ${tail.todayGroup.rows.length} 笔` : '今天暂无入账'}
                 meta={
-                  tail.todayGroup ? undefined : todo.total > 0 ? `收件箱待处理 ${todo.total} 笔` : '收件箱为空'
+                  tail.todayGroup ? undefined : todo.pending > 0 ? `收件箱待处理 ${todo.pending} 笔` : '收件箱为空'
                 }
                 amount={tail.todayGroup?.totals}
                 action={
-                  !tail.todayGroup && todo.total > 0 ? (
+                  !tail.todayGroup && todo.pending > 0 ? (
                     <Link
                       to="/bill-inbox"
                       className="inline-flex shrink-0 items-center gap-0.5 text-[12.5px] font-medium text-[var(--brand-text)] underline-offset-2 hover:underline"

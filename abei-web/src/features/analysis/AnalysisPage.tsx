@@ -156,12 +156,12 @@ export function AnalysisPage() {
           <EmptyState
             statusIcon="inbox"
             message={
-              todo.total > 0
-                ? `本月还没有已入账交易，收件箱有 ${todo.total} 笔待处理`
+              todo.pending > 0
+                ? `本月还没有已入账交易，收件箱有 ${todo.pending} 笔待处理`
                 : '本月还没有已入账交易'
             }
             action={
-              todo.total > 0
+              todo.pending > 0
                 ? { label: '去处理收件箱', to: '/bill-inbox' }
                 : { label: '记一笔', onClick: openRecordForm }
             }

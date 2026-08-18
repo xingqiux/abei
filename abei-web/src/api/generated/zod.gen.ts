@@ -278,6 +278,89 @@ export const zBillAccountMappingsDeleteQuery = z.object({
 export const zBillAccountMappingsDeleteResponse = z.record(z.string(), z.unknown());
 
 /**
+ * 收件箱概览。
+ */
+export const zBillInboxSummaryResponse = z.object({
+    channels: z.array(z.object({
+        counts: z.object({
+            attention: z.int(),
+            dismissed: z.int(),
+            importable: z.int(),
+            imported: z.int()
+        }),
+        failed: z.int().optional(),
+        key: z.string(),
+        last_received_at: z.string().nullish(),
+        last_status: z.string().nullish(),
+        name: z.string(),
+        needs_code: z.int().optional(),
+        parsed: z.int().optional(),
+        to_store: z.int().optional(),
+        unprocessed: z.int().optional()
+    })),
+    counts: z.object({
+        attention: z.int(),
+        dismissed: z.int(),
+        importable: z.int(),
+        imported: z.int()
+    }),
+    failed: z.int(),
+    mailbox_sync: z.record(z.string(), z.unknown()).optional(),
+    needs_code: z.int(),
+    parse_jobs: z.array(z.record(z.string(), z.unknown())).optional(),
+    pending_total: z.int().optional(),
+    todo: z.record(z.string(), z.unknown()).optional(),
+    unclassified_mail: z.int().optional(),
+    unprocessed: z.int()
+});
+
+export const zBillRowsListQuery = z.object({
+    group: z.enum([
+        'importable',
+        'attention',
+        'dismissed',
+        'imported'
+    ]).optional(),
+    channel: z.string().optional(),
+    source: z.string().optional(),
+    document_id: z.string().regex(/^[1-9][0-9]*$/).optional(),
+    page: z.int().gte(1).optional(),
+    limit: z.int().gte(1).lte(500).optional()
+});
+
+/**
+ * 账单流水分页。
+ */
+export const zBillRowsListResponse = z.object({
+    data: z.array(z.object({
+        attributes: z.object({
+            attention_kind: z.enum([
+                'account_unmapped',
+                'pairing_suggested',
+                'duplicate_suspect',
+                'import_failed',
+                'import_pending',
+                'needs_fix'
+            ]).nullable(),
+            group: z.enum([
+                'importable',
+                'attention',
+                'dismissed',
+                'imported'
+            ]),
+            issues: z.array(z.object({
+                code: z.string(),
+                message: z.string(),
+                severity: z.string().optional()
+            }))
+        }),
+        id: z.string(),
+        type: z.literal('bill-row')
+    })),
+    meta: z.record(z.string(), z.unknown()).optional()
+});
+
+/**
  * RowsBulkParams
  *
  * `rows dismiss/restore` 的参数。
@@ -318,6 +401,44 @@ export const zRowsRestoreQuery = z.object({
  * 批量把已忽略的账单流水恢复为待处理。
  */
 export const zRowsRestoreResponse = z.record(z.string(), z.unknown());
+
+export const zBillRowsUndoImportBody = z.object({
+    row_ids: z.array(z.union([
+        z.string(),
+        z.int()
+    ]))
+});
+
+export const zBillRowsUndoImportQuery = z.object({
+    dry_run: z.boolean().optional(),
+    confirm: z.boolean().optional()
+});
+
+/**
+ * 逐行的撤销结果。
+ */
+export const zBillRowsUndoImportResponse = z.object({
+    data: z.object({
+        rows: z.array(z.object({
+            error: z.string().nullish(),
+            outcome: z.enum([
+                'undone',
+                'not_imported',
+                'not_found',
+                'failed'
+            ]),
+            row_id: z.string(),
+            transaction_group_id: z.string().nullish()
+        })),
+        summary: z.object({
+            failed: z.int(),
+            not_found: z.int().optional(),
+            not_imported: z.int().optional(),
+            total: z.int(),
+            undone: z.int()
+        })
+    })
+});
 
 /**
  * RowsBatchUpdateParams
@@ -769,6 +890,74 @@ export const zMailRulesUpdateQuery = z.object({
  */
 export const zMailRulesUpdateResponse = z.record(z.string(), z.unknown());
 
+export const zMailRulesApplyBody = z.object({
+    limit: z.int().gte(1).lte(2000).optional().default(500),
+    scope: z.enum(['unclassified', 'all']).optional().default('unclassified')
+});
+
+export const zMailRulesApplyPath = z.object({
+    id: z.string().regex(/^[1-9][0-9]*$/)
+});
+
+export const zMailRulesApplyQuery = z.object({
+    dry_run: z.boolean().optional(),
+    confirm: z.boolean().optional()
+});
+
+export const zMailRulesApplyResponse = z.union([
+    z.record(z.string(), z.unknown()),
+    z.object({
+        data: z.object({
+            created_at: z.string().optional(),
+            error: z.string().nullish(),
+            failed: z.int(),
+            finished_at: z.string().nullish(),
+            matched: z.int(),
+            reparse_jobs: z.int(),
+            rerouted: z.int(),
+            run_id: z.string().nullish(),
+            scope: z.enum(['unclassified', 'all']).nullish(),
+            state: z.enum([
+                'idle',
+                'running',
+                'interrupted',
+                'succeeded',
+                'failed'
+            ]),
+            total_scanned: z.int()
+        })
+    })
+]);
+
+export const zMailRulesApplyStatusPath = z.object({
+    id: z.string().regex(/^[1-9][0-9]*$/)
+});
+
+/**
+ * 批量重归类的进度。
+ */
+export const zMailRulesApplyStatusResponse = z.object({
+    data: z.object({
+        created_at: z.string().optional(),
+        error: z.string().nullish(),
+        failed: z.int(),
+        finished_at: z.string().nullish(),
+        matched: z.int(),
+        reparse_jobs: z.int(),
+        rerouted: z.int(),
+        run_id: z.string().nullish(),
+        scope: z.enum(['unclassified', 'all']).nullish(),
+        state: z.enum([
+            'idle',
+            'running',
+            'interrupted',
+            'succeeded',
+            'failed'
+        ]),
+        total_scanned: z.int()
+    })
+});
+
 export const zMailRulesPublishBody = z.record(z.string(), z.unknown());
 
 export const zMailRulesPublishPath = z.object({
@@ -870,7 +1059,7 @@ export const zMailSyncRunsCancelResponse = z.record(z.string(), z.unknown());
 export const zMailboxesListResponse = z.record(z.string(), z.unknown());
 
 export const zMailboxesGetPath = z.object({
-    id: z.string().regex(/^[1-9][0-9]*$/)
+    id: z.string().regex(/^([1-9][0-9]*|current)$/)
 });
 
 /**
@@ -881,7 +1070,7 @@ export const zMailboxesGetResponse = z.record(z.string(), z.unknown());
 export const zMailboxesUpdateBody = z.record(z.string(), z.unknown());
 
 export const zMailboxesUpdatePath = z.object({
-    id: z.string().regex(/^[1-9][0-9]*$/)
+    id: z.string().regex(/^([1-9][0-9]*|current)$/)
 });
 
 export const zMailboxesUpdateQuery = z.object({
@@ -897,7 +1086,7 @@ export const zMailboxesUpdateResponse = z.record(z.string(), z.unknown());
 export const zMailboxesRescanBody = z.record(z.string(), z.unknown());
 
 export const zMailboxesRescanPath = z.object({
-    id: z.string().regex(/^[1-9][0-9]*$/)
+    id: z.string().regex(/^([1-9][0-9]*|current)$/)
 });
 
 export const zMailboxesRescanQuery = z.object({
@@ -913,7 +1102,7 @@ export const zMailboxesRescanResponse = z.union([
 export const zMailboxesSyncBody = z.record(z.string(), z.unknown());
 
 export const zMailboxesSyncPath = z.object({
-    id: z.string().regex(/^[1-9][0-9]*$/)
+    id: z.string().regex(/^([1-9][0-9]*|current)$/)
 });
 
 export const zMailboxesSyncQuery = z.object({

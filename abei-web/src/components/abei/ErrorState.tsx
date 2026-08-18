@@ -41,7 +41,7 @@ function describe(
     case 'confirm':
       return {
         tone,
-        headline: '这一步需要你确认',
+        headline: '这一步需要确认',
         detail: serverText,
         retryable: false,
       }

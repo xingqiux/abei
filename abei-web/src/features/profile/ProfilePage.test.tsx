@@ -11,6 +11,14 @@ const mocks = vi.hoisted(() => ({
   apiDeleteJson: vi.fn(),
   blocker: vi.fn(),
   toast: vi.fn(),
+  getAiRuns: vi.fn(),
+  getAiRun: vi.fn(),
+}))
+
+vi.mock('../../api/assistant', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/assistant')>()),
+  getAiRuns: mocks.getAiRuns,
+  getAiRun: mocks.getAiRun,
 }))
 
 vi.mock('../../api/client', async (importOriginal) => ({
@@ -67,6 +75,8 @@ beforeEach(() => {
   })
   mocks.blocker.mockReset()
   mocks.toast.mockReset()
+  mocks.getAiRuns.mockReset().mockResolvedValue([])
+  mocks.getAiRun.mockReset().mockResolvedValue(null)
 })
 
 describe('ProfilePage', () => {
@@ -125,6 +135,59 @@ describe('ProfilePage', () => {
     expect(options.shouldBlockFn()).toBe(false)
   })
 
+  it('把阿贝自己学到的规则摆出来，只筛 learn 那一类', async () => {
+    mocks.getAiRuns.mockResolvedValue([
+      {
+        id: 'run-1',
+        kind: 'learn',
+        trigger: 'auto',
+        started_at: '2026-08-15T02:00:00Z',
+        status: 'succeeded',
+        summary: { learned: 1, retired: 1 },
+      },
+    ])
+    mocks.getAiRun.mockResolvedValue({
+      id: 'run-1',
+      kind: 'learn',
+      trigger: 'auto',
+      started_at: '2026-08-15T02:00:00Z',
+      status: 'succeeded',
+      summary: { learned: 1, retired: 1 },
+      detail: [
+        {
+          kind: 'rule_learned',
+          basis: 'learn',
+          line: '- 商户名含「星巴克」 → 餐饮',
+          corrected: 1,
+          confirmed: 2,
+        },
+        {
+          kind: 'rule_retired',
+          basis: 'learn',
+          line: '- 商户名含「滴滴」 → 交通出行',
+          corrected: 3,
+        },
+      ],
+    })
+    renderPage()
+
+    expect(await screen.findByText('阿贝学会了这些')).toBeInTheDocument()
+    expect(await screen.findByText('商户名含「星巴克」 → 餐饮')).toBeInTheDocument()
+    expect(screen.getByText('（你改过 1 次，认过 2 次）')).toBeInTheDocument()
+    expect(screen.getByText('商户名含「滴滴」 → 交通出行')).toBeInTheDocument()
+    expect(screen.getByText('停用')).toBeInTheDocument()
+    expect(mocks.getAiRuns).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'learn' }),
+      expect.anything(),
+    )
+  })
+
+  it('阿贝还没学到东西就不占地方', async () => {
+    renderPage()
+    await screen.findByLabelText('Markdown 正文')
+    expect(screen.queryByText('阿贝学会了这些')).not.toBeInTheDocument()
+  })
+
   it('永久删除当前版本及历史前要求确认', async () => {
     renderPage()
     const editor = await screen.findByLabelText('Markdown 正文')
@@ -140,7 +203,9 @@ describe('ProfilePage', () => {
       { expected_version: 3 },
       { confirm: true },
     ))
-    await waitFor(() => expect(screen.getAllByText('还没有资料文档')).toHaveLength(2))
+    // 删光之后右边不摆空状态，直接引导建《个人记账规则》
+    await waitFor(() => expect(screen.getByText('还没有资料文档')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: '创建规则文档' })).toBeInTheDocument()
     expect(mocks.toast).toHaveBeenCalledWith({ kind: 'success', message: '资料已删除' })
   })
 })

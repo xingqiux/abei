@@ -8,7 +8,6 @@ import {
   useBudgets,
   useBulkEditTransactions,
   useCategories,
-  useCategoryFeedback,
   useDeleteTransaction,
   useInfiniteSearchTransactions,
   useResolveBackfillSuggestion,
@@ -903,13 +902,11 @@ function UncategorizedReview({ onExit }: { onExit: () => void }) {
   const suggestionsQuery = useBackfillSuggestions()
   const runBackfill = useRunBackfill()
   const resolveSuggestion = useResolveBackfillSuggestion()
-  const categoryFeedback = useCategoryFeedback()
   const updateMutation = useUpdateTransaction()
   const bulkMutation = useBulkEditTransactions()
 
   const [picking, setPicking] = useState<TransactionSplitRow | null>(null)
   const [pickName, setPickName] = useState<string | null>(null)
-  const [makeRule, setMakeRule] = useState(false)
   const [confirmBatch, setConfirmBatch] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -938,14 +935,15 @@ function UncategorizedReview({ onExit }: { onExit: () => void }) {
     showToast({ kind: 'error', message, duration: 6000 })
   }
 
-  /** 写分类 + 记一次「人确认了」；勾了「以后都这样」再多发一条反馈让引擎立规则 */
-  async function applyOne(row: TransactionSplitRow, name: string, alsoMakeRule = false) {
+  /**
+   * 写分类 + 记一次「人确认了」。
+   * 这里以前还顺手立一条分类规则；规则改由用户自己写进《个人记账规则》文档，
+   * 这一步就只剩「把分类写进去」这一件事。
+   */
+  async function applyOne(row: TransactionSplitRow, name: string) {
     const journalId = journalIdOf(row)
     await updateMutation.mutateAsync({ groupId: row.groupId, input: splitToUpdateInput(row.tx, { categoryName: name }) })
     if (journalId) await resolveSuggestion.mutateAsync({ journalId, applied: true })
-    if (alsoMakeRule) {
-      await categoryFeedback.mutateAsync({ pattern: counterpartyOf(row.tx), category_name: name, make_rule: true })
-    }
   }
 
   async function accept(row: TransactionSplitRow, name: string) {
@@ -980,11 +978,10 @@ function UncategorizedReview({ onExit }: { onExit: () => void }) {
     const name = pickName
     setBusy(true)
     try {
-      await applyOne(row, name, makeRule)
-      showToast({ kind: 'success', message: makeRule ? `已归到「${name}」，以后同样的也这么归` : `已归到「${name}」` })
+      await applyOne(row, name)
+      showToast({ kind: 'success', message: `已归到「${name}」` })
       setPicking(null)
       setPickName(null)
-      setMakeRule(false)
     } catch (err) {
       reportError(err, '写分类失败，请重试')
     } finally {
@@ -1111,7 +1108,6 @@ function UncategorizedReview({ onExit }: { onExit: () => void }) {
                       onClick={() => {
                         setPicking(row)
                         setPickName(suggestion?.category_name ?? null)
-                        setMakeRule(false)
                       }}
                     >
                       {suggestion ? '换一个' : '选分类'}
@@ -1149,17 +1145,6 @@ function UncategorizedReview({ onExit }: { onExit: () => void }) {
             {picking?.tx.description}
           </p>
           <CategoryPicker value={pickName} onChange={(name) => setPickName(name)} aria-label="分类" />
-          {picking && (
-            <label className="flex items-center gap-2 text-[12.5px] text-[var(--text-secondary)]">
-              <input
-                type="checkbox"
-                checked={makeRule}
-                onChange={(e) => setMakeRule(e.target.checked)}
-                className="size-4 accent-[var(--brand)]"
-              />
-              「{counterpartyOf(picking.tx)}」以后都归此分类
-            </label>
-          )}
         </div>
       </Modal>
 

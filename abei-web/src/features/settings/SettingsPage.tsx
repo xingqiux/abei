@@ -1,6 +1,7 @@
 import { useEffect, useState, type ComponentType } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import {
+  ArrowsLeftRight,
   DownloadSimple,
   Info,
   Swatches,
@@ -10,11 +11,12 @@ import { useAbout } from '../../api/queries'
 import pkg from '../../../package.json'
 import { Card, SectionHeading } from '../../components/ui/Card'
 import { SegmentedControl } from '../../components/ui/SegmentedControl'
+import { ChannelAccountsPanel } from './ChannelAccountsPanel'
 import { ExportPanel } from './ExportPanel'
 import { ModelConnectionPanel } from './ModelConnectionPanel'
 import { TokensPanel } from './TokensPanel'
 
-type SettingsSection = 'connections' | 'appearance' | 'export' | 'about'
+type SettingsSection = 'connections' | 'bill-channels' | 'appearance' | 'export' | 'about'
 
 const SECTIONS: Array<{
   key: SettingsSection
@@ -27,6 +29,12 @@ const SECTIONS: Array<{
     label: '连接与授权',
     description: 'AI 服务与 abei CLI',
     icon: Terminal,
+  },
+  {
+    key: 'bill-channels',
+    label: '账单渠道对应的账户',
+    description: '账单记进哪个账户',
+    icon: ArrowsLeftRight,
   },
   {
     key: 'appearance',
@@ -141,6 +149,17 @@ export function SettingsPage() {
             />
             <ModelConnectionPanel />
             <TokensPanel autoPair={pair} />
+          </Card>
+        )}
+
+        {section === 'bill-channels' && (
+          <Card>
+            <SectionHeading
+              title="账单渠道对应的账户"
+              description="账单邮件解析出的流水记进哪个 Firefly 账户。新渠道系统会自动建好账户，这里只在要改绑或一个渠道下有多个账户时才用得上。"
+              className="mb-5"
+            />
+            <ChannelAccountsPanel />
           </Card>
         )}
 

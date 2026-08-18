@@ -3,6 +3,7 @@ import type { BillImportResponse } from '../../api/schemas'
 import { Modal } from '../../components/abei/Modal'
 import { formatAmount } from '../../lib/format'
 import { Button } from '../../components/ui/Button'
+import { currencyPrefix } from './billInboxHelpers'
 
 /**
  * 一次入账很多笔时的干跑确认（≤20 笔直接执行 + 撤销，见设计稿 02 §4）。
@@ -23,32 +24,44 @@ export function ImportConfirmDialog({
   onCancel: () => void
   onConfirm: () => void
 }) {
-  const { willImport, trueSkips, reasonGroups } = useMemo(() => {
+  const { willImport, autoCreates, trueSkips, reasonGroups } = useMemo(() => {
     const rows = dryRun?.rows ?? []
     const willImportRows = rows.filter((r) => r.action === 'would_import')
-    const trueSkipRows = rows.filter((r) => r.action !== 'would_import')
+    // 预览时账户还没建（确认那一刻才建），这些行报成了跳过，但确认后照样入账：
+    // 算进可入账，不进「跳过原因」，单独一句话预告要新建的账户。
+    const autoCreateRows = rows.filter((r) => r.reason_code === 'channel_account_auto_create')
+    const trueSkipRows = rows.filter(
+      (r) => r.action !== 'would_import' && r.reason_code !== 'channel_account_auto_create',
+    )
     const groups = new Map<string, number>()
     for (const r of trueSkipRows) {
       const reason = r.error ?? '未知原因'
       groups.set(reason, (groups.get(reason) ?? 0) + 1)
     }
-    return { willImport: willImportRows, trueSkips: trueSkipRows, reasonGroups: Array.from(groups.entries()) }
+    return {
+      willImport: willImportRows,
+      autoCreates: autoCreateRows,
+      trueSkips: trueSkipRows,
+      reasonGroups: Array.from(groups.entries()),
+    }
   }, [dryRun])
+  const importable = willImport.length + autoCreates.length
 
   if (!dryRun) return null
 
   return (
     <Modal
       open={open}
-      onClose={onCancel}
+      // 请求在飞的时候不让点遮罩关：关掉只会让人以为没入上，然后再点一次。
+      onClose={pending ? () => {} : onCancel}
       title={title}
       footer={
         <>
-          <Button variant="secondary" size="md" onClick={onCancel}>
-            先不入账
+          <Button variant="secondary" size="md" disabled={pending} onClick={onCancel}>
+            取消
           </Button>
-          <Button variant="primary" size="md" disabled={willImport.length === 0 || pending} onClick={onConfirm}>
-            {pending ? '入账中…' : `确认入账 ${willImport.length} 笔`}
+          <Button variant="primary" size="md" disabled={importable === 0 || pending} onClick={onConfirm}>
+            {pending ? '入账中…' : `确认入账 ${importable} 笔`}
           </Button>
         </>
       }
@@ -56,7 +69,7 @@ export function ImportConfirmDialog({
       <div className="flex flex-col gap-3">
         <p>
           选中 <span className="num">{dryRun.summary.total}</span> 笔 → 将入账{' '}
-          <span className="num text-[var(--done)]">{willImport.length}</span> 笔，跳过{' '}
+          <span className="num text-[var(--done)]">{importable}</span> 笔，跳过{' '}
           <span
             className={`num ${trueSkips.length > 0 ? 'text-[var(--attention)]' : 'text-[var(--text-secondary)]'}`}
           >
@@ -64,6 +77,13 @@ export function ImportConfirmDialog({
           </span>{' '}
           笔
         </p>
+
+        {autoCreates.length > 0 && (
+          <div className="rounded-md bg-[var(--surface-hover)] p-2 text-xs text-[var(--text-primary)]">
+            其中 <span className="num">{autoCreates.length}</span> 笔：
+            {Array.from(new Set(autoCreates.map((r) => r.error ?? '会自动新建渠道账户'))).join('；')}
+          </div>
+        )}
 
         {reasonGroups.length > 0 && (
           <div className="flex flex-col gap-1 rounded-md bg-[var(--surface-hover)] p-2">
@@ -84,7 +104,8 @@ export function ImportConfirmDialog({
               <div key={r.row_id} className="flex items-center justify-between gap-2 text-xs text-[var(--text-primary)]">
                 <span className="min-w-0 flex-1 truncate">{r.description_preview ?? r.counterparty ?? '--'}</span>
                 <span className="shrink-0 num text-[var(--text-secondary)]">
-                  {r.currency_symbol ?? r.currency_code ?? ''}{formatAmount(r.firefly_amount ?? r.amount ?? 0)}
+                  {currencyPrefix({ currency_symbol: r.currency_symbol, currency_code: r.currency_code })}
+                  {formatAmount(r.firefly_amount ?? r.amount ?? 0)}
                 </span>
               </div>
             ))}
