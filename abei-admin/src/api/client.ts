@@ -183,6 +183,16 @@ export function isConfirmationRequired(error: unknown): boolean {
   return error instanceof AbeiApiError && error.reason === 'ConfirmationRequired'
 }
 
+/**
+ * 这个端点在当前服务端上还不存在。
+ *
+ * 后台和服务端是分开发布的，后台先带上新按钮、服务端还没上线是常态。
+ * 这种情况该说「服务端尚未更新」并让按钮退场，而不是弹一句「请求失败」让人去查网络。
+ */
+export function isEndpointMissing(error: unknown): boolean {
+  return error instanceof AbeiApiError && (error.status === 404 || error.status === 405)
+}
+
 /** 阿贝在，但它连不上 Firefly。重试有意义，别写成「出错了」。 */
 export function isUpstreamUnavailable(error: unknown): boolean {
   return error instanceof AbeiApiError && error.reason === 'UpstreamUnavailable'

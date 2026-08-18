@@ -210,6 +210,56 @@ export function publishMailRule(id: string): Promise<Item<MailRule>> {
   return apiPost(`/v1/mail-rules/${id}/publish`, {}, { confirm: true })
 }
 
+/** 一次批量应用的结果。三个数分别是「命中」「改了归类」「排了重解析」，别混着说。 */
+/**
+ * 一次批量重归类任务的进度。
+ *
+ * `state` 里 `interrupted` 说的是任务开出去之后心跳停了（多半是服务重启），
+ * 跟 `running` 分开报，不然界面会一直轮询一个永远不动的进度条。
+ */
+export interface MailRuleApplyRun {
+  run_id: string | null
+  state: 'idle' | 'running' | 'interrupted' | 'succeeded' | 'failed'
+  scope: 'unclassified' | 'all' | null
+  total_scanned: number
+  matched: number
+  rerouted: number
+  reparse_jobs: number
+  failed: number
+  error: string | null
+  created_at?: string
+  finished_at?: string | null
+}
+
+/**
+ * 发起按规则批量重归类。
+ *
+ * `scope` 是 `unclassified` 时只碰还没归类的邮件；`all` 会把已经归到别处的也拉回来重判。
+ * 服务端只开一条任务就返回，真正的处理在后台跑——以前是同步跑完再回，客户端一超时
+ * 断开，剩下几百封就在半路蒸发了。进度用 `getMailRuleApplyStatus` 轮询。
+ */
+export function applyMailRule(
+  id: string,
+  input: { scope: 'unclassified' | 'all'; limit?: number },
+): Promise<Item<MailRuleApplyRun>> {
+  return apiPost(`/v1/mail-rules/${id}/apply`, input, { confirm: true })
+}
+
+/** 这条规则最近一次批量重归类跑到哪儿了。从来没跑过时 `state` 是 `idle`。 */
+export function getMailRuleApplyStatus(id: string): Promise<Item<MailRuleApplyRun>> {
+  return apiGet(`/v1/mail-rules/${id}/apply-status`)
+}
+
+/**
+ * 回滚到指定的历史版本。
+ *
+ * 服务端不是把 current_version 往回拨，而是把目标版本的条件复制成一个新版本再设为当前，
+ * 草稿也跟着改写。所以回滚之后版本号是往上走的，历史一条都不少——UI 别说成「退回 vN」。
+ */
+export function rollbackMailRule(id: string, targetVersion: number): Promise<Item<MailRule>> {
+  return apiPost(`/v1/mail-rules/${id}/rollback`, { target_version: targetVersion }, { confirm: true })
+}
+
 export function rerouteMailMessage(id: string): Promise<Item<MailMessageDetail>> {
   return apiPost(`/v1/mail-messages/${id}/reroute`, {})
 }

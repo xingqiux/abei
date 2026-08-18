@@ -34,14 +34,15 @@ import {
   type ParserNode,
   type ParserVersionDetail,
 } from '../../api/parser'
-import { getMailSamples } from '../../api/mail'
+import { deleteMailSample, getMailSamples, type MailSample } from '../../api/mail'
 import { AbeiApiError } from '../../api/client'
+import { ConfirmDialog as AbeiConfirmDialog } from '../../components/abei/ConfirmDialog'
 import { EmptyState } from '../../components/abei/EmptyState'
 import { ErrorState, InlineError } from '../../components/abei/ErrorState'
 import { Modal } from '../../components/abei/Modal'
 import { StatusChip } from '../../components/abei/StatusChip'
 import { Button, IconButton } from '../../components/ui/Button'
-import { CONTROL_COMPACT, Field, Input } from '../../components/ui/Field'
+import { Field, Input, Select } from '../../components/ui/Field'
 import { Tabs } from '../../components/ui/Tabs'
 import { showToast } from '../../store/toastStore'
 import { ParserNodeEditor } from './ParserNodeEditor'
@@ -104,6 +105,10 @@ export function ParserWorkbenchPage() {
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
   const [inspectedVersion, setInspectedVersion] = useState<number | null>(null)
   const emlInputRef = useRef<HTMLInputElement>(null)
+  const sampleSelectRef = useRef<HTMLSelectElement>(null)
+  /** 有未保存改动时想切走的目标流程。确认后才真的切。 */
+  const [pendingFlowId, setPendingFlowId] = useState<string | 'new' | null>(null)
+  const [samplesOpen, setSamplesOpen] = useState(false)
 
   const flowsQuery = useQuery({ queryKey: ['parser-flows'], queryFn: getParserFlows })
   const flows = flowsQuery.data?.data ?? []
@@ -170,6 +175,33 @@ export function ParserWorkbenchPage() {
 
   const dirty = editor.id === null || editorFingerprint(editor) !== baseline
   const readOnly = editor.owner === 'system'
+
+  /**
+   * 有未保存改动时拦一下关标签页/刷新。
+   *
+   * 这里编的是几十行 YAML，手一滑刷新就没了。浏览器只允许弹它自己那句话，
+   * 但至少给了一次「别走」的机会。
+   */
+  useEffect(() => {
+    if (!dirty || readOnly) return
+    function warn(event: BeforeUnloadEvent) {
+      event.preventDefault()
+      // 部分浏览器仍看 returnValue 才弹。
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty, readOnly])
+
+  /** 切流程前先问一句。直接切等于把编了一半的东西静默扔掉。 */
+  function requestFlowChange(next: string | 'new') {
+    if (next === selectedFlowId) return
+    if (dirty && !readOnly) {
+      setPendingFlowId(next)
+      return
+    }
+    setSelectedFlowId(next)
+  }
   const validation = validateEditor(editor)
   const selectedNode = editor.definition.nodes.find((node) => node.id === selectedNodeId) ?? null
   const detail = detailQuery.data?.data
@@ -327,7 +359,7 @@ export function ParserWorkbenchPage() {
   }
 
   return (
-    <div className="flex w-full flex-col gap-4">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-3">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -342,18 +374,14 @@ export function ParserWorkbenchPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <select
-            aria-label="解析流程"
-            className={`${CONTROL_COMPACT} min-w-[210px]`}
-            value={selectedFlowId ?? ''}
-            onChange={(event) => setSelectedFlowId(event.target.value as string | 'new')}
+          <Select compact aria-label="解析流程" className="min-w-[210px]" value={selectedFlowId ?? ''} onChange={(event) => requestFlowChange(event.target.value as string | 'new')}
           >
             <option value="new">新解析流程</option>
             {flows.map((flow) => (
               <option key={flow.id} value={flow.id}>{flow.attributes.name}{flow.attributes.owner === 'system' ? ' · 内建' : ''}</option>
             ))}
-          </select>
-          <IconButton label="新建解析流程" variant="secondary" onClick={() => setSelectedFlowId('new')}>
+          </Select>
+          <IconButton label="新建解析流程" variant="secondary" onClick={() => requestFlowChange('new')}>
             <Plus aria-hidden className="size-4" />
           </IconButton>
           {readOnly ? (
@@ -385,12 +413,12 @@ export function ParserWorkbenchPage() {
       {validation && <InlineError message={validation} />}
       {detailQuery.isError && <InlineError message="解析流程详情加载失败" error={detailQuery.error} onRetry={() => void detailQuery.refetch()} />}
 
-      <div className="grid min-h-[690px] overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] xl:grid-cols-[250px_minmax(360px,1.05fr)_minmax(380px,1fr)]">
+      <div className="grid min-h-0 flex-1 overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] xl:grid-cols-[250px_minmax(360px,1.05fr)_minmax(380px,1fr)]">
         <section className="flex min-h-0 flex-col border-b border-[var(--border-subtle)] xl:border-r xl:border-b-0">
           <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] p-3">
-            <select aria-label="新增节点类型" className={`${CONTROL_COMPACT} min-w-0 flex-1`} value={nodeType} disabled={readOnly} onChange={(event) => setNodeType(event.target.value)}>
+            <Select compact aria-label="新增节点类型" className="min-w-0 flex-1" value={nodeType} disabled={readOnly} onChange={(event) => setNodeType(event.target.value)}>
               {NODE_TEMPLATES.map((template) => <option key={template.type} value={template.type}>{template.label}</option>)}
-            </select>
+            </Select>
             <IconButton
               label="添加节点"
               variant="secondary"
@@ -404,7 +432,7 @@ export function ParserWorkbenchPage() {
               <Plus aria-hidden className="size-4" />
             </IconButton>
           </div>
-          <ol className="min-h-0 flex-1 divide-y divide-[var(--border-subtle)] overflow-y-auto xl:max-h-[635px]">
+          <ol className="min-h-0 flex-1 divide-y divide-[var(--border-subtle)] overflow-y-auto">
             {editor.definition.nodes.map((node, index) => (
               <li key={`${node.id}:${index}`} className={selectedNodeId === node.id ? 'bg-[var(--surface-selected)]' : ''}>
                 <div className="grid grid-cols-[24px_minmax(0,1fr)_52px] items-center gap-2 px-2 py-2">
@@ -466,11 +494,12 @@ export function ParserWorkbenchPage() {
         </section>
 
         <section className="flex min-w-0 flex-col">
-          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 border-b border-[var(--border-subtle)] p-3">
-            <select aria-label="解析邮件样本" className={CONTROL_COMPACT} value={selectedSampleId} onChange={(event) => setSelectedSampleId(event.target.value)}>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2 border-b border-[var(--border-subtle)] p-3">
+            <Select compact ref={sampleSelectRef} aria-label="解析邮件样本" value={selectedSampleId} onChange={(event) => setSelectedSampleId(event.target.value)}>
               <option value="">选择邮件样本</option>
               {samples.map((sample) => <option key={sample.id} value={sample.id}>{sample.name} · {sample.message.subject || sample.message.from_address || sample.message.id}</option>)}
-            </select>
+            </Select>
+            <Button variant="ghost" size="xs" onClick={() => setSamplesOpen(true)}>管理样本</Button>
             <Button
               variant="secondary"
               disabled={!editor.id || !selectedSampleId || Boolean(validation) || testMutation.isPending || emlTestMutation.isPending}
@@ -529,6 +558,7 @@ export function ParserWorkbenchPage() {
               setSelectedNodeId(id)
               setEditorMode('node')
             }}
+            onFocusSample={() => sampleSelectRef.current?.focus()}
             onInspectVersion={(version) => {
               setInspectedVersion(version)
               setResultTab('versions')
@@ -542,6 +572,24 @@ export function ParserWorkbenchPage() {
         <EmptyState message="还没有固定的邮件样本" action={{ label: '去邮件工作台选择', to: '/mail' }} />
       )}
 
+      <AbeiConfirmDialog
+        open={pendingFlowId !== null}
+        title="放弃未保存的修改"
+        confirmLabel="放弃修改并切换"
+        tone="primary"
+        onConfirm={() => {
+          const next = pendingFlowId
+          setPendingFlowId(null)
+          if (next !== null) setSelectedFlowId(next)
+        }}
+        onClose={() => setPendingFlowId(null)}
+      >
+        <p>「{editor.name}」有还没保存的修改，切到别的流程会丢掉它们。</p>
+        <p>想留着就先取消，回去点「保存草稿」。</p>
+      </AbeiConfirmDialog>
+
+      <SampleManagerDialog open={samplesOpen} samples={samples} onClose={() => setSamplesOpen(false)} />
+
       <ConfirmDialog
         action={confirmAction}
         pending={publishMutation.isPending || rollbackMutation.isPending || retireMutation.isPending}
@@ -553,6 +601,81 @@ export function ParserWorkbenchPage() {
         }}
       />
     </div>
+  )
+}
+
+/**
+ * 样本管理（G3）。
+ *
+ * 样本此前只能加不能删：`deleteMailSample` 写好了却一处没调用，下拉框随着调试一路变长，
+ * 里面全是「测试1」「测试1副本」。这里把删除接上，删一个问一次——样本删了，
+ * 引用它的发布门禁测试用例也就跑不了了。
+ */
+function SampleManagerDialog({
+  open,
+  samples,
+  onClose,
+}: {
+  open: boolean
+  samples: MailSample[]
+  onClose: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [pending, setPending] = useState<MailSample | null>(null)
+
+  const deleteMutation = useMutation({
+    mutationFn: (sample: MailSample) => deleteMailSample(sample.id),
+    onSuccess: () => {
+      setPending(null)
+      void queryClient.invalidateQueries({ queryKey: ['mail-samples'] })
+      showToast({ kind: 'success', message: '样本已删除' })
+    },
+    onError: (error) => {
+      setPending(null)
+      mutationError('样本删除失败')(error)
+    },
+  })
+
+  return (
+    <>
+      <Modal open={open} onClose={onClose} title="邮件样本" width={560}>
+        {samples.length === 0 ? (
+          <p className="py-6 text-center text-sm text-[var(--text-secondary)]">
+            还没有样本。在邮件工作台选一封邮件，点「固定为解析样本」。
+          </p>
+        ) : (
+          <ul className="divide-y divide-[var(--border-subtle)]">
+            {samples.map((sample) => (
+              <li key={sample.id} className="flex items-center justify-between gap-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-medium text-[var(--text-primary)]">{sample.name}</p>
+                  <p className="mt-0.5 truncate text-[11px] text-[var(--text-tertiary)]">
+                    {sample.purpose === 'parser' ? '解析样本' : sample.purpose === 'rule' ? '规则样本' : '反例样本'}
+                    {' · '}
+                    {sample.message.subject || sample.message.from_address || `邮件 ${sample.message.id}`}
+                  </p>
+                </div>
+                <Button variant="ghost-danger" size="xs" onClick={() => setPending(sample)}>
+                  <Trash aria-hidden className="size-3.5" />删除
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Modal>
+
+      <AbeiConfirmDialog
+        open={pending !== null}
+        title="删除这个样本"
+        confirmLabel="删除样本"
+        pending={deleteMutation.isPending}
+        onConfirm={() => { if (pending) deleteMutation.mutate(pending) }}
+        onClose={() => setPending(null)}
+      >
+        <p>会删掉样本「{pending?.name}」，被固定的那封邮件本身不受影响。</p>
+        <p>引用它的发布门禁测试用例会因为找不到样本而跑不起来。</p>
+      </AbeiConfirmDialog>
+    </>
   )
 }
 
@@ -590,14 +713,14 @@ function FlowSourceEditor({
   }
 
   return (
-    <div className="p-4">
+    <div className="flex min-h-0 flex-1 flex-col p-4">
       <textarea
         aria-label="完整流程 YAML"
         spellCheck={false}
         disabled={readOnly}
         value={source}
         onChange={(event) => update(event.target.value)}
-        className="min-h-[460px] w-full resize-y rounded-md bg-[var(--surface-0)] p-3 font-mono text-xs leading-5 text-[var(--text-primary)] outline-1 -outline-offset-1 outline-[var(--border-strong)] focus:outline-2 focus:-outline-offset-2 focus:outline-[var(--focus-ring)] disabled:opacity-60"
+        className="min-h-[14rem] w-full flex-1 resize-y rounded-md bg-[var(--surface-0)] p-3 font-mono text-xs leading-5 text-[var(--text-primary)] outline-1 -outline-offset-1 outline-[var(--border-strong)] focus:outline-2 focus:-outline-offset-2 focus:outline-[var(--focus-ring)] disabled:opacity-60"
       />
       {error && <div className="mt-3"><InlineError message={error} /></div>}
     </div>

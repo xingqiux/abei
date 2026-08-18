@@ -33,11 +33,12 @@ import {
   type FeedbackTarget,
 } from '../../api/feedback'
 import { AbeiApiError } from '../../api/client'
+import { ConfirmDialog } from '../../components/abei/ConfirmDialog'
 import { ErrorState } from '../../components/abei/ErrorState'
 import { Badge, type BadgeTone } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { Card, SectionHeading } from '../../components/ui/Card'
-import { CONTROL_COMPACT, Field, Input, Select, Textarea } from '../../components/ui/Field'
+import { Field, Input, Select, Textarea } from '../../components/ui/Field'
 import { Tabs } from '../../components/ui/Tabs'
 import { formatDateTime } from '../../lib/format'
 import { showToast } from '../../store/toastStore'
@@ -76,6 +77,25 @@ const SUBMISSION_STATE_OPTIONS = [
 const EMPTY_SUBMISSIONS: AdminFeedbackSubmission[] = []
 const EMPTY_ITEMS: FeedbackItem[] = []
 
+/** 一页拉多少。没有分页控件，所以这也是「一个 tab 最多显示多少条」。 */
+const PAGE_LIMIT = 100
+
+/**
+ * tab 上的计数。
+ *
+ * 总数只能由服务端给。拿不到总数而这一页正好拉满，说明后面还有——那就写「100+」。
+ * 早先这里直接用 `data.length`，第 101 条起永远显示 100，看着像不再增长。
+ * 该 tab 还没加载过时返回 undefined，不显示计数，别拿 0 冒充「没有」。
+ */
+function tabCount(
+  pagination: { count: number; limit: number; total?: number } | undefined,
+  loaded: number,
+): number | string | undefined {
+  if (!pagination) return undefined
+  if (pagination.total !== undefined) return pagination.total
+  return loaded >= pagination.limit ? `${pagination.limit}+` : loaded
+}
+
 export function AdminFeedbackPage() {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<AdminTab>('inbox')
@@ -86,14 +106,18 @@ export function AdminFeedbackPage() {
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null)
 
   // 页面不再自己查 owner：整个后台被 OwnerGate 挡在门口，能渲染到这里就已经是 owner。
+  //
+  // 三个 tab 只加载当前这个。原先进页面就并发拉三份 limit=100，两份是白拉的——
+  // 用户一次只看得见一个 tab，另外两份要等到他真的切过去才有用。
   const submissionsQuery = useQuery({
     queryKey: ['admin-feedback-submissions', submissionState, kind, target],
     queryFn: () => listAdminFeedbackSubmissions({
       state: submissionState || undefined,
       kind: kind || undefined,
       target: target || undefined,
-      limit: 100,
+      limit: PAGE_LIMIT,
     }),
+    enabled: tab === 'inbox',
   })
   const itemsQuery = useQuery({
     queryKey: ['admin-feedback-items', false, kind, target],
@@ -101,8 +125,9 @@ export function AdminFeedbackPage() {
       archived: false,
       kind: kind || undefined,
       target: target || undefined,
-      limit: 100,
+      limit: PAGE_LIMIT,
     }),
+    enabled: tab === 'items',
   })
   const archiveQuery = useQuery({
     queryKey: ['admin-feedback-items', true, kind, target],
@@ -110,8 +135,9 @@ export function AdminFeedbackPage() {
       archived: true,
       kind: kind || undefined,
       target: target || undefined,
-      limit: 100,
+      limit: PAGE_LIMIT,
     }),
+    enabled: tab === 'archive',
   })
 
   const submissions = submissionsQuery.data?.data ?? EMPTY_SUBMISSIONS
@@ -136,10 +162,10 @@ export function AdminFeedbackPage() {
   const tabs = ADMIN_TABS.map((entry) => ({
     ...entry,
     count: entry.value === 'inbox'
-      ? submissions.length
+      ? tabCount(submissionsQuery.data?.pagination, submissions.length)
       : entry.value === 'items'
-        ? items.length
-        : archivedItems.length,
+        ? tabCount(itemsQuery.data?.pagination, items.length)
+        : tabCount(archiveQuery.data?.pagination, archivedItems.length),
   }))
 
   async function refresh() {
@@ -151,7 +177,7 @@ export function AdminFeedbackPage() {
   const activeQuery = tab === 'inbox' ? submissionsQuery : tab === 'items' ? itemsQuery : archiveQuery
 
   return (
-    <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-4">
+    <div className="mx-auto flex min-h-0 w-full max-w-[1440px] flex-1 flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-xl font-semibold text-[var(--text-primary)]">反馈管理</h1>
@@ -167,21 +193,17 @@ export function AdminFeedbackPage() {
 
       <div className="flex flex-wrap items-center gap-2">
         {tab === 'inbox' && (
-          <select
-            aria-label="Submission 状态"
-            className={CONTROL_COMPACT}
-            value={submissionState}
-            onChange={(event) => setSubmissionState(event.target.value)}
+          <Select compact aria-label="Submission 状态" value={submissionState} onChange={(event) => setSubmissionState(event.target.value)}
           >
             {SUBMISSION_STATE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
+          </Select>
         )}
-        <select aria-label="反馈类型" className={CONTROL_COMPACT} value={kind} onChange={(event) => setKind(event.target.value as '' | FeedbackKind)}>
+        <Select compact aria-label="反馈类型" value={kind} onChange={(event) => setKind(event.target.value as '' | FeedbackKind)}>
           {KIND_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
-        <select aria-label="反馈对象" className={CONTROL_COMPACT} value={target} onChange={(event) => setTarget(event.target.value as '' | FeedbackTarget)}>
+        </Select>
+        <Select compact aria-label="反馈对象" value={target} onChange={(event) => setTarget(event.target.value as '' | FeedbackTarget)}>
           {TARGET_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
+        </Select>
       </div>
 
       {tab === 'inbox' ? (
@@ -226,7 +248,7 @@ function SubmissionWorkspace({
   onSelect: (id: number) => void
 }) {
   return (
-    <div className="grid min-h-[650px] items-stretch gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+    <div className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
       <Card padded={false} className="min-w-0 overflow-hidden">
         <div className="border-b border-[var(--border-subtle)] px-4 py-3">
           <SectionHeading title="Submission" description="每次用户提交均独立保留" />
@@ -283,6 +305,7 @@ function SubmissionDetailPanel({ submissionId }: { submissionId: number }) {
   const [itemId, setItemId] = useState('')
   const [newTitle, setNewTitle] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [confirmRedact, setConfirmRedact] = useState(false)
   const detailQuery = useQuery({
     queryKey: ['admin-feedback-submission', submissionId],
     queryFn: () => getAdminFeedbackSubmission(submissionId),
@@ -336,16 +359,27 @@ function SubmissionDetailPanel({ submissionId }: { submissionId: number }) {
     }
   }
 
+  // 脱敏不可逆，得先确认。原先用的是 window.confirm——它长得跟浏览器的报错弹窗一样，
+  // 说不清会丢什么，也没法把「原始描述、上下文、匹配候选」这几样列清楚。
   async function moderate(state: 'dismissed' | 'redacted') {
     if (!validReason) return
-    if (state === 'redacted' && !window.confirm('脱敏会永久清除原始描述、上下文和匹配候选，确定继续吗？')) return
+    if (state === 'redacted') {
+      setConfirmRedact(true)
+      return
+    }
+    await runModerate(state)
+  }
+
+  async function runModerate(state: 'dismissed' | 'redacted') {
     setError(null)
     try {
       await moderateMutation.mutateAsync(state)
       setReason('')
+      setConfirmRedact(false)
       await refreshAfterMutation()
       showToast({ kind: 'success', message: state === 'redacted' ? 'Submission 已脱敏' : 'Submission 已驳回' })
     } catch (caught) {
+      setConfirmRedact(false)
       setError(errorMessage(caught, '处理失败'))
     }
   }
@@ -487,6 +521,19 @@ function SubmissionDetailPanel({ submissionId }: { submissionId: number }) {
           {error && <p role="alert" className="mt-3 text-sm text-[var(--danger)]">{error}</p>}
         </aside>
       </div>
+
+      <ConfirmDialog
+        open={confirmRedact}
+        title={`脱敏 Submission #${submission.submission_id}`}
+        confirmLabel="脱敏"
+        pendingLabel="脱敏中…"
+        pending={moderateMutation.isPending}
+        onConfirm={() => void runModerate('redacted')}
+        onClose={() => setConfirmRedact(false)}
+      >
+        <p>会永久清除这条反馈的原始描述、运行上下文和匹配候选，清掉的内容找不回来。</p>
+        <p>审计记录和你填的处理理由会保留。</p>
+      </ConfirmDialog>
     </Card>
   )
 }
@@ -521,7 +568,7 @@ function ItemWorkspace({
   queryClient: QueryClient
 }) {
   return (
-    <div className="grid min-h-[650px] items-stretch gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+    <div className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
       <Card padded={false} className="min-w-0 overflow-hidden">
         <div className="border-b border-[var(--border-subtle)] px-4 py-3">
           <SectionHeading title={archived ? '已归档事项' : 'Feedback Item'} description={archived ? '可恢复非合并产生的归档' : '相似提交归一后的处理对象'} />
@@ -597,6 +644,7 @@ function ItemEditor({ detail, archived, onMoved, queryClient }: { detail: Feedba
   const [statusUpdate, setStatusUpdate] = useState('')
   const [publicUpdate, setPublicUpdate] = useState('')
   const [mergeTarget, setMergeTarget] = useState('')
+  const [confirmMerge, setConfirmMerge] = useState(false)
   const [actionReason, setActionReason] = useState('')
   const [error, setError] = useState<string | null>(null)
   const updateRequired = status !== item.status && ['completed', 'closed'].includes(status)
@@ -659,16 +707,23 @@ function ItemEditor({ detail, archived, onMoved, queryClient }: { detail: Feedba
     }
   }
 
-  async function merge() {
+  function merge() {
     if (!positiveInteger(mergeTarget) || !validActionReason) return
-    if (!window.confirm(`将 Feedback #${item.feedback_id} 的全部 Submission 合并到 #${mergeTarget}，确定继续吗？`)) return
+    setConfirmMerge(true)
+  }
+
+  // 合并会把这条事项的全部 Submission 搬走，搬完这条就没了。用统一的确认框说清数量和去向，
+  // 而不是一句 window.confirm——那句话既列不出数量，样式也和后台其余部分对不上。
+  async function runMerge() {
     setError(null)
     try {
       await mergeMutation.mutateAsync()
+      setConfirmMerge(false)
       await refreshAll()
       onMoved()
       showToast({ kind: 'success', message: '反馈事项已合并' })
     } catch (caught) {
+      setConfirmMerge(false)
       setError(errorMessage(caught, '合并失败'))
     }
   }
@@ -815,7 +870,7 @@ function ItemEditor({ detail, archived, onMoved, queryClient }: { detail: Feedba
                   <Input inputMode="numeric" value={mergeTarget} onChange={(event) => setMergeTarget(event.target.value.replace(/\D/g, ''))} placeholder="目标 ID" />
                 </Field>
               </div>
-              <Button size="md" disabled={!validActionReason || !positiveInteger(mergeTarget) || Number(mergeTarget) === item.feedback_id || mergeMutation.isPending} onClick={() => void merge()}>
+              <Button size="md" disabled={!validActionReason || !positiveInteger(mergeTarget) || Number(mergeTarget) === item.feedback_id || mergeMutation.isPending} onClick={merge}>
                 <GitMerge aria-hidden className="size-4" />合并
               </Button>
             </div>
@@ -831,6 +886,22 @@ function ItemEditor({ detail, archived, onMoved, queryClient }: { detail: Feedba
           {error && <p role="alert" className="mt-4 text-sm text-[var(--danger)]">{error}</p>}
         </aside>
       </div>
+
+      <ConfirmDialog
+        open={confirmMerge}
+        title={`合并到 Feedback #${mergeTarget}`}
+        confirmLabel="合并"
+        pendingLabel="合并中…"
+        pending={mergeMutation.isPending}
+        onConfirm={() => void runMerge()}
+        onClose={() => setConfirmMerge(false)}
+      >
+        <p>
+          会把 Feedback #{item.feedback_id}「{item.title}」下的 {detail.submissions.length} 条 Submission
+          全部转到 #{mergeTarget}，这条事项之后只作为指向 #{mergeTarget} 的记录存在。
+        </p>
+        <p>合并不能在界面上撤销。</p>
+      </ConfirmDialog>
     </Card>
   )
 }

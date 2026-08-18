@@ -12,8 +12,13 @@ import type { ReactNode } from 'react'
 export interface TabDef<T extends string> {
   value: T
   label: string
-  /** 右上角计数，如收件箱待办数 */
-  count?: number
+  /**
+   * 右上角计数，如收件箱待办数。
+   *
+   * 允许字符串是为了「100+」这种数不准的情形：服务端没下发总数时，一页拉满 100 条
+   * 只能说明「至少 100」。写成 100 是在撒谎，写「100+」才是实话。
+   */
+  count?: number | string
 }
 
 interface TabsProps<T extends string> {

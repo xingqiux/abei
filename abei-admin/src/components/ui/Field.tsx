@@ -122,14 +122,31 @@ export function Textarea({ className = '', ...rest }: TextareaHTMLAttributes<HTM
   )
 }
 
-export function Select({ className = '', ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
+/**
+ * 下拉。`compact` 是筛选条那种一行摆七八个、靠 aria-label 说明的紧凑档
+ * （尺寸等同 CONTROL_COMPACT）。
+ *
+ * 有了它之后就没有理由再手写 `<select className={CONTROL_COMPACT}>` 了：
+ * 裸 select 拿不到 Field 的 id / aria-describedby / 错误态，同一个页面上
+ * 两种下拉并存，聚焦框和内边距还差一档。
+ */
+export function Select({
+  className = '',
+  compact = false,
+  ref,
+  ...rest
+}: SelectHTMLAttributes<HTMLSelectElement> & { compact?: boolean; ref?: Ref<HTMLSelectElement> }) {
   const field = useContext(FieldContext)
+  // 紧凑档不带 w-full：它长在一行摆七八个控件的筛选条里，宽度由那一行的栅格决定，
+  // 自己撑满只会把同排的兄弟挤出去。
+  const size = compact ? 'px-2 py-1.5 text-xs' : 'w-full px-3 py-1.5 text-sm'
   return (
     <select
+      ref={ref}
       id={field.id}
       aria-describedby={field.describedBy}
       aria-invalid={field.invalid || undefined}
-      className={`${CONTROL} ${field.invalid ? CONTROL_INVALID : ''} pr-8 ${className}`}
+      className={`${CONTROL_BASE} ${size} ${field.invalid ? CONTROL_INVALID : ''} pr-8 ${className}`}
       {...rest}
     />
   )

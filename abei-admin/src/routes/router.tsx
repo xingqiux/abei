@@ -16,6 +16,10 @@ const ParserWorkbenchPage = lazyRouteComponent(
   () => import('../features/parser/ParserWorkbenchPage'),
   'ParserWorkbenchPage',
 )
+const BillDocumentsPage = lazyRouteComponent(
+  () => import('../features/documents/BillDocumentsPage'),
+  'BillDocumentsPage',
+)
 const AdminFeedbackPage = lazyRouteComponent(
   () => import('../features/feedback/AdminFeedbackPage'),
   'AdminFeedbackPage',
@@ -40,6 +44,20 @@ const mailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/mail',
   component: MailWorkbenchPage,
+})
+
+/**
+ * 账单文档诊断台。筛选条件放在 URL 里：处理统计的「查看 N 封解析失败」是带着
+ * `?status=failed` 跳过来的，也方便把「这份解析卡住了」的链接直接发给别人。
+ */
+const documentsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/documents',
+  validateSearch: (search: Record<string, unknown>): { status?: string; channel?: string } => ({
+    status: typeof search.status === 'string' && search.status !== '' ? search.status : undefined,
+    channel: typeof search.channel === 'string' && search.channel !== '' ? search.channel : undefined,
+  }),
+  component: BillDocumentsPage,
 })
 
 const parserRoute = createRoute({
@@ -85,6 +103,7 @@ const googleOAuthCallbackRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   mailRoute,
+  documentsRoute,
   parserRoute,
   feedbackRoute,
   googleOAuthCallbackRoute,

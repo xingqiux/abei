@@ -90,7 +90,13 @@ const pendingSubmissionSchema = z.object({
 const paginationSchema = z.object({
   limit: z.number().int(),
   offset: z.number().int(),
+  /** 本页返回了多少条，不是总数。 */
   count: z.number().int(),
+  /**
+   * 总数。服务端目前不发，所以是可选的——前端拿不到时只能说「100+」，不能拿 count 冒充总数。
+   * 服务端补上之后这里不用改。
+   */
+  total: z.number().int().optional(),
 })
 
 const feedbackListSchema = z.object({

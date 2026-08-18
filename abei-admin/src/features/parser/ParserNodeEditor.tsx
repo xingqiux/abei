@@ -74,7 +74,7 @@ export function ParserNodeEditor({
             disabled={readOnly}
             value={typeof node.source === 'string' ? node.source : ''}
             onChange={(event) => updateScript(event.target.value)}
-            className="min-h-[390px] flex-1 resize-y rounded-md bg-[var(--surface-0)] p-3 font-mono text-xs leading-5 text-[var(--text-primary)] outline-1 -outline-offset-1 outline-[var(--border-strong)] focus:outline-2 focus:-outline-offset-2 focus:outline-[var(--focus-ring)] disabled:opacity-60"
+            className="min-h-[10rem] flex-1 resize-y rounded-md bg-[var(--surface-0)] p-3 font-mono text-xs leading-5 text-[var(--text-primary)] outline-1 -outline-offset-1 outline-[var(--border-strong)] focus:outline-2 focus:-outline-offset-2 focus:outline-[var(--focus-ring)] disabled:opacity-60"
           />
         </div>
       ) : (
@@ -88,7 +88,7 @@ export function ParserNodeEditor({
             disabled={readOnly}
             value={source}
             onChange={(event) => updateSource(event.target.value)}
-            className="min-h-[390px] flex-1 resize-y rounded-md bg-[var(--surface-0)] p-3 font-mono text-xs leading-5 text-[var(--text-primary)] outline-1 -outline-offset-1 outline-[var(--border-strong)] focus:outline-2 focus:-outline-offset-2 focus:outline-[var(--focus-ring)] disabled:opacity-60"
+            className="min-h-[10rem] flex-1 resize-y rounded-md bg-[var(--surface-0)] p-3 font-mono text-xs leading-5 text-[var(--text-primary)] outline-1 -outline-offset-1 outline-[var(--border-strong)] focus:outline-2 focus:-outline-offset-2 focus:outline-[var(--focus-ring)] disabled:opacity-60"
           />
           {error && <div className="mt-3"><InlineError message={error} /></div>}
         </div>

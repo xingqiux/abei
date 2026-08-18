@@ -30,6 +30,7 @@ export function ParserResultsPane({
   readOnly,
   onTabChange,
   onSelectNode,
+  onFocusSample,
   onInspectVersion,
   onRollback,
 }: {
@@ -42,6 +43,11 @@ export function ParserResultsPane({
   readOnly: boolean
   onTabChange: (tab: ResultTab) => void
   onSelectNode: (nodeId: string) => void
+  /**
+   * 「尚未运行」的出口。以前这里是条指向 /mail 的链接，点下去整页导航走，
+   * 编了一半的流程全没——而人只是想选个样本，选择器就在本页上方几十像素处。
+   */
+  onFocusSample: () => void
   onInspectVersion: (version: number) => void
   onRollback: (version: number) => void
 }) {
@@ -64,16 +70,17 @@ export function ParserResultsPane({
           aria-label="解析结果"
         />
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-4 lg:max-h-[650px]">
+      <div className="min-h-0 flex-1 overflow-auto p-4">
         {tab === 'steps' && (
           <StepResults
             output={output}
             selectedNodeId={selectedNodeId}
             onSelectNode={onSelectNode}
+            onFocusSample={onFocusSample}
           />
         )}
-        {tab === 'rows' && <BillRows output={output} onOpenIssues={() => onTabChange('issues')} />}
-        {tab === 'issues' && <Issues output={output} onOpenRows={() => onTabChange('rows')} />}
+        {tab === 'rows' && <BillRows output={output} onOpenIssues={() => onTabChange('issues')} onFocusSample={onFocusSample} />}
+        {tab === 'issues' && <Issues output={output} onOpenRows={() => onTabChange('rows')} onFocusSample={onFocusSample} />}
         {tab === 'versions' && (
           <Versions
             versions={versions}
@@ -93,13 +100,15 @@ function StepResults({
   output,
   selectedNodeId,
   onSelectNode,
+  onFocusSample,
 }: {
   output: ParseOutput | null
   selectedNodeId: string | null
   onSelectNode: (nodeId: string) => void
+  onFocusSample: () => void
 }) {
   if (!output) {
-    return <EmptyState compact icon={<FileText className="size-7" />} message="尚未运行解析" action={{ label: '选择邮件样本', to: '/mail' }} />
+    return <EmptyState compact icon={<FileText className="size-7" />} message="尚未运行解析" action={{ label: '选择邮件样本', onClick: onFocusSample }} />
   }
   const selected = output.node_results.find((result) => result.node_id === selectedNodeId)
     ?? output.node_results.at(-1)
@@ -145,8 +154,8 @@ function NodePreview({ result }: { result: ParserNodeResult }) {
   )
 }
 
-function BillRows({ output, onOpenIssues }: { output: ParseOutput | null; onOpenIssues: () => void }) {
-  if (!output) return <EmptyState compact icon={<FileText className="size-7" />} message="尚未运行解析" action={{ label: '选择邮件样本', to: '/mail' }} />
+function BillRows({ output, onOpenIssues, onFocusSample }: { output: ParseOutput | null; onOpenIssues: () => void; onFocusSample: () => void }) {
+  if (!output) return <EmptyState compact icon={<FileText className="size-7" />} message="尚未运行解析" action={{ label: '选择邮件样本', onClick: onFocusSample }} />
   if (output.valid_rows.length === 0) return <EmptyState compact icon={<FileText className="size-7" />} message="没有有效账单行" action={{ label: '查看诊断', onClick: onOpenIssues }} />
   return (
     <div className="overflow-x-auto rounded-md border border-[var(--border-subtle)]">
@@ -176,8 +185,8 @@ function BillRows({ output, onOpenIssues }: { output: ParseOutput | null; onOpen
   )
 }
 
-function Issues({ output, onOpenRows }: { output: ParseOutput | null; onOpenRows: () => void }) {
-  if (!output) return <EmptyState compact icon={<Warning className="size-7" />} message="尚未运行解析" action={{ label: '选择邮件样本', to: '/mail' }} />
+function Issues({ output, onOpenRows, onFocusSample }: { output: ParseOutput | null; onOpenRows: () => void; onFocusSample: () => void }) {
+  if (!output) return <EmptyState compact icon={<Warning className="size-7" />} message="尚未运行解析" action={{ label: '选择邮件样本', onClick: onFocusSample }} />
   const diagnostics = [
     ...output.warnings,
     ...output.invalid_rows.flatMap((row) => row.issues.map((issue) => ({ ...issue, locator: issue.locator ?? row.locator }))),
