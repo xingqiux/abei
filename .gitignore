@@ -29,3 +29,13 @@ storage.tar.gz
 
 # 真实账单金样本备份（含敏感财务数据，入库与否待定）
 /testdata/bill-inbox-golden/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+graft/
+
+# 本地工具与编辑器配置，不入库
+/.claude/
+/.cursor/
+/.mcp.json
+/.ignore
+/scripts/

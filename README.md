@@ -25,7 +25,7 @@ echo "ABEI_INTERNAL_SECRET=$(openssl rand -hex 32)" >> .env   # 覆盖示例里�
 ```
 
 ```bash
-make dev          # db/mail 容器 + 本机 Firefly/abei-server/api/agent + vite (5173)
+make dev          # db/mail 容器 + 本机 Firefly/abei-server/api/agent + 前台 vite (5173) + 后台 vite (5175)
 make dev-web      # Firefly、abei-server、abei-api、agent 用容器跑，本机只起 vite (5173)
 make up           # 完整本地形态起 7 个容器
 make down         # 停容器（保留数据）
@@ -38,7 +38,7 @@ make build-image  # 构建 app、abei-api、abei-agent 与 abei-web 镜像
 make help
 ```
 
-`make dev` 会停掉容器版 app、abei-server、abei-api、agent 与 web，把端口交给本机进程；
+`make dev` 会停掉容器版 app、abei-server、abei-api、agent、web 与 admin，把端口交给本机进程；
 `make dev-web` 只在本机运行 web，后端继续跑容器。之后 `make up` 可恢复完整形态。
 邮箱同步和解析任务由 `abei-server` 的 Tokio worker 执行，默认每 5 分钟同步一次，可通过
 `ABEI_MAIL_SYNC_INTERVAL` 调整；不再有 PHP `bill-worker`。
@@ -51,7 +51,8 @@ make help
 Gmail 不接收密码，只走 Google OAuth2。部署者在 Google Cloud 创建 **Web application**
 OAuth 客户端，并把下面的回调地址原样加入 Authorized redirect URIs：
 
-- `make dev` / `make dev-web`：`http://127.0.0.1:5173/oauth/google/callback`
+- `make dev`：`http://127.0.0.1:5175/oauth/google/callback`（邮箱连接在后台）
+- `make dev-web`：`http://127.0.0.1:5173/oauth/google/callback`
 - `make up`：`http://127.0.0.1:18004/oauth/google/callback`
 - 正式部署：`https://你的域名/oauth/google/callback`
 
@@ -70,7 +71,8 @@ IMAP `XOAUTH2` 都由 `abei-server` 处理。`https://mail.google.com/` 是 rest
 
 启动后：
 
-- abei-web: http://localhost:18004 （`make dev` 下前端在 http://localhost:5173）
+- abei-web: http://localhost:18004 （`make dev` 下前台在 http://localhost:5173）
+- abei-admin: http://localhost:18006 （`make dev` 下后台在 http://localhost:5175）
 - abei-api: http://localhost:18002 （健康检查 `/health`，能力目录 `/v1/catalog`）
 - Firefly III: http://localhost:18001
 - abei-agent: http://localhost:18003 （健康检查 `/api/ai/health`）
